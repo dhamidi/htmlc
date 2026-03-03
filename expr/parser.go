@@ -30,9 +30,9 @@ type compiledExpr struct {
 	node Node
 }
 
-// Eval satisfies the Expr interface; full evaluation is implemented in eval.go.
+// Eval satisfies the Expr interface by delegating to evalNode in eval.go.
 func (c *compiledExpr) Eval(scope map[string]any) (any, error) {
-	return nil, fmt.Errorf("Eval: not yet implemented")
+	return evalNode(c.node, scope)
 }
 
 // --- parser ------------------------------------------------------------------
