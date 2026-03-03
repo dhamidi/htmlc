@@ -322,3 +322,129 @@ func TestRender_VForEmptyArray(t *testing.T) {
 		t.Errorf("got %q, want no output for empty array", out)
 	}
 }
+
+// --- v-bind / :attr tests ---
+
+func TestRender_VBindHref(t *testing.T) {
+	// :href="url" renders as href="<value>".
+	scope := map[string]any{"url": "https://example.com"}
+	out := renderTemplate(t, `<a :href="url">link</a>`, scope)
+	if !strings.Contains(out, `href="https://example.com"`) {
+		t.Errorf("got %q, want href=\"https://example.com\"", out)
+	}
+}
+
+func TestRender_VBindClassObjectTruthy(t *testing.T) {
+	// :class="{ active: true, hidden: false }" renders only the truthy key.
+	scope := map[string]any{}
+	out := renderTemplate(t, `<div :class="{ active: true, hidden: false }">x</div>`, scope)
+	if !strings.Contains(out, "active") {
+		t.Errorf("got %q, want class to contain 'active'", out)
+	}
+	if strings.Contains(out, "hidden") {
+		t.Errorf("got %q, 'hidden' should be omitted", out)
+	}
+}
+
+func TestRender_VBindClassObjectScope(t *testing.T) {
+	// :class with scope variable for condition.
+	scope := map[string]any{"isActive": true, "isHidden": false}
+	out := renderTemplate(t, `<div :class="{ active: isActive, hidden: isHidden }">x</div>`, scope)
+	if !strings.Contains(out, "active") {
+		t.Errorf("got %q, want 'active' in class", out)
+	}
+	if strings.Contains(out, "hidden") {
+		t.Errorf("got %q, 'hidden' should be omitted", out)
+	}
+}
+
+func TestRender_VBindClassArrayTrue(t *testing.T) {
+	// :class="['a', condition ? 'b' : '']" renders 'a b' when condition is true.
+	scope := map[string]any{"condition": true}
+	out := renderTemplate(t, `<div :class="['a', condition ? 'b' : '']">x</div>`, scope)
+	if !strings.Contains(out, "a") || !strings.Contains(out, "b") {
+		t.Errorf("got %q, want class to contain both 'a' and 'b'", out)
+	}
+}
+
+func TestRender_VBindClassArrayFalse(t *testing.T) {
+	// :class="['a', condition ? 'b' : '']" renders 'a' only when condition is false.
+	scope := map[string]any{"condition": false}
+	out := renderTemplate(t, `<div :class="['a', condition ? 'b' : '']">x</div>`, scope)
+	if !strings.Contains(out, "a") {
+		t.Errorf("got %q, want class to contain 'a'", out)
+	}
+	if strings.Contains(out, "b") {
+		t.Errorf("got %q, 'b' should be omitted when condition is false", out)
+	}
+}
+
+func TestRender_VBindStyleObject(t *testing.T) {
+	// :style="{ color: 'red', fontSize: '14px' }" renders inline style.
+	scope := map[string]any{}
+	out := renderTemplate(t, `<p :style="{ color: 'red', fontSize: '14px' }">x</p>`, scope)
+	if !strings.Contains(out, "color:red") {
+		t.Errorf("got %q, want 'color:red' in style", out)
+	}
+	if !strings.Contains(out, "font-size:14px") {
+		t.Errorf("got %q, want 'font-size:14px' in style", out)
+	}
+}
+
+func TestRender_VBindDisabledFalse(t *testing.T) {
+	// :disabled="false" omits the attribute entirely.
+	scope := map[string]any{}
+	out := renderTemplate(t, `<button :disabled="false">x</button>`, scope)
+	if strings.Contains(out, "disabled") {
+		t.Errorf("got %q, 'disabled' should be omitted when falsy", out)
+	}
+}
+
+func TestRender_VBindDisabledTrue(t *testing.T) {
+	// :disabled="true" renders the boolean attribute without a value.
+	scope := map[string]any{}
+	out := renderTemplate(t, `<button :disabled="true">x</button>`, scope)
+	if !strings.Contains(out, "disabled") {
+		t.Errorf("got %q, want 'disabled' attribute present", out)
+	}
+	if strings.Contains(out, `disabled="`) {
+		t.Errorf("got %q, boolean attr must not have a value", out)
+	}
+}
+
+func TestRender_VBindStaticAndDynamicClassMerge(t *testing.T) {
+	// Static class="foo" and :class="{ bar: true }" merge to class="foo bar".
+	scope := map[string]any{}
+	out := renderTemplate(t, `<div class="foo" :class="{ bar: true }">x</div>`, scope)
+	if !strings.Contains(out, "foo") {
+		t.Errorf("got %q, want 'foo' in class", out)
+	}
+	if !strings.Contains(out, "bar") {
+		t.Errorf("got %q, want 'bar' in class", out)
+	}
+	// Ensure only one class attribute is emitted.
+	if strings.Count(out, `class="`) > 1 {
+		t.Errorf("got %q, must have only one class attribute", out)
+	}
+}
+
+func TestRender_VBindChecked(t *testing.T) {
+	// :checked="true" renders checked boolean attr; :checked="false" omits it.
+	out := renderTemplate(t, `<input :checked="true">`, nil)
+	if !strings.Contains(out, "checked") {
+		t.Errorf("got %q, want 'checked' attribute", out)
+	}
+	out2 := renderTemplate(t, `<input :checked="false">`, nil)
+	if strings.Contains(out2, "checked") {
+		t.Errorf("got %q, 'checked' should be omitted", out2)
+	}
+}
+
+func TestRender_VBindDynamicValue(t *testing.T) {
+	// :href with a scope variable.
+	scope := map[string]any{"link": "/page"}
+	out := renderTemplate(t, `<a :href="link">go</a>`, scope)
+	if !strings.Contains(out, `href="/page"`) {
+		t.Errorf("got %q, want href=\"/page\"", out)
+	}
+}

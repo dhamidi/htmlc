@@ -7,6 +7,7 @@ import (
 	"math"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -235,10 +236,27 @@ func (r *Renderer) renderConditionalChain(sb *strings.Builder, vIfNode *html.Nod
 	return lastNode, nil
 }
 
-// renderElement writes the HTML element n into sb, processing v-text/v-html directives.
+// outAttr holds a resolved attribute ready for output.
+type outAttr struct {
+	key      string
+	val      string
+	boolOnly bool // boolean attr with no value (e.g. disabled)
+}
+
+// renderElement writes the HTML element n into sb, processing directives and
+// dynamic attribute bindings (:attr / v-bind:attr).
 func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[string]any) error {
 	var vTextExpr, vHTMLExpr string
-	var attrs []html.Attribute
+
+	// Static class/style values.
+	var staticClass, staticStyle string
+	// Other static (non-class/style) attributes.
+	var staticAttrs []html.Attribute
+	// Resolved dynamic attributes.
+	var dynAttrs []outAttr
+	// Merged class/style parts from dynamic bindings.
+	var dynClassParts []string
+	var dynStyleParts []string
 
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -248,27 +266,106 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 			vHTMLExpr = attr.Val
 		case "v-if", "v-else-if", "v-else", "v-for":
 			// consumed by directives; not emitted as attributes
-		case ":key":
-			// Evaluate and emit as data-key attribute.
-			val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
-			if err != nil {
-				return fmt.Errorf(":key %q: %w", attr.Val, err)
-			}
-			attrs = append(attrs, html.Attribute{Key: "data-key", Val: valueToString(val)})
+		case "class":
+			staticClass = attr.Val
+		case "style":
+			staticStyle = attr.Val
 		default:
-			attrs = append(attrs, attr)
+			if strings.HasPrefix(attr.Key, ":") {
+				dynKey := attr.Key[1:]
+				val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
+				if err != nil {
+					return fmt.Errorf("%s %q: %w", attr.Key, attr.Val, err)
+				}
+				switch dynKey {
+				case "key":
+					dynAttrs = append(dynAttrs, outAttr{key: "data-key", val: valueToString(val)})
+				case "class":
+					s, err := resolveClass(val)
+					if err != nil {
+						return fmt.Errorf(":class: %w", err)
+					}
+					dynClassParts = append(dynClassParts, s)
+				case "style":
+					s, err := resolveStyle(val)
+					if err != nil {
+						return fmt.Errorf(":style: %w", err)
+					}
+					dynStyleParts = append(dynStyleParts, s)
+				default:
+					if isBooleanAttr(dynKey) {
+						if expr.IsTruthy(val) {
+							dynAttrs = append(dynAttrs, outAttr{key: dynKey, boolOnly: true})
+						}
+						// falsy → omit entirely
+					} else {
+						dynAttrs = append(dynAttrs, outAttr{key: dynKey, val: valueToString(val)})
+					}
+				}
+			} else {
+				staticAttrs = append(staticAttrs, attr)
+			}
+		}
+	}
+
+	// Merge class.
+	var classParts []string
+	for _, c := range strings.Fields(staticClass) {
+		classParts = append(classParts, c)
+	}
+	for _, p := range dynClassParts {
+		for _, c := range strings.Fields(p) {
+			classParts = append(classParts, c)
+		}
+	}
+
+	// Merge style.
+	var styleParts []string
+	if staticStyle != "" {
+		styleParts = append(styleParts, staticStyle)
+	}
+	for _, p := range dynStyleParts {
+		if p != "" {
+			styleParts = append(styleParts, p)
 		}
 	}
 
 	// Open tag.
 	sb.WriteByte('<')
 	sb.WriteString(n.Data)
-	for _, attr := range attrs {
+
+	// Static non-class/style attrs.
+	for _, attr := range staticAttrs {
 		sb.WriteByte(' ')
 		sb.WriteString(attr.Key)
 		sb.WriteString(`="`)
 		sb.WriteString(stdhtml.EscapeString(attr.Val))
 		sb.WriteByte('"')
+	}
+
+	// Merged class.
+	if len(classParts) > 0 {
+		sb.WriteString(` class="`)
+		sb.WriteString(stdhtml.EscapeString(strings.Join(classParts, " ")))
+		sb.WriteByte('"')
+	}
+
+	// Merged style.
+	if len(styleParts) > 0 {
+		sb.WriteString(` style="`)
+		sb.WriteString(stdhtml.EscapeString(strings.Join(styleParts, ";")))
+		sb.WriteByte('"')
+	}
+
+	// Dynamic attrs (data-key, boolean, regular).
+	for _, a := range dynAttrs {
+		sb.WriteByte(' ')
+		sb.WriteString(a.key)
+		if !a.boolOnly {
+			sb.WriteString(`="`)
+			sb.WriteString(stdhtml.EscapeString(a.val))
+			sb.WriteByte('"')
+		}
 	}
 
 	if isVoidElement(n.Data) {
@@ -408,6 +505,95 @@ var voidElements = map[string]bool{
 }
 
 func isVoidElement(tag string) bool { return voidElements[tag] }
+
+// booleanAttrs is the set of HTML boolean attributes.
+var booleanAttrs = map[string]bool{
+	"disabled": true, "checked": true, "selected": true, "readonly": true,
+	"required": true, "multiple": true, "autofocus": true, "open": true,
+}
+
+func isBooleanAttr(key string) bool { return booleanAttrs[key] }
+
+// resolveClass converts a :class binding value to a space-separated class string.
+// Supports object syntax (map[string]any), array syntax ([]any), and string.
+func resolveClass(val any) (string, error) {
+	switch v := val.(type) {
+	case string:
+		return v, nil
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var parts []string
+		for _, k := range keys {
+			if expr.IsTruthy(v[k]) {
+				parts = append(parts, k)
+			}
+		}
+		return strings.Join(parts, " "), nil
+	case []any:
+		var parts []string
+		for _, elem := range v {
+			s := valueToString(elem)
+			if s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, " "), nil
+	case nil:
+		return "", nil
+	default:
+		if _, ok := val.(expr.UndefinedValue); ok {
+			return "", nil
+		}
+		return valueToString(val), nil
+	}
+}
+
+// resolveStyle converts a :style binding value to an inline style string.
+// Supports object syntax (map[string]any, keys in camelCase) and string.
+func resolveStyle(val any) (string, error) {
+	switch v := val.(type) {
+	case string:
+		return v, nil
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var parts []string
+		for _, k := range keys {
+			parts = append(parts, camelToKebab(k)+":"+valueToString(v[k]))
+		}
+		return strings.Join(parts, ";"), nil
+	case nil:
+		return "", nil
+	default:
+		if _, ok := val.(expr.UndefinedValue); ok {
+			return "", nil
+		}
+		return valueToString(val), nil
+	}
+}
+
+// camelToKebab converts a camelCase string to kebab-case (e.g. "fontSize" → "font-size").
+func camelToKebab(s string) string {
+	var sb strings.Builder
+	for i, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				sb.WriteByte('-')
+			}
+			sb.WriteRune(r + 32)
+		} else {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
 
 // valueToString converts an evaluated expression value to its string representation.
 func valueToString(v any) string {
