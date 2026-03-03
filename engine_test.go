@@ -1,0 +1,234 @@
+package htmlc
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// writeVue writes a minimal .vue file at path.
+func writeVue(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+}
+
+func TestEngine_DiscoverRegistersVueFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Card.vue"), `<template><div>{{ title }}</div></template>`)
+	writeVue(t, filepath.Join(dir, "ui", "Alert.vue"), `<template><span>{{ msg }}</span></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Card should be registered.
+	out, err := e.RenderFragment("Card", map[string]any{"title": "Hello"})
+	if err != nil {
+		t.Fatalf("RenderFragment Card: %v", err)
+	}
+	if !strings.Contains(out, "Hello") {
+		t.Errorf("Card: got %q, want 'Hello'", out)
+	}
+
+	// Alert (from ui/ subdir) should register as Alert.
+	out, err = e.RenderFragment("Alert", map[string]any{"msg": "Warning"})
+	if err != nil {
+		t.Fatalf("RenderFragment Alert: %v", err)
+	}
+	if !strings.Contains(out, "Warning") {
+		t.Errorf("Alert: got %q, want 'Warning'", out)
+	}
+}
+
+func TestEngine_DuplicateNameLastWins(t *testing.T) {
+	// Two files with the same base name: lexically later path wins.
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "a", "Card.vue"), `<template><p>first</p></template>`)
+	writeVue(t, filepath.Join(dir, "b", "Card.vue"), `<template><p>second</p></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragment("Card", nil)
+	if err != nil {
+		t.Fatalf("RenderFragment: %v", err)
+	}
+	// b/Card.vue comes after a/Card.vue lexically, so it should win.
+	if !strings.Contains(out, "second") {
+		t.Errorf("got %q, want 'second' (last-wins)", out)
+	}
+}
+
+func TestEngine_RegisterManual(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "Widget.vue")
+	writeVue(t, p, `<template><aside>{{ val }}</aside></template>`)
+
+	e, err := New(Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := e.Register("Alias", p); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	out, err := e.RenderFragment("Alias", map[string]any{"val": "manual"})
+	if err != nil {
+		t.Fatalf("RenderFragment: %v", err)
+	}
+	if !strings.Contains(out, "manual") {
+		t.Errorf("got %q, want 'manual'", out)
+	}
+}
+
+func TestEngine_UnknownComponentReturnsError(t *testing.T) {
+	e, err := New(Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = e.RenderFragment("Missing", nil)
+	if err == nil {
+		t.Error("expected error for unknown component, got nil")
+	}
+}
+
+func TestEngine_RenderPageInjectsStyleBeforeHead(t *testing.T) {
+	dir := t.TempDir()
+	// Use v-html so the raw HTML string (with </head>) passes through verbatim.
+	writeVue(t, filepath.Join(dir, "Page.vue"),
+		`<template><div v-html="content"></div></template>`+
+			`<style>body{margin:0}</style>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderPage("Page", map[string]any{
+		"content": "<head><title>T</title></head><body>hello</body>",
+	})
+	if err != nil {
+		t.Fatalf("RenderPage: %v", err)
+	}
+	styleIdx := strings.Index(out, "<style>")
+	headIdx := strings.Index(out, "</head>")
+	if styleIdx < 0 {
+		t.Fatalf("got %q, want <style> block", out)
+	}
+	if headIdx < 0 {
+		t.Fatalf("got %q, want </head> in output", out)
+	}
+	if styleIdx > headIdx {
+		t.Errorf("got %q, <style> must appear before </head>", out)
+	}
+}
+
+func TestEngine_RenderPageNoHeadPrependsStyle(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Frag.vue"),
+		`<template><section>content</section></template><style>.x{color:red}</style>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderPage("Frag", nil)
+	if err != nil {
+		t.Fatalf("RenderPage: %v", err)
+	}
+	if !strings.HasPrefix(out, "<style>") {
+		t.Errorf("got %q, want output to start with <style>", out)
+	}
+}
+
+func TestEngine_RenderFragmentPrependsStyle(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Badge.vue"),
+		`<template><span>hi</span></template><style>.badge{display:inline}</style>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragment("Badge", nil)
+	if err != nil {
+		t.Fatalf("RenderFragment: %v", err)
+	}
+	if !strings.HasPrefix(out, "<style>") {
+		t.Errorf("got %q, want output to start with <style>", out)
+	}
+	if !strings.Contains(out, ".badge") {
+		t.Errorf("got %q, want .badge CSS", out)
+	}
+}
+
+func TestEngine_ServeComponentWritesContentType(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Hello.vue"), `<template><p>hello</p></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	h := e.ServeComponent("Hello")
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status %d, want 200", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if ct != "text/html; charset=utf-8" {
+		t.Errorf("Content-Type %q, want text/html; charset=utf-8", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "<p>hello</p>") {
+		t.Errorf("body %q, want <p>hello</p>", rec.Body.String())
+	}
+}
+
+func TestEngine_ReloadDetectsChangedFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "Live.vue")
+	writeVue(t, p, `<template><p>original</p></template>`)
+
+	e, err := New(Options{ComponentDir: dir, Reload: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragment("Live", nil)
+	if err != nil {
+		t.Fatalf("RenderFragment (before): %v", err)
+	}
+	if !strings.Contains(out, "original") {
+		t.Errorf("before reload: got %q, want 'original'", out)
+	}
+
+	// Overwrite the file and bump the mtime.
+	time.Sleep(10 * time.Millisecond)
+	writeVue(t, p, `<template><p>updated</p></template>`)
+
+	out, err = e.RenderFragment("Live", nil)
+	if err != nil {
+		t.Fatalf("RenderFragment (after): %v", err)
+	}
+	if !strings.Contains(out, "updated") {
+		t.Errorf("after reload: got %q, want 'updated'", out)
+	}
+}
