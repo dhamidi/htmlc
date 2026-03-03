@@ -267,6 +267,60 @@ func TestStyleCollector_NoStyleNoContribution(t *testing.T) {
 	}
 }
 
+func TestStyleCollector_DeduplicatesSameComponent(t *testing.T) {
+	// Rendering the same scoped component multiple times (e.g. via v-for) must
+	// produce exactly one CSS contribution, not one per render.
+	src := `<template><p>x</p></template><style scoped>.card { color: red; }</style>`
+	c, err := ParseFile("Card.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	sc := &StyleCollector{}
+	for range 3 {
+		if _, err := NewRenderer(c).WithStyles(sc).Render(nil); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+	}
+	if got := len(sc.All()); got != 1 {
+		t.Errorf("rendering same component 3 times: got %d contributions, want 1", got)
+	}
+}
+
+func TestStyleCollector_DifferentComponentsBothKept(t *testing.T) {
+	// Rendering two different components must produce two contributions.
+	src1 := `<template><p>a</p></template><style scoped>.a { color: red; }</style>`
+	src2 := `<template><p>b</p></template><style scoped>.b { color: blue; }</style>`
+	c1, _ := ParseFile("A.vue", src1)
+	c2, _ := ParseFile("B.vue", src2)
+
+	sc := &StyleCollector{}
+	NewRenderer(c1).WithStyles(sc).Render(nil) //nolint:errcheck
+	NewRenderer(c2).WithStyles(sc).Render(nil) //nolint:errcheck
+	// Render c1 again — should still be deduplicated.
+	NewRenderer(c1).WithStyles(sc).Render(nil) //nolint:errcheck
+
+	if got := len(sc.All()); got != 2 {
+		t.Errorf("two different components: got %d contributions, want 2", got)
+	}
+}
+
+func TestStyleCollector_DeduplicatesGlobalCSS(t *testing.T) {
+	// The same global (unscoped) CSS block added twice must appear only once.
+	rawCSS := ".global { color: blue; }"
+	src := "<template><p>x</p></template><style>" + rawCSS + "</style>"
+	c, err := ParseFile("Global.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	sc := &StyleCollector{}
+	NewRenderer(c).WithStyles(sc).Render(nil) //nolint:errcheck
+	NewRenderer(c).WithStyles(sc).Render(nil) //nolint:errcheck
+
+	if got := len(sc.All()); got != 1 {
+		t.Errorf("same global component rendered twice: got %d contributions, want 1", got)
+	}
+}
+
 func TestStyleCollector_NilCollectorDoesNotPanic(t *testing.T) {
 	src := `<template><p>x</p></template><style scoped>.x{}</style>`
 	c, err := ParseFile("X.vue", src)

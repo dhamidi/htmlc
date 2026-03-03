@@ -110,10 +110,22 @@ type StyleContribution struct {
 // renders into a single ordered list.
 type StyleCollector struct {
 	items []StyleContribution
+	seen  map[string]struct{}
 }
 
-// Add appends c to the collector.
+// Add appends c to the collector, skipping duplicates. Two contributions are
+// considered duplicates when they share the same composite key (ScopeID + CSS),
+// so the same scoped component rendered N times contributes its CSS only once,
+// while different components or differing global CSS blocks are each kept.
 func (sc *StyleCollector) Add(c StyleContribution) {
+	key := c.ScopeID + "\x00" + c.CSS
+	if sc.seen == nil {
+		sc.seen = make(map[string]struct{})
+	}
+	if _, ok := sc.seen[key]; ok {
+		return
+	}
+	sc.seen[key] = struct{}{}
 	sc.items = append(sc.items, c)
 }
 
