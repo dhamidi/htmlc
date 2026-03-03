@@ -85,7 +85,11 @@ func (e *Engine) registerPath(name, path string) error {
 	if info, statErr := os.Stat(path); statErr == nil {
 		modTime = info.ModTime()
 	}
-	e.entries[name] = &engineEntry{path: path, comp: comp, modTime: modTime}
+	entry := &engineEntry{path: path, comp: comp, modTime: modTime}
+	e.entries[name] = entry
+	if lower := strings.ToLower(name); lower != name {
+		e.entries[lower] = entry
+	}
 	return nil
 }
 

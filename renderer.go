@@ -578,6 +578,7 @@ func isComponentLike(tagName string) bool {
 //  1. Exact match (e.g. "my-card")
 //  2. First-letter capitalised (e.g. "card" → "Card", handles lowercased PascalCase)
 //  3. kebab-case to PascalCase (e.g. "my-card" → "MyCard")
+//  4. Case-insensitive scan (handles multi-capital PascalCase like "postcard" → "PostCard")
 func (r *Renderer) resolveComponent(tagName string) *Component {
 	if r.registry == nil {
 		return nil
@@ -595,6 +596,12 @@ func (r *Renderer) resolveComponent(tagName string) *Component {
 	}
 	if strings.Contains(tagName, "-") {
 		if c, ok := r.registry[kebabToPascal(tagName)]; ok {
+			return c
+		}
+	}
+	lower := strings.ToLower(tagName)
+	for key, c := range r.registry {
+		if strings.ToLower(key) == lower {
 			return c
 		}
 	}

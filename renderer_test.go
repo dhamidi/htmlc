@@ -696,3 +696,62 @@ func TestRender_ComponentSlotWithExpression(t *testing.T) {
 		t.Errorf("got %q, want 'dynamic' in output", out)
 	}
 }
+
+func TestRender_ComponentPascalCaseMultiWord(t *testing.T) {
+	// <PostCard> is lowercased by the HTML parser to "postcard".
+	// resolveComponent must find the "PostCard" registry entry via case-insensitive lookup.
+	postCard := mustParseComponent(t, "PostCard.vue", `<article><h2>{{ title }}</h2></article>`)
+	main := mustParseComponent(t, "main.vue", `<PostCard title="Hello" />`)
+	out, err := NewRenderer(main).WithComponents(Registry{"PostCard": postCard}).Render(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<article>") {
+		t.Errorf("got %q, want PostCard template expanded (contains <article>)", out)
+	}
+	if !strings.Contains(out, "<h2>Hello</h2>") {
+		t.Errorf("got %q, want <h2>Hello</h2>", out)
+	}
+}
+
+func TestRender_ComponentPascalCaseVFor(t *testing.T) {
+	// v-for with <PostCard :title="item.title" :slug="item.slug" /> produces
+	// one expanded <article> per item, not raw <postcard> tags.
+	postCard := mustParseComponent(t, "PostCard.vue", `<article><h2>{{ title }}</h2></article>`)
+	main := mustParseComponent(t, "main.vue",
+		`<div><PostCard v-for="item in posts" :title="item.title" :slug="item.slug" /></div>`)
+	posts := []any{
+		map[string]any{"title": "First", "slug": "first"},
+		map[string]any{"title": "Second", "slug": "second"},
+	}
+	out, err := NewRenderer(main).WithComponents(Registry{"PostCard": postCard}).Render(map[string]any{"posts": posts})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(out, "<postcard") {
+		t.Errorf("got %q, PostCard must be expanded, not rendered as raw <postcard>", out)
+	}
+	if strings.Count(out, "<article>") != 2 {
+		t.Errorf("got %q, want exactly 2 <article> elements", out)
+	}
+	if !strings.Contains(out, "First") || !strings.Contains(out, "Second") {
+		t.Errorf("got %q, want both post titles in output", out)
+	}
+}
+
+func TestRender_ComponentLayoutSlot(t *testing.T) {
+	// <Layout title="My Blog"><p>content</p></Layout> renders Layout's template
+	// with {{ title }} = "My Blog" and <slot /> filled with <p>content</p>.
+	layout := mustParseComponent(t, "Layout.vue", `<div class="layout"><h1>{{ title }}</h1><slot /></div>`)
+	main := mustParseComponent(t, "main.vue", `<Layout title="My Blog"><p>content</p></Layout>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Layout": layout}).Render(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<h1>My Blog</h1>") {
+		t.Errorf("got %q, want <h1>My Blog</h1>", out)
+	}
+	if !strings.Contains(out, "<p>content</p>") {
+		t.Errorf("got %q, want <p>content</p> in slot", out)
+	}
+}
