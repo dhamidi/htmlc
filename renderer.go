@@ -15,10 +15,15 @@ import (
 	"golang.org/x/net/html"
 )
 
+// Registry maps component names to their parsed components.
+// Keys may be PascalCase (e.g., "Card") or kebab-case (e.g., "my-card").
+type Registry map[string]*Component
+
 // Renderer walks a component's parsed template and produces HTML output.
 type Renderer struct {
 	component      *Component
 	styleCollector *StyleCollector
+	registry       Registry
 }
 
 // NewRenderer creates a Renderer for the given component.
@@ -31,6 +36,13 @@ func NewRenderer(c *Component) *Renderer {
 // chaining.
 func (r *Renderer) WithStyles(sc *StyleCollector) *Renderer {
 	r.styleCollector = sc
+	return r
+}
+
+// WithComponents attaches a component registry to this renderer, enabling
+// component composition. Returns the Renderer for chaining.
+func (r *Renderer) WithComponents(reg Registry) *Renderer {
+	r.registry = reg
 	return r
 }
 
@@ -315,6 +327,27 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 		return nil
 	}
 
+	// <slot>: emit the default slot content injected by the parent component.
+	if n.Data == "slot" {
+		if slotContent, ok := scope["$slot"]; ok {
+			if s, ok2 := slotContent.(string); ok2 {
+				sb.WriteString(s)
+				return nil
+			}
+		}
+		// No slot content: render fallback children (if any).
+		return r.renderChildren(sb, n, scope)
+	}
+
+	// Component: resolve the tag name against the registry.
+	if comp := r.resolveComponent(n.Data); comp != nil {
+		return r.renderComponentElement(sb, n, scope, comp)
+	}
+	// Unknown component-like tag (kebab-case with hyphen, not in registry).
+	if r.registry != nil && isComponentLike(n.Data) {
+		return fmt.Errorf("unknown component: %q", n.Data)
+	}
+
 	var vTextExpr, vHTMLExpr, vShowExpr string
 
 	// Static class/style values.
@@ -521,6 +554,107 @@ func scopeWith(base map[string]any, key string, val any) map[string]any {
 	}
 	next[key] = val
 	return next
+}
+
+// kebabToPascal converts a kebab-case name to PascalCase (e.g. "my-card" → "MyCard").
+func kebabToPascal(s string) string {
+	parts := strings.Split(s, "-")
+	for i, p := range parts {
+		if len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, "")
+}
+
+// isComponentLike reports whether a (lowercased) tag name looks like a
+// component reference rather than a plain HTML element.  A kebab-case name
+// containing a hyphen is the unambiguous indicator.
+func isComponentLike(tagName string) bool {
+	return strings.Contains(tagName, "-")
+}
+
+// resolveComponent looks up tagName in the registry using several strategies:
+//  1. Exact match (e.g. "my-card")
+//  2. First-letter capitalised (e.g. "card" → "Card", handles lowercased PascalCase)
+//  3. kebab-case to PascalCase (e.g. "my-card" → "MyCard")
+func (r *Renderer) resolveComponent(tagName string) *Component {
+	if r.registry == nil {
+		return nil
+	}
+	if c, ok := r.registry[tagName]; ok {
+		return c
+	}
+	if len(tagName) > 0 {
+		capitalized := strings.ToUpper(tagName[:1]) + tagName[1:]
+		if capitalized != tagName {
+			if c, ok := r.registry[capitalized]; ok {
+				return c
+			}
+		}
+	}
+	if strings.Contains(tagName, "-") {
+		if c, ok := r.registry[kebabToPascal(tagName)]; ok {
+			return c
+		}
+	}
+	return nil
+}
+
+// renderComponentElement renders n as a component invocation: props are built
+// from the element's attributes, inner content is pre-rendered as the default
+// slot, and then the child component's template is rendered with those props.
+func (r *Renderer) renderComponentElement(sb *strings.Builder, n *html.Node, scope map[string]any, comp *Component) error {
+	childScope := make(map[string]any)
+
+	for _, attr := range n.Attr {
+		// Directives that have already been consumed or don't apply to components.
+		switch attr.Key {
+		case "v-if", "v-else-if", "v-else", "v-for",
+			"v-pre", "v-once", "v-show", "v-text", "v-html":
+			continue
+		}
+
+		if strings.HasPrefix(attr.Key, ":") {
+			propName := attr.Key[1:]
+			val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
+			if err != nil {
+				return fmt.Errorf("%s %q: %w", attr.Key, attr.Val, err)
+			}
+			childScope[propName] = val
+		} else if strings.HasPrefix(attr.Key, "v-bind:") {
+			propName := attr.Key[7:]
+			val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
+			if err != nil {
+				return fmt.Errorf("%s %q: %w", attr.Key, attr.Val, err)
+			}
+			childScope[propName] = val
+		} else {
+			// Static attribute → string prop.
+			childScope[attr.Key] = attr.Val
+		}
+	}
+
+	// Pre-render inner content as the default slot (evaluated in the caller's scope).
+	var slotSB strings.Builder
+	if err := r.renderChildren(&slotSB, n, scope); err != nil {
+		return err
+	}
+	childScope["$slot"] = slotSB.String()
+
+	// Build a child renderer that shares the registry and style collector.
+	childRenderer := &Renderer{
+		component:      comp,
+		styleCollector: r.styleCollector,
+		registry:       r.registry,
+	}
+
+	result, err := childRenderer.Render(childScope)
+	if err != nil {
+		return fmt.Errorf("component %q: %w", n.Data, err)
+	}
+	sb.WriteString(result)
+	return nil
 }
 
 // renderVFor renders n repeatedly for each element in the v-for collection.

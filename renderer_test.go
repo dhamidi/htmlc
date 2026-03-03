@@ -579,3 +579,120 @@ func TestRender_VOnEventPassthrough(t *testing.T) {
 		t.Errorf("got %q, want v-on:click=\"handler\" preserved in output", out)
 	}
 }
+
+// --- component composition and slots tests ---
+
+// mustParseComponent is a test helper that parses a .vue source into a *Component.
+func mustParseComponent(t *testing.T, path, src string) *Component {
+	t.Helper()
+	c, err := ParseFile(path, "<template>"+src+"</template>")
+	if err != nil {
+		t.Fatalf("ParseFile %s: %v", path, err)
+	}
+	return c
+}
+
+func TestRender_ComponentDynamicProp(t *testing.T) {
+	// <Card :title="t"> renders Card's template with title in scope.
+	card := mustParseComponent(t, "card.vue", `<div class="card"><h1>{{ title }}</h1></div>`)
+	main := mustParseComponent(t, "main.vue", `<Card :title="t"></Card>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).Render(map[string]any{"t": "Hello"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<h1>Hello</h1>") {
+		t.Errorf("got %q, want <h1>Hello</h1>", out)
+	}
+}
+
+func TestRender_ComponentSlot(t *testing.T) {
+	// <slot /> in the child component emits the caller's inner content.
+	card := mustParseComponent(t, "card.vue", `<div class="card"><slot /></div>`)
+	main := mustParseComponent(t, "main.vue", `<Card>inner content</Card>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).Render(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "inner content") {
+		t.Errorf("got %q, want 'inner content' in output", out)
+	}
+	if !strings.Contains(out, `class="card"`) {
+		t.Errorf("got %q, want Card wrapper rendered", out)
+	}
+}
+
+func TestRender_ComponentStaticAttr(t *testing.T) {
+	// Static attributes like <Card class="x"> pass class as a string prop.
+	card := mustParseComponent(t, "card.vue", `<div>{{ class }}</div>`)
+	main := mustParseComponent(t, "main.vue", `<Card class="x"></Card>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).Render(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, ">x<") {
+		t.Errorf("got %q, want class value 'x' rendered in output", out)
+	}
+}
+
+func TestRender_ComponentKebabCase(t *testing.T) {
+	// <my-card> resolves to a component registered as MyCard.
+	card := mustParseComponent(t, "my-card.vue", `<section>{{ label }}</section>`)
+	main := mustParseComponent(t, "main.vue", `<my-card :label="lbl"></my-card>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"MyCard": card}).Render(map[string]any{"lbl": "kebab"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<section>kebab</section>") {
+		t.Errorf("got %q, want <section>kebab</section>", out)
+	}
+}
+
+func TestRender_ComponentKebabCaseDirectMatch(t *testing.T) {
+	// <my-card> also resolves to a component registered as "my-card".
+	card := mustParseComponent(t, "my-card.vue", `<section>direct</section>`)
+	main := mustParseComponent(t, "main.vue", `<my-card></my-card>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"my-card": card}).Render(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<section>direct</section>") {
+		t.Errorf("got %q, want <section>direct</section>", out)
+	}
+}
+
+func TestRender_ComponentUnknown(t *testing.T) {
+	// A kebab-case tag not found in the registry must return an error.
+	main := mustParseComponent(t, "main.vue", `<unknown-widget></unknown-widget>`)
+	_, err := NewRenderer(main).WithComponents(Registry{}).Render(nil)
+	if err == nil {
+		t.Error("expected an error for unknown component, got nil")
+	}
+}
+
+func TestRender_ComponentNested(t *testing.T) {
+	// A component's template may use other components from the same registry.
+	inner := mustParseComponent(t, "inner.vue", `<em>{{ text }}</em>`)
+	outer := mustParseComponent(t, "outer.vue", `<div><Inner :text="msg"></Inner></div>`)
+	main := mustParseComponent(t, "main.vue", `<Outer :msg="greeting"></Outer>`)
+	reg := Registry{"Inner": inner, "Outer": outer}
+	out, err := NewRenderer(main).WithComponents(reg).Render(map[string]any{"greeting": "hi"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<em>hi</em>") {
+		t.Errorf("got %q, want <em>hi</em>", out)
+	}
+}
+
+func TestRender_ComponentSlotWithExpression(t *testing.T) {
+	// Slot content that contains interpolation is evaluated in the caller's scope.
+	card := mustParseComponent(t, "card.vue", `<div><slot /></div>`)
+	main := mustParseComponent(t, "main.vue", `<Card>{{ val }}</Card>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).Render(map[string]any{"val": "dynamic"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "dynamic") {
+		t.Errorf("got %q, want 'dynamic' in output", out)
+	}
+}
