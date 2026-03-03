@@ -15,6 +15,25 @@ type UndefinedValue struct{}
 // Undefined is the Go representation of the JavaScript `undefined` value.
 var Undefined = UndefinedValue{}
 
+// builtins contains built-in functions always available in expression scope.
+var builtins = map[string]any{
+	"len": func(args ...any) (any, error) {
+		if len(args) != 1 {
+			return nil, fmt.Errorf("len() requires exactly 1 argument, got %d", len(args))
+		}
+		rv := reflect.ValueOf(args[0])
+		for rv.Kind() == reflect.Ptr {
+			rv = rv.Elem()
+		}
+		switch rv.Kind() {
+		case reflect.Slice, reflect.Array, reflect.String, reflect.Map:
+			return float64(rv.Len()), nil
+		default:
+			return nil, fmt.Errorf("len() not supported for type %T", args[0])
+		}
+	},
+}
+
 // Eval is a convenience wrapper: it compiles src and evaluates it against scope.
 func Eval(src string, scope map[string]any) (any, error) {
 	e, err := Compile(src)
@@ -38,14 +57,15 @@ func evalNode(node Node, scope map[string]any) (any, error) {
 	case *UndefinedLit:
 		return Undefined, nil
 	case *Identifier:
-		if scope == nil {
-			return Undefined, nil
+		if scope != nil {
+			if v, ok := scope[n.Name]; ok {
+				return v, nil
+			}
 		}
-		v, ok := scope[n.Name]
-		if !ok {
-			return Undefined, nil
+		if v, ok := builtins[n.Name]; ok {
+			return v, nil
 		}
-		return v, nil
+		return Undefined, nil
 	case *UnaryExpr:
 		return evalUnary(n, scope)
 	case *BinaryExpr:
@@ -333,6 +353,13 @@ func accessMember(obj, key any) (any, error) {
 		return accessStructField(rv, keyStr)
 
 	case reflect.Slice, reflect.Array:
+		// Special property: "length" maps to Go's len().
+		if keyStr, ok := key.(string); ok {
+			if keyStr == "length" {
+				return float64(rv.Len()), nil
+			}
+			return nil, fmt.Errorf("invalid index: non-integer string index %q", keyStr)
+		}
 		idx, err := toIndex(key)
 		if err != nil {
 			return nil, fmt.Errorf("invalid index: %w", err)

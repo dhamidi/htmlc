@@ -447,6 +447,57 @@ func TestNewKeyword_ReturnsError(t *testing.T) {
 	}
 }
 
+// TestSliceLength verifies the .length property on slices and arrays.
+func TestSliceLength(t *testing.T) {
+	// Non-empty slice
+	scope := map[string]any{"items": []any{"a", "b", "c"}}
+	if v := eval(t, "items.length", scope); v != float64(3) {
+		t.Errorf("items.length: got %v (%T), want float64(3)", v, v)
+	}
+
+	// Empty slice
+	scope2 := map[string]any{"items": []any{}}
+	if v := eval(t, "items.length", scope2); v != float64(0) {
+		t.Errorf("items.length (empty): got %v (%T), want float64(0)", v, v)
+	}
+
+	// Typed Go slice
+	scope3 := map[string]any{"nums": []int{10, 20}}
+	if v := eval(t, "nums.length", scope3); v != float64(2) {
+		t.Errorf("nums.length: got %v (%T), want float64(2)", v, v)
+	}
+}
+
+// TestSliceLengthOnNonSlice verifies that .length on a non-slice returns an error.
+func TestSliceLengthOnNonSlice(t *testing.T) {
+	// A string is not a slice — member access on strings is not supported.
+	scope := map[string]any{"s": "hello"}
+	evalErr(t, "s.length", scope)
+
+	// A number is also not a slice.
+	scope2 := map[string]any{"n": float64(42)}
+	evalErr(t, "n.length", scope2)
+}
+
+// TestBuiltinLen verifies the len() built-in function.
+func TestBuiltinLen(t *testing.T) {
+	scope := map[string]any{"items": []any{"x", "y", "z"}}
+	if v := eval(t, "len(items)", scope); v != float64(3) {
+		t.Errorf("len(items): got %v (%T), want float64(3)", v, v)
+	}
+
+	// len() and .length must agree
+	if v := eval(t, "len(items) === items.length", scope); v != true {
+		t.Errorf("len(items) === items.length: got %v, want true", v)
+	}
+
+	// Empty slice
+	scope2 := map[string]any{"empty": []any{}}
+	if v := eval(t, "len(empty)", scope2); v != float64(0) {
+		t.Errorf("len(empty): got %v (%T), want float64(0)", v, v)
+	}
+}
+
 // TestNaN verifies NaN semantics.
 func TestNaN(t *testing.T) {
 	v := eval(t, "0/0", nil)

@@ -158,6 +158,47 @@ func TestIntegration_ServeComponentHTTP(t *testing.T) {
 	}
 }
 
+// TestIntegration_VIfWithLength verifies that v-if="posts.length > 0" renders
+// the element when the slice is non-empty and hides it when the slice is empty.
+func TestIntegration_VIfWithLength(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Posts.vue"),
+		`<template><div><p v-if="posts.length > 0">Has posts</p><p v-else>No posts</p></div></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Non-empty slice: the v-if branch must render.
+	out, err := e.RenderFragment("Posts", map[string]any{
+		"posts": []any{"first", "second"},
+	})
+	if err != nil {
+		t.Fatalf("RenderFragment (non-empty): %v", err)
+	}
+	if !strings.Contains(out, "Has posts") {
+		t.Errorf("non-empty: want 'Has posts' in output:\n%s", out)
+	}
+	if strings.Contains(out, "No posts") {
+		t.Errorf("non-empty: 'No posts' must not appear in output:\n%s", out)
+	}
+
+	// Empty slice: the v-else branch must render.
+	out, err = e.RenderFragment("Posts", map[string]any{
+		"posts": []any{},
+	})
+	if err != nil {
+		t.Fatalf("RenderFragment (empty): %v", err)
+	}
+	if strings.Contains(out, "Has posts") {
+		t.Errorf("empty: 'Has posts' must not appear in output:\n%s", out)
+	}
+	if !strings.Contains(out, "No posts") {
+		t.Errorf("empty: want 'No posts' in output:\n%s", out)
+	}
+}
+
 // TestIntegration_ReloadPicksUpChanges verifies that Reload:true causes the
 // Engine to re-parse a component file when its modification time advances,
 // exercising the full path from file-system change through to rendered output.
