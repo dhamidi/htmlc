@@ -498,6 +498,62 @@ func TestBuiltinLen(t *testing.T) {
 	}
 }
 
+// TestSliceLengthStrictEqual verifies that .length === <number> works correctly
+// when the slice is empty or non-empty.
+func TestSliceLengthStrictEqual(t *testing.T) {
+	// posts.length === 0 must be true for an empty slice.
+	empty := map[string]any{"posts": []any{}}
+	if v := eval(t, "posts.length === 0", empty); v != true {
+		t.Errorf("posts.length === 0 (empty): got %v, want true", v)
+	}
+
+	// posts.length === 0 must be false for a non-empty slice.
+	two := map[string]any{"posts": []any{"a", "b"}}
+	if v := eval(t, "posts.length === 0", two); v != false {
+		t.Errorf("posts.length === 0 (non-empty): got %v, want false", v)
+	}
+
+	// posts.length === 2 must be true when there are 2 elements.
+	if v := eval(t, "posts.length === 2", two); v != true {
+		t.Errorf("posts.length === 2: got %v, want true", v)
+	}
+}
+
+// TestBuiltinLenStrictEqual verifies that len() === <number> works correctly.
+func TestBuiltinLenStrictEqual(t *testing.T) {
+	// len(posts) === 0 must be true for an empty slice.
+	empty := map[string]any{"posts": []any{}}
+	if v := eval(t, "len(posts) === 0", empty); v != true {
+		t.Errorf("len(posts) === 0 (empty): got %v, want true", v)
+	}
+
+	// len(posts) === 0 must be false for a non-empty slice.
+	two := map[string]any{"posts": []any{"a", "b"}}
+	if v := eval(t, "len(posts) === 0", two); v != false {
+		t.Errorf("len(posts) === 0 (non-empty): got %v, want false", v)
+	}
+}
+
+// TestNumericTypeMismatchComparison verifies that int vs float64 comparisons
+// work correctly in both === and == operators. Users may pass Go int values
+// in scope; those must compare equal to float64 literals from the expression.
+func TestNumericTypeMismatchComparison(t *testing.T) {
+	// int(0) === float64(0) must be true.
+	scope := map[string]any{"n": int(0)}
+	if v := eval(t, "n === 0", scope); v != true {
+		t.Errorf("int(0) === 0: got %v, want true", v)
+	}
+	// int(2) === float64(2) must be true.
+	scope2 := map[string]any{"n": int(2)}
+	if v := eval(t, "n === 2", scope2); v != true {
+		t.Errorf("int(2) === 2: got %v, want true", v)
+	}
+	// int(1) == float64(1) must be true.
+	if v := eval(t, "n == 2", scope2); v != true {
+		t.Errorf("int(2) == 2: got %v, want true", v)
+	}
+}
+
 // TestNaN verifies NaN semantics.
 func TestNaN(t *testing.T) {
 	v := eval(t, "0/0", nil)

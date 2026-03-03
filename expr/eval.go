@@ -713,20 +713,60 @@ func looseEqual(a, b any) bool {
 		n, _ := toNumber(b)
 		return looseEqual(a, n)
 	}
-	// number vs string: convert string to number
-	_, aIsNum := a.(float64)
-	_, bIsNum := b.(float64)
+	// number vs string: convert string to number.
+	// Recognise all Go numeric types as "number", not just float64.
+	af, aIsNum := toNumericFloat64(a)
+	bf, bIsNum := toNumericFloat64(b)
 	_, aIsStr := a.(string)
 	_, bIsStr := b.(string)
 	if aIsNum && bIsStr {
 		n, _ := toNumber(b)
-		return looseEqual(a, n)
+		return looseEqual(af, n)
 	}
 	if bIsNum && aIsStr {
 		n, _ := toNumber(a)
-		return looseEqual(n, b)
+		return looseEqual(n, bf)
+	}
+	// Both numeric but different Go types: compare by value.
+	if aIsNum && bIsNum {
+		return af == bf
 	}
 	return false
+}
+
+// toNumericFloat64 converts any Go numeric type to float64.
+// Returns (value, true) if v is a numeric type, (0, false) otherwise.
+// This is used to normalise Go integer types so that, e.g., int(0) == float64(0)
+// in the same way that JavaScript treats all numbers as float64.
+func toNumericFloat64(v any) (float64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case float32:
+		return float64(val), true
+	case int:
+		return float64(val), true
+	case int8:
+		return float64(val), true
+	case int16:
+		return float64(val), true
+	case int32:
+		return float64(val), true
+	case int64:
+		return float64(val), true
+	case uint:
+		return float64(val), true
+	case uint8:
+		return float64(val), true
+	case uint16:
+		return float64(val), true
+	case uint32:
+		return float64(val), true
+	case uint64:
+		return float64(val), true
+	default:
+		return 0, false
+	}
 }
 
 // strictEqual implements JS strict equality (===).
@@ -742,10 +782,11 @@ func strictEqual(a, b any) bool {
 	if a == nil || b == nil || aIsUndef || bIsUndef {
 		return false
 	}
-	// NaN !== NaN
-	af, aIsFloat := a.(float64)
-	bf, bIsFloat := b.(float64)
-	if aIsFloat && bIsFloat {
+	// When both operands are numeric Go types, compare by value.
+	// This mirrors JavaScript where all numbers are float64, so int(0) === float64(0).
+	af, aIsNum := toNumericFloat64(a)
+	bf, bIsNum := toNumericFloat64(b)
+	if aIsNum && bIsNum {
 		if math.IsNaN(af) || math.IsNaN(bf) {
 			return false
 		}

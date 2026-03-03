@@ -739,6 +739,24 @@ func TestRender_ComponentPascalCaseVFor(t *testing.T) {
 	}
 }
 
+func TestRender_VIfSliceLengthEmpty(t *testing.T) {
+	// v-if="posts.length === 0" renders the element when the slice is empty.
+	scope := map[string]any{"posts": []any{}}
+	out := renderTemplate(t, `<p v-if="posts.length === 0">No posts yet.</p>`, scope)
+	if !strings.Contains(out, "No posts yet.") {
+		t.Errorf("got %q, want 'No posts yet.' when posts is empty", out)
+	}
+}
+
+func TestRender_VIfSliceLengthNonEmpty(t *testing.T) {
+	// v-if="posts.length === 0" hides the element when the slice is non-empty.
+	scope := map[string]any{"posts": []any{"a", "b"}}
+	out := renderTemplate(t, `<p v-if="posts.length === 0">No posts yet.</p>`, scope)
+	if strings.Contains(out, "No posts yet.") {
+		t.Errorf("got %q, element should be hidden when posts is non-empty", out)
+	}
+}
+
 func TestRender_ComponentLayoutSlot(t *testing.T) {
 	// <Layout title="My Blog"><p>content</p></Layout> renders Layout's template
 	// with {{ title }} = "My Blog" and <slot /> filled with <p>content</p>.
