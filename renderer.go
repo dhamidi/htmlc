@@ -243,10 +243,58 @@ type outAttr struct {
 	boolOnly bool // boolean attr with no value (e.g. disabled)
 }
 
+// renderRaw serializes n and its descendants verbatim, without any directive
+// processing or interpolation. The v-pre attribute itself is stripped from the
+// root element's output. Used by v-pre.
+func (r *Renderer) renderRaw(sb *strings.Builder, n *html.Node) {
+	switch n.Type {
+	case html.TextNode:
+		sb.WriteString(stdhtml.EscapeString(n.Data))
+
+	case html.ElementNode:
+		sb.WriteByte('<')
+		sb.WriteString(n.Data)
+		for _, attr := range n.Attr {
+			if attr.Key == "v-pre" {
+				continue // strip v-pre directive from output
+			}
+			sb.WriteByte(' ')
+			sb.WriteString(attr.Key)
+			if attr.Val != "" {
+				sb.WriteString(`="`)
+				sb.WriteString(stdhtml.EscapeString(attr.Val))
+				sb.WriteByte('"')
+			}
+		}
+		if isVoidElement(n.Data) {
+			sb.WriteByte('>')
+			return
+		}
+		sb.WriteByte('>')
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			r.renderRaw(sb, child)
+		}
+		sb.WriteString("</")
+		sb.WriteString(n.Data)
+		sb.WriteByte('>')
+
+	case html.CommentNode:
+		sb.WriteString("<!--")
+		sb.WriteString(n.Data)
+		sb.WriteString("-->")
+	}
+}
+
 // renderElement writes the HTML element n into sb, processing directives and
 // dynamic attribute bindings (:attr / v-bind:attr).
 func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[string]any) error {
-	var vTextExpr, vHTMLExpr string
+	// v-pre: emit the element and all descendants verbatim, no processing.
+	if _, hasPre := attrValue(n, "v-pre"); hasPre {
+		r.renderRaw(sb, n)
+		return nil
+	}
+
+	var vTextExpr, vHTMLExpr, vShowExpr string
 
 	// Static class/style values.
 	var staticClass, staticStyle string
@@ -264,6 +312,10 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 			vTextExpr = attr.Val
 		case "v-html":
 			vHTMLExpr = attr.Val
+		case "v-show":
+			vShowExpr = attr.Val
+		case "v-once":
+			// server-side: render normally; consume directive, don't emit
 		case "v-if", "v-else-if", "v-else", "v-for":
 			// consumed by directives; not emitted as attributes
 		case "class":
@@ -327,6 +379,17 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 	for _, p := range dynStyleParts {
 		if p != "" {
 			styleParts = append(styleParts, p)
+		}
+	}
+
+	// v-show: inject display:none when falsy.
+	if vShowExpr != "" {
+		val, err := expr.Eval(strings.TrimSpace(vShowExpr), scope)
+		if err != nil {
+			return fmt.Errorf("v-show %q: %w", vShowExpr, err)
+		}
+		if !expr.IsTruthy(val) {
+			styleParts = append([]string{"display:none"}, styleParts...)
 		}
 	}
 

@@ -448,3 +448,134 @@ func TestRender_VBindDynamicValue(t *testing.T) {
 		t.Errorf("got %q, want href=\"/page\"", out)
 	}
 }
+
+// --- v-show tests ---
+
+func TestRender_VShowFalse(t *testing.T) {
+	// v-show="false" adds style="display:none" and strips the v-show attribute.
+	out := renderTemplate(t, `<div v-show="false">x</div>`, nil)
+	if !strings.Contains(out, `style="display:none"`) {
+		t.Errorf("got %q, want style=\"display:none\"", out)
+	}
+	if strings.Contains(out, "v-show") {
+		t.Errorf("got %q, v-show must not appear in output", out)
+	}
+	if !strings.Contains(out, ">x<") {
+		t.Errorf("got %q, want child content preserved", out)
+	}
+}
+
+func TestRender_VShowTrue(t *testing.T) {
+	// v-show="true" renders normally without adding any style.
+	out := renderTemplate(t, `<div v-show="true">x</div>`, nil)
+	if strings.Contains(out, "display") {
+		t.Errorf("got %q, v-show=true must not add display style", out)
+	}
+	if strings.Contains(out, "v-show") {
+		t.Errorf("got %q, v-show must not appear in output", out)
+	}
+}
+
+func TestRender_VShowMergesExistingStyle(t *testing.T) {
+	// v-show="false" prepends display:none to an existing static style.
+	out := renderTemplate(t, `<div v-show="false" style="color:red">x</div>`, nil)
+	if !strings.Contains(out, "display:none") {
+		t.Errorf("got %q, want display:none in style", out)
+	}
+	if !strings.Contains(out, "color:red") {
+		t.Errorf("got %q, want color:red preserved in style", out)
+	}
+	// Only one style attribute.
+	if strings.Count(out, `style="`) > 1 {
+		t.Errorf("got %q, must have only one style attribute", out)
+	}
+}
+
+func TestRender_VShowScopeExpression(t *testing.T) {
+	// v-show evaluates scope variables.
+	scope := map[string]any{"visible": false}
+	out := renderTemplate(t, `<p v-show="visible">text</p>`, scope)
+	if !strings.Contains(out, "display:none") {
+		t.Errorf("got %q, want display:none when visible=false", out)
+	}
+}
+
+// --- v-pre tests ---
+
+func TestRender_VPreLiteral(t *testing.T) {
+	// v-pre emits mustache content literally, without interpolation.
+	scope := map[string]any{"raw": "evaluated"}
+	out := renderTemplate(t, `<div v-pre>{{ raw }}</div>`, scope)
+	if !strings.Contains(out, "{{ raw }}") {
+		t.Errorf("got %q, want literal {{ raw }} in output", out)
+	}
+	if strings.Contains(out, "evaluated") {
+		t.Errorf("got %q, v-pre must not interpolate expressions", out)
+	}
+}
+
+func TestRender_VPreStripsDirective(t *testing.T) {
+	// The v-pre attribute itself must not appear in the rendered output.
+	out := renderTemplate(t, `<div v-pre>text</div>`, nil)
+	if strings.Contains(out, "v-pre") {
+		t.Errorf("got %q, v-pre attribute must not appear in output", out)
+	}
+	if !strings.Contains(out, "<div>text</div>") {
+		t.Errorf("got %q, want <div>text</div>", out)
+	}
+}
+
+func TestRender_VPreSkipsDescendants(t *testing.T) {
+	// v-pre skips directive processing for all descendant elements.
+	scope := map[string]any{"msg": "hello"}
+	out := renderTemplate(t, `<div v-pre><span v-text="msg">{{ msg }}</span></div>`, scope)
+	// Descendant v-text should NOT be processed.
+	if !strings.Contains(out, "v-text") {
+		t.Errorf("got %q, v-text on descendant should pass through verbatim", out)
+	}
+	// Mustache should not be interpolated.
+	if strings.Contains(out, "hello") {
+		t.Errorf("got %q, v-pre must not interpolate inside descendants", out)
+	}
+}
+
+// --- v-once tests ---
+
+func TestRender_VOnceRendersNormally(t *testing.T) {
+	// v-once renders expressions normally in a server-side context.
+	scope := map[string]any{"msg": "hello"}
+	out := renderTemplate(t, `<p v-once>{{ msg }}</p>`, scope)
+	if !strings.Contains(out, "hello") {
+		t.Errorf("got %q, v-once must render expression normally", out)
+	}
+	if strings.Contains(out, "v-once") {
+		t.Errorf("got %q, v-once attribute must not appear in output", out)
+	}
+}
+
+// --- client-side directive pass-through tests ---
+
+func TestRender_VModelPassthrough(t *testing.T) {
+	// v-model must be preserved as-is in the rendered output.
+	scope := map[string]any{"name": "Alice"}
+	out := renderTemplate(t, `<input v-model="name">`, scope)
+	if !strings.Contains(out, `v-model="name"`) {
+		t.Errorf("got %q, want v-model=\"name\" preserved in output", out)
+	}
+}
+
+func TestRender_AtEventPassthrough(t *testing.T) {
+	// @click shorthand must be preserved as-is in the rendered output.
+	out := renderTemplate(t, `<button @click="handler">click</button>`, nil)
+	if !strings.Contains(out, `@click="handler"`) {
+		t.Errorf("got %q, want @click=\"handler\" preserved in output", out)
+	}
+}
+
+func TestRender_VOnEventPassthrough(t *testing.T) {
+	// v-on:click must be preserved as-is in the rendered output.
+	out := renderTemplate(t, `<button v-on:click="handler">click</button>`, nil)
+	if !strings.Contains(out, `v-on:click="handler"`) {
+		t.Errorf("got %q, want v-on:click=\"handler\" preserved in output", out)
+	}
+}
