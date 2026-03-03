@@ -31,6 +31,10 @@ const (
 	TokenVoid
 	TokenIn
 	TokenInstanceof
+	// TokenNew is recognised so the parser can return a clear error.
+	// The 'new' keyword is intentionally unsupported — this is a declarative
+	// template language, not a full JavaScript evaluator.
+	TokenNew
 
 	// Arithmetic operators
 	TokenStar       // *
@@ -95,6 +99,7 @@ var tokenTypeNames = map[TokenType]string{
 	TokenVoid:       "void",
 	TokenIn:         "in",
 	TokenInstanceof: "instanceof",
+	TokenNew:        "new",
 	TokenStar:       "*",
 	TokenSlash:      "/",
 	TokenPercent:    "%",
@@ -167,6 +172,7 @@ var keywords = map[string]TokenType{
 	"void":       TokenVoid,
 	"in":         TokenIn,
 	"instanceof": TokenInstanceof,
+	"new":        TokenNew,
 }
 
 // Lexer tokenizes an expression string.

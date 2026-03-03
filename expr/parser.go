@@ -193,6 +193,12 @@ func (p *parser) parseUnary() (Node, error) {
 			return nil, err
 		}
 		return &UnaryExpr{Op: "void", Operand: operand}, nil
+	case TokenNew:
+		// 'new' is a JavaScript-specific construct for object instantiation.
+		// It is intentionally unsupported — template expressions are a
+		// declarative, side-effect-free subset of Vue template syntax.
+		tok := p.peek()
+		return nil, fmt.Errorf("%d:%d: 'new' is not supported in template expressions", tok.Pos.Line, tok.Pos.Col)
 	}
 	return p.parsePostfix()
 }

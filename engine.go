@@ -199,10 +199,16 @@ func (e *Engine) RenderFragment(name string, data map[string]any) (string, error
 }
 
 // ServeComponent returns an http.HandlerFunc that renders name as a fragment
-// and writes it with content-type "text/html; charset=utf-8".
-func (e *Engine) ServeComponent(name string) http.HandlerFunc {
+// and writes it with content-type "text/html; charset=utf-8". The data
+// function is called on every request to obtain the data map passed to the
+// template; it may be nil (in which case no data is provided).
+func (e *Engine) ServeComponent(name string, data func(*http.Request) map[string]any) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		out, err := e.RenderFragment(name, nil)
+		var scope map[string]any
+		if data != nil {
+			scope = data(r)
+		}
+		out, err := e.RenderFragment(name, scope)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

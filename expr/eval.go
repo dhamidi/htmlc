@@ -67,6 +67,22 @@ func evalNode(node Node, scope map[string]any) (any, error) {
 
 // --- Unary ---
 
+// evalUnary evaluates a unary expression.
+//
+// Note on intentionally unsupported JavaScript-specific constructs:
+//   - 'new'          — object instantiation; not supported (parser rejects it)
+//   - 'delete'       — property deletion; not supported (parser rejects it)
+//   - arrow functions (=>) — not supported (parser rejects them)
+//   - 'Promise'      — async/await primitives; not supported
+//
+// 'typeof' and 'void' are present below in intentionally simplified forms:
+//   - 'typeof' returns a JS-compatible type string but does not expose the full
+//     JS type system (e.g. no Symbol, BigInt).
+//   - 'void' evaluates its operand for side-effects then returns Undefined;
+//     since template expressions are side-effect-free this is rarely useful.
+//
+// 'instanceof' is present as a binary operator but always returns false because
+// Go objects do not share JavaScript's prototype chain semantics.
 func evalUnary(n *UnaryExpr, scope map[string]any) (any, error) {
 	// typeof and void are special: evaluate but don't propagate errors for typeof
 	switch n.Op {

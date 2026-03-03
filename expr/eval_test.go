@@ -427,6 +427,26 @@ func TestObjectLiteralEval(t *testing.T) {
 	}
 }
 
+// TestNewKeyword_ReturnsError verifies that the 'new' keyword is rejected by
+// the parser with a descriptive error. 'new' is a JavaScript object-
+// instantiation construct that is intentionally unsupported in the template
+// expression language.
+func TestNewKeyword_ReturnsError(t *testing.T) {
+	cases := []string{
+		"new Foo()",
+		"new Date()",
+		"new",
+	}
+	for _, src := range cases {
+		t.Run(src, func(t *testing.T) {
+			_, err := Eval(src, nil)
+			if err == nil {
+				t.Fatalf("Eval(%q): expected error for 'new' keyword, got nil", src)
+			}
+		})
+	}
+}
+
 // TestNaN verifies NaN semantics.
 func TestNaN(t *testing.T) {
 	v := eval(t, "0/0", nil)

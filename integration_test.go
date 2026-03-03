@@ -121,17 +121,21 @@ func TestIntegration_NestedComponentsWithSlots(t *testing.T) {
 
 // TestIntegration_ServeComponentHTTP uses httptest to exercise ServeComponent
 // end-to-end and asserts the HTTP status code, Content-Type header, and body.
+// The data function injects a dynamic greeting name that must appear in the
+// rendered output, verifying that the data func is wired through correctly.
 func TestIntegration_ServeComponentHTTP(t *testing.T) {
 	dir := t.TempDir()
 	writeVue(t, filepath.Join(dir, "Greeting.vue"),
-		`<template><section class="greeting"><h1>Hello, World!</h1></section></template>`)
+		`<template><section class="greeting"><h1>Hello, {{ name }}!</h1></section></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	h := e.ServeComponent("Greeting")
+	h := e.ServeComponent("Greeting", func(r *http.Request) map[string]any {
+		return map[string]any{"name": "World"}
+	})
 	req := httptest.NewRequest(http.MethodGet, "/greeting", nil)
 	rec := httptest.NewRecorder()
 	h(rec, req)

@@ -185,7 +185,7 @@ func TestEngine_ServeComponentWritesContentType(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	h := e.ServeComponent("Hello")
+	h := e.ServeComponent("Hello", nil)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	h(rec, req)
@@ -199,6 +199,48 @@ func TestEngine_ServeComponentWritesContentType(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "<p>hello</p>") {
 		t.Errorf("body %q, want <p>hello</p>", rec.Body.String())
+	}
+}
+
+func TestEngine_ServeComponent_DataFuncCalledPerRequest(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Greeting.vue"), `<template><h1>{{ title }}</h1></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	callCount := 0
+	h := e.ServeComponent("Greeting", func(r *http.Request) map[string]any {
+		callCount++
+		return map[string]any{"title": "injected title"}
+	})
+
+	// First request.
+	req1 := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec1 := httptest.NewRecorder()
+	h(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Errorf("request 1: status %d, want 200", rec1.Code)
+	}
+	if !strings.Contains(rec1.Body.String(), "injected title") {
+		t.Errorf("request 1: body %q, want 'injected title'", rec1.Body.String())
+	}
+
+	// Second request: data func must be called again.
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec2 := httptest.NewRecorder()
+	h(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Errorf("request 2: status %d, want 200", rec2.Code)
+	}
+	if !strings.Contains(rec2.Body.String(), "injected title") {
+		t.Errorf("request 2: body %q, want 'injected title'", rec2.Body.String())
+	}
+
+	if callCount != 2 {
+		t.Errorf("data func called %d times, want 2", callCount)
 	}
 }
 
