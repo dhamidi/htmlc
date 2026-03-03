@@ -401,6 +401,9 @@ func evalObjectLit(n *ObjectLit, scope map[string]any) (any, error) {
 
 // --- Helpers ---
 
+// IsTruthy returns the JS-style truthiness of a value.
+func IsTruthy(v any) bool { return isTruthy(v) }
+
 // isTruthy returns the JS-style truthiness of a value.
 func isTruthy(v any) bool {
 	if v == nil {

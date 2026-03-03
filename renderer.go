@@ -45,10 +45,8 @@ var mustacheRe = regexp.MustCompile(`\{\{(.*?)\}\}`)
 func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node, scope map[string]any) error {
 	switch n.Type {
 	case html.DocumentNode:
-		for child := n.FirstChild; child != nil; child = child.NextSibling {
-			if err := r.renderNode(sb, child, scope); err != nil {
-				return err
-			}
+		if err := r.renderChildren(sb, n, scope); err != nil {
+			return err
 		}
 
 	case html.TextNode:
@@ -101,6 +99,133 @@ func (r *Renderer) interpolate(text string, scope map[string]any) (string, error
 	return sb.String(), nil
 }
 
+// conditionalDirective returns the conditional directive key on an element node,
+// or "" if none is present.
+func conditionalDirective(n *html.Node) string {
+	if n.Type != html.ElementNode {
+		return ""
+	}
+	for _, attr := range n.Attr {
+		switch attr.Key {
+		case "v-if", "v-else-if", "v-else":
+			return attr.Key
+		}
+	}
+	return ""
+}
+
+// attrValue returns the value of the named attribute, and whether it was present.
+func attrValue(n *html.Node, key string) (string, bool) {
+	for _, attr := range n.Attr {
+		if attr.Key == key {
+			return attr.Val, true
+		}
+	}
+	return "", false
+}
+
+// nextSignificantSibling returns the next sibling that is not a whitespace-only text node.
+func nextSignificantSibling(n *html.Node) *html.Node {
+	for sib := n.NextSibling; sib != nil; sib = sib.NextSibling {
+		if sib.Type == html.TextNode && strings.TrimSpace(sib.Data) == "" {
+			continue
+		}
+		return sib
+	}
+	return nil
+}
+
+// renderChildren iterates the children of parent and renders them, handling
+// v-if/v-else-if/v-else chains as groups.
+func (r *Renderer) renderChildren(sb *strings.Builder, parent *html.Node, scope map[string]any) error {
+	child := parent.FirstChild
+	for child != nil {
+		if child.Type == html.ElementNode {
+			switch conditionalDirective(child) {
+			case "v-if":
+				lastInChain, err := r.renderConditionalChain(sb, child, scope)
+				if err != nil {
+					return err
+				}
+				child = lastInChain.NextSibling
+				continue
+			case "v-else-if":
+				return fmt.Errorf("v-else-if without preceding v-if or v-else-if")
+			case "v-else":
+				return fmt.Errorf("v-else without preceding v-if or v-else-if")
+			}
+		}
+		if err := r.renderNode(sb, child, scope); err != nil {
+			return err
+		}
+		child = child.NextSibling
+	}
+	return nil
+}
+
+// renderConditionalChain collects and evaluates a v-if/v-else-if/v-else chain
+// starting at vIfNode. It renders the first truthy branch and returns the last
+// node consumed in the chain so the caller can advance past it.
+func (r *Renderer) renderConditionalChain(sb *strings.Builder, vIfNode *html.Node, scope map[string]any) (*html.Node, error) {
+	type condBranch struct {
+		node   *html.Node
+		expr   string
+		isElse bool
+	}
+
+	ifExpr, _ := attrValue(vIfNode, "v-if")
+	branches := []condBranch{{node: vIfNode, expr: ifExpr}}
+	lastNode := vIfNode
+
+	for {
+		next := nextSignificantSibling(lastNode)
+		if next == nil {
+			break
+		}
+		dir := conditionalDirective(next)
+		if dir == "v-else-if" {
+			elseIfExpr, _ := attrValue(next, "v-else-if")
+			branches = append(branches, condBranch{node: next, expr: elseIfExpr})
+			lastNode = next
+		} else if dir == "v-else" {
+			branches = append(branches, condBranch{node: next, isElse: true})
+			lastNode = next
+			break
+		} else {
+			break
+		}
+	}
+
+	for _, b := range branches {
+		var truthy bool
+		if b.isElse {
+			truthy = true
+		} else {
+			val, err := expr.Eval(strings.TrimSpace(b.expr), scope)
+			if err != nil {
+				return nil, fmt.Errorf("v-if %q: %w", b.expr, err)
+			}
+			truthy = expr.IsTruthy(val)
+		}
+		if !truthy {
+			continue
+		}
+		// Render the branch. <template> renders only its children.
+		if b.node.Data == "template" {
+			if err := r.renderChildren(sb, b.node, scope); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := r.renderElement(sb, b.node, scope); err != nil {
+				return nil, err
+			}
+		}
+		break
+	}
+
+	return lastNode, nil
+}
+
 // renderElement writes the HTML element n into sb, processing v-text/v-html directives.
 func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[string]any) error {
 	var vTextExpr, vHTMLExpr string
@@ -112,6 +237,8 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 			vTextExpr = attr.Val
 		case "v-html":
 			vHTMLExpr = attr.Val
+		case "v-if", "v-else-if", "v-else":
+			// consumed by conditional rendering; not emitted as attributes
 		default:
 			attrs = append(attrs, attr)
 		}
@@ -151,10 +278,8 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 		sb.WriteString(valueToString(val))
 
 	default:
-		for child := n.FirstChild; child != nil; child = child.NextSibling {
-			if err := r.renderNode(sb, child, scope); err != nil {
-				return err
-			}
+		if err := r.renderChildren(sb, n, scope); err != nil {
+			return err
 		}
 	}
 

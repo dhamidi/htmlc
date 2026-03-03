@@ -149,3 +149,100 @@ func TestRender_MultipleInterpolationsInOneText(t *testing.T) {
 		t.Errorf("got %q, want 'foo and bar'", out)
 	}
 }
+
+// --- v-if / v-else-if / v-else tests ---
+
+func TestRender_VIfTrue(t *testing.T) {
+	// v-if with a truthy expression renders the element.
+	out := renderTemplate(t, `<div v-if="true">yes</div>`, nil)
+	if !strings.Contains(out, "<div>yes</div>") {
+		t.Errorf("got %q, want <div>yes</div>", out)
+	}
+}
+
+func TestRender_VIfFalse(t *testing.T) {
+	// v-if with a falsy expression produces no output.
+	out := renderTemplate(t, `<div v-if="false">yes</div>`, nil)
+	if strings.Contains(out, "yes") || strings.Contains(out, "<div>") {
+		t.Errorf("got %q, want no output for v-if=false", out)
+	}
+}
+
+func TestRender_VIfElseChain(t *testing.T) {
+	// v-if/v-else-if/v-else: only the first truthy branch renders.
+	scope := map[string]any{"a": false, "b": true}
+	out := renderTemplate(t, `<span v-if="a">A</span><span v-else-if="b">B</span><span v-else>C</span>`, scope)
+	if strings.Contains(out, ">A<") || strings.Contains(out, ">C<") {
+		t.Errorf("got %q, want only B branch rendered", out)
+	}
+	if !strings.Contains(out, ">B<") {
+		t.Errorf("got %q, want B branch rendered", out)
+	}
+}
+
+func TestRender_VElseRendersWhenAllFalsy(t *testing.T) {
+	// v-else renders when all preceding conditions are false.
+	scope := map[string]any{"a": false, "b": false}
+	out := renderTemplate(t, `<span v-if="a">A</span><span v-else-if="b">B</span><span v-else>C</span>`, scope)
+	if !strings.Contains(out, ">C<") {
+		t.Errorf("got %q, want C branch rendered", out)
+	}
+	if strings.Contains(out, ">A<") || strings.Contains(out, ">B<") {
+		t.Errorf("got %q, want only C rendered", out)
+	}
+}
+
+func TestRender_VIfTemplateWrapper(t *testing.T) {
+	// <template v-if="show"> renders children only, not a <template> element.
+	scope := map[string]any{"show": true}
+	out := renderTemplate(t, `<template v-if="show"><p>a</p><p>b</p></template>`, scope)
+	if strings.Contains(out, "<template") {
+		t.Errorf("got %q, <template> element must not appear in output", out)
+	}
+	if !strings.Contains(out, "<p>a</p>") || !strings.Contains(out, "<p>b</p>") {
+		t.Errorf("got %q, want both <p> children rendered", out)
+	}
+}
+
+func TestRender_VIfTemplateWrapperFalse(t *testing.T) {
+	// <template v-if="false"> renders nothing.
+	scope := map[string]any{"show": false}
+	out := renderTemplate(t, `<template v-if="show"><p>a</p></template>`, scope)
+	if strings.Contains(out, "<p>") {
+		t.Errorf("got %q, want no output when v-if is false", out)
+	}
+}
+
+func TestRender_VElseOrphanError(t *testing.T) {
+	// v-else without a preceding v-if must return a render error.
+	src := "<template><div v-else>oops</div></template>"
+	c, err := ParseFile("test.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	_, renderErr := Render(c, nil)
+	if renderErr == nil {
+		t.Error("expected an error for orphan v-else, got nil")
+	}
+}
+
+func TestRender_VIfScopeExpression(t *testing.T) {
+	// v-if evaluates scope variables.
+	scope := map[string]any{"visible": true}
+	out := renderTemplate(t, `<p v-if="visible">hello</p>`, scope)
+	if !strings.Contains(out, "<p>hello</p>") {
+		t.Errorf("got %q, want <p>hello</p>", out)
+	}
+}
+
+func TestRender_VIfOnlyFirstTruthyBranchRenders(t *testing.T) {
+	// When v-if is true, subsequent v-else-if/v-else branches must not render.
+	scope := map[string]any{"a": true, "b": true}
+	out := renderTemplate(t, `<span v-if="a">A</span><span v-else-if="b">B</span><span v-else>C</span>`, scope)
+	if !strings.Contains(out, ">A<") {
+		t.Errorf("got %q, want A branch rendered", out)
+	}
+	if strings.Contains(out, ">B<") || strings.Contains(out, ">C<") {
+		t.Errorf("got %q, want only first truthy branch (A) rendered", out)
+	}
+}
