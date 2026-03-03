@@ -17,7 +17,8 @@ import (
 
 // Renderer walks a component's parsed template and produces HTML output.
 type Renderer struct {
-	component *Component
+	component      *Component
+	styleCollector *StyleCollector
 }
 
 // NewRenderer creates a Renderer for the given component.
@@ -25,9 +26,29 @@ func NewRenderer(c *Component) *Renderer {
 	return &Renderer{component: c}
 }
 
+// WithStyles sets sc as the StyleCollector that will receive this component's
+// style contribution when Render is called. It returns the Renderer for
+// chaining.
+func (r *Renderer) WithStyles(sc *StyleCollector) *Renderer {
+	r.styleCollector = sc
+	return r
+}
+
 // Render evaluates the component's template against the given data scope and
 // returns the rendered HTML string.
 func (r *Renderer) Render(scope map[string]any) (string, error) {
+	// Collect this component's styles before rendering.
+	if r.styleCollector != nil && r.component.Style != "" {
+		sid := ScopeID(r.component.Path)
+		css := r.component.Style
+		if r.component.Scoped {
+			css = ScopeCSS(css, "["+sid+"]")
+		} else {
+			sid = ""
+		}
+		r.styleCollector.Add(StyleContribution{ScopeID: sid, CSS: css})
+	}
+
 	var sb strings.Builder
 	if err := r.renderNode(&sb, r.component.Template, scope); err != nil {
 		return "", err
@@ -429,6 +450,12 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 			sb.WriteString(stdhtml.EscapeString(a.val))
 			sb.WriteByte('"')
 		}
+	}
+
+	// Add scope attribute for scoped components.
+	if r.component.Scoped {
+		sb.WriteByte(' ')
+		sb.WriteString(ScopeID(r.component.Path))
 	}
 
 	if isVoidElement(n.Data) {
