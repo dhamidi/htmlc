@@ -244,6 +244,52 @@ func TestEngine_ServeComponent_DataFuncCalledPerRequest(t *testing.T) {
 	}
 }
 
+func TestEngine_RenderPage_LayoutStyleBeforeHead(t *testing.T) {
+	// A Layout.vue whose <template> starts with <html> should render a full HTML
+	// document.  RenderPage must inject the collected <style> block immediately
+	// before </head> — not prepend it to the top of the output.
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Layout.vue"),
+		`<template><html>
+<head><title>Layout Test</title></head>
+<body><p>page body</p></body>
+</html></template>
+<style>body { margin: 0; }</style>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderPage("Layout", nil)
+	if err != nil {
+		t.Fatalf("RenderPage: %v", err)
+	}
+
+	if !strings.Contains(out, "<html") {
+		t.Errorf("output should contain <html, got:\n%s", out)
+	}
+	if !strings.Contains(out, "<head>") {
+		t.Errorf("output should contain <head>, got:\n%s", out)
+	}
+	if !strings.Contains(out, "<body>") {
+		t.Errorf("output should contain <body>, got:\n%s", out)
+	}
+
+	styleIdx := strings.Index(out, "<style>")
+	headCloseIdx := strings.Index(out, "</head>")
+	if styleIdx < 0 {
+		t.Fatalf("output should contain <style>, got:\n%s", out)
+	}
+	if headCloseIdx < 0 {
+		t.Fatalf("output should contain </head>, got:\n%s", out)
+	}
+	if styleIdx > headCloseIdx {
+		t.Errorf("<style> (pos %d) must appear before </head> (pos %d) in:\n%s",
+			styleIdx, headCloseIdx, out)
+	}
+}
+
 func TestEngine_ReloadDetectsChangedFile(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "Live.vue")

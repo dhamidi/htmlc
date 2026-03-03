@@ -149,10 +149,27 @@ func extractSections(src string) (map[string]string, error) {
 }
 
 // parseTemplateHTML parses the raw HTML string from a <template> section into
-// a synthetic root node whose children are the actual template nodes.
-// It uses html.ParseFragment with a <div> context, then wraps the results in a
-// single document-like node for uniform traversal.
+// a root node whose children are the actual template nodes.
+//
+// When the trimmed content begins with "<html" or "<!doctype" (case-insensitive)
+// it is treated as a full HTML document and parsed with html.Parse, which
+// correctly preserves the <html>, <head>, and <body> elements that
+// html.ParseFragment (with a <div> context) would silently discard.
+//
+// For all other templates html.ParseFragment with a <div> context is used so
+// that partial components (e.g. <article>, <li>) continue to work correctly.
+// The fragment nodes are wrapped in a synthetic DocumentNode for uniform
+// traversal by the renderer.
 func parseTemplateHTML(content string) (*html.Node, error) {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	if strings.HasPrefix(lower, "<html") || strings.HasPrefix(lower, "<!doctype") {
+		doc, err := html.Parse(strings.NewReader(content))
+		if err != nil {
+			return nil, err
+		}
+		return doc, nil
+	}
+
 	context := &html.Node{
 		Type:     html.ElementNode,
 		DataAtom: atom.Div,

@@ -154,6 +154,32 @@ func TestParseFile_MissingTemplate(t *testing.T) {
 	}
 }
 
+func TestParseFile_FullDocumentTemplate(t *testing.T) {
+	// A template rooted at <html> must render with <html>, <head>, and <body>
+	// preserved — html.ParseFragment silently drops these in a <div> context.
+	src := `<template><html>
+<head><title>My Page</title></head>
+<body><main><p>Content</p></main></body>
+</html></template>`
+	c, err := ParseFile("layout.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	out, err := Render(c, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<html") {
+		t.Errorf("output should contain <html, got: %q", out)
+	}
+	if !strings.Contains(out, "<head>") {
+		t.Errorf("output should contain <head>, got: %q", out)
+	}
+	if !strings.Contains(out, "<body>") {
+		t.Errorf("output should contain <body>, got: %q", out)
+	}
+}
+
 func TestParseFile_TemplateContentExtracted(t *testing.T) {
 	c, err := ParseFile("tmpl.vue", fullSFC)
 	if err != nil {
