@@ -5,6 +5,7 @@ import (
 	stdhtml "html"
 	"fmt"
 	"math"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -136,11 +137,19 @@ func nextSignificantSibling(n *html.Node) *html.Node {
 }
 
 // renderChildren iterates the children of parent and renders them, handling
-// v-if/v-else-if/v-else chains as groups.
+// v-if/v-else-if/v-else chains and v-for directives.
 func (r *Renderer) renderChildren(sb *strings.Builder, parent *html.Node, scope map[string]any) error {
 	child := parent.FirstChild
 	for child != nil {
 		if child.Type == html.ElementNode {
+			// v-for takes precedence; render the loop and move on.
+			if vforExpr, ok := attrValue(child, "v-for"); ok {
+				if err := r.renderVFor(sb, child, vforExpr, scope); err != nil {
+					return err
+				}
+				child = child.NextSibling
+				continue
+			}
 			switch conditionalDirective(child) {
 			case "v-if":
 				lastInChain, err := r.renderConditionalChain(sb, child, scope)
@@ -237,8 +246,15 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 			vTextExpr = attr.Val
 		case "v-html":
 			vHTMLExpr = attr.Val
-		case "v-if", "v-else-if", "v-else":
-			// consumed by conditional rendering; not emitted as attributes
+		case "v-if", "v-else-if", "v-else", "v-for":
+			// consumed by directives; not emitted as attributes
+		case ":key":
+			// Evaluate and emit as data-key attribute.
+			val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
+			if err != nil {
+				return fmt.Errorf(":key %q: %w", attr.Val, err)
+			}
+			attrs = append(attrs, html.Attribute{Key: "data-key", Val: valueToString(val)})
 		default:
 			attrs = append(attrs, attr)
 		}
@@ -287,6 +303,100 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 	sb.WriteString("</")
 	sb.WriteString(n.Data)
 	sb.WriteByte('>')
+	return nil
+}
+
+// parseVFor parses a v-for expression into variable names and collection expression.
+// Handles: "item in items", "(item, index) in items", "(value, key) in obj", "n in 5".
+func parseVFor(vforExpr string) (vars []string, collExpr string, err error) {
+	idx := strings.Index(vforExpr, " in ")
+	if idx < 0 {
+		return nil, "", fmt.Errorf("v-for: invalid expression %q, expected 'x in expr'", vforExpr)
+	}
+	lhs := strings.TrimSpace(vforExpr[:idx])
+	collExpr = strings.TrimSpace(vforExpr[idx+4:])
+	if strings.HasPrefix(lhs, "(") && strings.HasSuffix(lhs, ")") {
+		inner := lhs[1 : len(lhs)-1]
+		for _, p := range strings.Split(inner, ",") {
+			vars = append(vars, strings.TrimSpace(p))
+		}
+	} else {
+		vars = []string{lhs}
+	}
+	return vars, collExpr, nil
+}
+
+// scopeWith returns a shallow copy of base with the added key→val binding.
+func scopeWith(base map[string]any, key string, val any) map[string]any {
+	next := make(map[string]any, len(base)+1)
+	for k, v := range base {
+		next[k] = v
+	}
+	next[key] = val
+	return next
+}
+
+// renderVFor renders n repeatedly for each element in the v-for collection.
+func (r *Renderer) renderVFor(sb *strings.Builder, n *html.Node, vforExpr string, scope map[string]any) error {
+	vars, collExpr, err := parseVFor(vforExpr)
+	if err != nil {
+		return err
+	}
+
+	collection, err := expr.Eval(collExpr, scope)
+	if err != nil {
+		return fmt.Errorf("v-for %q: %w", collExpr, err)
+	}
+
+	renderOne := func(iterScope map[string]any) error {
+		if n.Data == "template" {
+			return r.renderChildren(sb, n, iterScope)
+		}
+		return r.renderElement(sb, n, iterScope)
+	}
+
+	if collection == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(collection)
+	for rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return nil
+		}
+		rv = rv.Elem()
+	}
+
+	switch rv.Kind() {
+	case reflect.Float64:
+		count := int(rv.Float())
+		for i := 1; i <= count; i++ {
+			if err := renderOne(scopeWith(scope, vars[0], float64(i))); err != nil {
+				return err
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < rv.Len(); i++ {
+			iterScope := scopeWith(scope, vars[0], rv.Index(i).Interface())
+			if len(vars) >= 2 {
+				iterScope = scopeWith(iterScope, vars[1], float64(i))
+			}
+			if err := renderOne(iterScope); err != nil {
+				return err
+			}
+		}
+	case reflect.Map:
+		for _, k := range rv.MapKeys() {
+			iterScope := scopeWith(scope, vars[0], rv.MapIndex(k).Interface())
+			if len(vars) >= 2 {
+				iterScope = scopeWith(iterScope, vars[1], k.Interface())
+			}
+			if err := renderOne(iterScope); err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("v-for: cannot iterate over %T", collection)
+	}
 	return nil
 }
 

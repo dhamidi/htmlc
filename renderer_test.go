@@ -246,3 +246,79 @@ func TestRender_VIfOnlyFirstTruthyBranchRenders(t *testing.T) {
 		t.Errorf("got %q, want only first truthy branch (A) rendered", out)
 	}
 }
+
+// --- v-for tests ---
+
+func TestRender_VForSimpleArray(t *testing.T) {
+	// v-for="item in items" renders one element per array entry with item in scope.
+	scope := map[string]any{"items": []any{"a", "b", "c"}}
+	out := renderTemplate(t, `<ul><li v-for="item in items">{{ item }}</li></ul>`, scope)
+	for _, want := range []string{"<li>a</li>", "<li>b</li>", "<li>c</li>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("got %q, want it to contain %s", out, want)
+		}
+	}
+}
+
+func TestRender_VForWithIndex(t *testing.T) {
+	// v-for="(item, index) in items" provides both item and zero-based index.
+	scope := map[string]any{"items": []any{"x", "y"}}
+	out := renderTemplate(t, `<span v-for="(item, index) in items">{{ index }}:{{ item }}</span>`, scope)
+	if !strings.Contains(out, "0:x") || !strings.Contains(out, "1:y") {
+		t.Errorf("got %q, want index:item pairs 0:x and 1:y", out)
+	}
+}
+
+func TestRender_VForObject(t *testing.T) {
+	// v-for="(value, key) in obj" iterates map entries.
+	scope := map[string]any{"obj": map[string]any{"a": "1", "b": "2"}}
+	out := renderTemplate(t, `<span v-for="(value, key) in obj">{{ key }}={{ value }}</span>`, scope)
+	if !strings.Contains(out, "a=1") || !strings.Contains(out, "b=2") {
+		t.Errorf("got %q, want key=value pairs a=1 and b=2", out)
+	}
+}
+
+func TestRender_VForInteger(t *testing.T) {
+	// v-for="n in 5" renders 5 copies with n = 1..5.
+	out := renderTemplate(t, `<span v-for="n in 5">{{ n }}</span>`, nil)
+	for _, want := range []string{"<span>1</span>", "<span>2</span>", "<span>3</span>", "<span>4</span>", "<span>5</span>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("got %q, want it to contain %s", out, want)
+		}
+	}
+}
+
+func TestRender_VForKey(t *testing.T) {
+	// :key="item.id" renders as data-key="<value>" on each iteration element.
+	scope := map[string]any{
+		"items": []any{
+			map[string]any{"id": float64(1), "name": "a"},
+			map[string]any{"id": float64(2), "name": "b"},
+		},
+	}
+	out := renderTemplate(t, `<li v-for="item in items" :key="item.id">{{ item.name }}</li>`, scope)
+	if !strings.Contains(out, `data-key="1"`) || !strings.Contains(out, `data-key="2"`) {
+		t.Errorf("got %q, want data-key=\"1\" and data-key=\"2\"", out)
+	}
+}
+
+func TestRender_VForTemplateWrapper(t *testing.T) {
+	// <template v-for="..."> renders only children per iteration, no <template> tag.
+	scope := map[string]any{"items": []any{"a", "b"}}
+	out := renderTemplate(t, `<template v-for="item in items"><p>{{ item }}</p></template>`, scope)
+	if strings.Contains(out, "<template") {
+		t.Errorf("got %q, <template> element must not appear in output", out)
+	}
+	if !strings.Contains(out, "<p>a</p>") || !strings.Contains(out, "<p>b</p>") {
+		t.Errorf("got %q, want <p>a</p> and <p>b</p>", out)
+	}
+}
+
+func TestRender_VForEmptyArray(t *testing.T) {
+	// Empty array produces no output.
+	scope := map[string]any{"items": []any{}}
+	out := renderTemplate(t, `<li v-for="item in items">{{ item }}</li>`, scope)
+	if strings.Contains(out, "<li>") {
+		t.Errorf("got %q, want no output for empty array", out)
+	}
+}
