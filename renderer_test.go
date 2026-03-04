@@ -1074,3 +1074,150 @@ func TestRender_NamedSlotOverridesFallback(t *testing.T) {
 		t.Errorf("got %q, fallback should be replaced by provided slot content", out)
 	}
 }
+
+// --- scoped slot tests ---
+
+func TestRender_ScopedSlotDestructured(t *testing.T) {
+	// Child passes :user="theuser" on <slot>; caller receives via #default="{ user }".
+	// Uses all-lowercase prop names because the HTML parser lowercases attribute keys.
+	child := mustParseComponent(t, "child.vue", `<div><slot :user="theuser"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child :theuser="alice"><template #default="{ user }"><p>{{ user.name }}</p></template></Child>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(map[string]any{
+		"alice": map[string]any{"name": "Alice"},
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>Alice</p>") {
+		t.Errorf("got %q, want <p>Alice</p>", out)
+	}
+}
+
+func TestRender_ScopedSlotSingleVar(t *testing.T) {
+	// v-slot="slotProps" binds the entire slot props map; slotProps.msg is accessible.
+	child := mustParseComponent(t, "child.vue", `<div><slot :msg="greeting"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child greeting="Hello"><template v-slot="slotProps"><p>{{ slotProps.msg }}</p></template></Child>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>Hello</p>") {
+		t.Errorf("got %q, want <p>Hello</p>", out)
+	}
+}
+
+func TestRender_ScopedSlotInsideVFor(t *testing.T) {
+	// Scoped slot inside v-for: each iteration passes different slot prop values.
+	child := mustParseComponent(t, "child.vue", `<ul><li v-for="item in items"><slot :item="item"></slot></li></ul>`)
+	main := mustParseComponent(t, "main.vue",
+		`<List :items="items"><template #default="{ item }"><span>{{ item }}</span></template></List>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"List": child}).RenderString(map[string]any{
+		"items": []any{"a", "b", "c"},
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, want := range []string{"<span>a</span>", "<span>b</span>", "<span>c</span>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("got %q, want it to contain %s", out, want)
+		}
+	}
+}
+
+func TestRender_ScopedSlotParentScopeAccessible(t *testing.T) {
+	// Slot content can access both parent scope variables and slot props.
+	// Uses all-lowercase names because the HTML parser lowercases attribute keys.
+	child := mustParseComponent(t, "child.vue", `<div><slot :childval="42"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child><template #default="{ childval }"><p>{{ parentval }}-{{ childval }}</p></template></Child>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(map[string]any{
+		"parentval": "hello",
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>hello-42</p>") {
+		t.Errorf("got %q, want <p>hello-42</p>", out)
+	}
+}
+
+func TestRender_ScopedSlotPropOverridesParentVar(t *testing.T) {
+	// Slot prop with the same name as a parent scope variable wins within slot content.
+	// Uses all-lowercase names because the HTML parser lowercases attribute keys.
+	child := mustParseComponent(t, "child.vue", `<div><slot :name="childname"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child childname="override"><template #default="{ name }"><p>{{ name }}</p></template></Child>`)
+	// parent scope has name="parent", but slot prop name="override" should win
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(map[string]any{
+		"name": "parent",
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>override</p>") {
+		t.Errorf("got %q, want <p>override</p> (slot prop wins over parent scope)", out)
+	}
+}
+
+func TestRender_NamedScopedSlot(t *testing.T) {
+	// Named scoped slot: <slot name="item" :user="theuser" /> with <template #item="{ user }">.
+	// Uses all-lowercase prop names because the HTML parser lowercases attribute keys.
+	child := mustParseComponent(t, "child.vue", `<div><slot name="item" :user="theuser"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child :theuser="alice"><template #item="{ user }"><p>{{ user.name }}</p></template></Child>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(map[string]any{
+		"alice": map[string]any{"name": "Alice"},
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>Alice</p>") {
+		t.Errorf("got %q, want <p>Alice</p>", out)
+	}
+}
+
+func TestRender_ScopedSlotNoBinding(t *testing.T) {
+	// When slot has no binding pattern, slot props are discarded; parent scope is used.
+	child := mustParseComponent(t, "child.vue", `<div><slot :ignored="42"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child><p>{{ parentVal }}</p></Child>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(map[string]any{
+		"parentVal": "visible",
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>visible</p>") {
+		t.Errorf("got %q, want <p>visible</p>", out)
+	}
+}
+
+func TestRender_ScopedSlotStaticAttr(t *testing.T) {
+	// Static attributes on <slot> (other than name) are included as string slot props.
+	child := mustParseComponent(t, "child.vue", `<div><slot label="static"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child><template #default="{ label }"><p>{{ label }}</p></template></Child>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>static</p>") {
+		t.Errorf("got %q, want <p>static</p>", out)
+	}
+}
+
+func TestRender_ScopedSlotDestructuredMissingKey(t *testing.T) {
+	// Destructured binding with a key not in slot props yields nil (renders as "null").
+	child := mustParseComponent(t, "child.vue", `<div><slot :present="1"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child><template #default="{ present, missing }"><p>{{ present }}-{{ missing }}</p></template></Child>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>1-null</p>") {
+		t.Errorf("got %q, want <p>1-null</p>", out)
+	}
+}

@@ -198,6 +198,17 @@ func walkForProps(n *html.Node, locals map[string]bool, props map[string]*PropIn
 				}
 				continue
 			}
+			// v-slot / # directives: binding variables are locals within the template.
+			if _, isSlot := parseSlotDirective(attr.Key); isSlot {
+				bindingVar, bindings, _ := parseBindingPattern(attr.Val)
+				if bindingVar != "" {
+					childLocals[bindingVar] = true
+				}
+				for _, b := range bindings {
+					childLocals[b] = true
+				}
+				continue
+			}
 			var exprVal string
 			switch {
 			case strings.HasPrefix(attr.Key, ":"), strings.HasPrefix(attr.Key, "v-bind:"):

@@ -488,8 +488,54 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 			slotName = nameAttr
 		}
 		if def, ok := r.slotDefs[slotName]; ok {
+			// Collect slot props from the <slot> element's attributes (child's scope).
+			slotProps := make(map[string]any)
+			for _, attr := range n.Attr {
+				if attr.Key == "name" {
+					continue
+				}
+				if strings.HasPrefix(attr.Key, ":") {
+					propName := attr.Key[1:]
+					val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
+					if err != nil {
+						return fmt.Errorf("slot prop %s %q: %w", attr.Key, attr.Val, err)
+					}
+					slotProps[propName] = val
+				} else if strings.HasPrefix(attr.Key, "v-bind:") {
+					propName := attr.Key[7:]
+					val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
+					if err != nil {
+						return fmt.Errorf("slot prop %s %q: %w", attr.Key, attr.Val, err)
+					}
+					slotProps[propName] = val
+				} else {
+					slotProps[attr.Key] = attr.Val
+				}
+			}
+
+			// Build render scope: clone the parent scope.
+			renderScope := make(map[string]any, len(def.ParentScope)+len(slotProps))
+			for k, v := range def.ParentScope {
+				renderScope[k] = v
+			}
+
+			// Apply binding pattern (slot props override parent scope).
+			switch {
+			case def.BindingVar != "":
+				renderScope[def.BindingVar] = slotProps
+			case len(def.Bindings) > 0:
+				for _, name := range def.Bindings {
+					if val, ok := slotProps[name]; ok {
+						renderScope[name] = val
+					} else {
+						renderScope[name] = nil
+					}
+				}
+			// No binding: render with parent scope only; slot props discarded.
+			}
+
 			for _, node := range def.Nodes {
-				if err := r.renderNode(w, node, def.ParentScope); err != nil {
+				if err := r.renderNode(w, node, renderScope); err != nil {
 					return err
 				}
 			}
