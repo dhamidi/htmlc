@@ -1,225 +1,419 @@
-# Component Prop Discovery via Template AST Walking
+# Named and Scoped Slots via v-slot
 
 ## Summary
 
-Add the ability to discover which props a component expects by walking its parsed template AST and collecting all variable references from expressions. This avoids parsing JavaScript entirely — the `<script>` section is not involved. A component can then be asked in Go code which props it uses, and the renderer validates that all expected props are provided at render time.
+Add support for Vue.js slot directives (`v-slot` and the `#` shorthand) enabling named slots and scoped slots in server-side rendered components. This is a pure server-side feature — no client-side JavaScript is involved.
 
 ## Motivation
 
-Currently props are fully implicit: any attribute passed to a component becomes a scope variable, and any variable referenced in a template that isn't in scope silently evaluates to `undefined`. There is no way to ask a component what data it expects, and missing props produce no errors or warnings.
+Currently htmlc supports only a single default slot: the caller's inner content is pre-rendered as a string and injected wherever `<slot />` appears in the child component. This prevents two common patterns:
+
+1. **Named slots** — directing different pieces of content to different locations in a component's template (e.g. header, body, footer).
+2. **Scoped slots** — the child component passing data back up to the caller's slot template, enabling patterns like renderless list components.
+
+Both patterns are pure template logic and require no reactivity or client-side JavaScript.
 
 ## Design
 
-### 1. Identifier Collection in the `expr` Package
+### 1. Syntax
 
-Add a new exported function to the `expr` package:
+#### 1.1 Caller Side (Using a Component)
 
-```go
-// CollectIdentifiers compiles src and returns the names of all Identifier
-// nodes in the resulting AST, excluding property names in dot-notation
-// member access (e.g. for "user.name" it returns ["user"], not ["user", "name"]).
-// Bracket-notation property expressions are walked normally (e.g. for
-// "items[idx]" it returns ["items", "idx"]).
-// Duplicates are removed. Order is unspecified.
-func CollectIdentifiers(src string) ([]string, error)
+**Default slot (no scope, backward-compatible):**
+```html
+<MyComponent>
+  <p>This goes into the default slot.</p>
+</MyComponent>
 ```
 
-**AST walking rules:**
-- `Identifier` → collect the name
-- `MemberExpr` with `Computed=false` (dot notation) → walk `Object` only, skip `Property`
-- `MemberExpr` with `Computed=true` (bracket notation) → walk both `Object` and `Property`
-- `UnaryExpr` → walk `Operand`
-- `BinaryExpr` → walk `Left` and `Right`
-- `TernaryExpr` → walk `Condition`, `Consequent`, and `Alternate`
-- `CallExpr` → walk `Callee` and all `Args`
-- `ArrayLit` → walk all `Elements`
-- `ObjectLit` → walk all property `Value` nodes (keys are string literals, not identifiers)
-- Literal nodes (`NumberLit`, `StringLit`, `BoolLit`, `NullLit`, `UndefinedLit`) → skip
-
-### 2. PropInfo Type
-
-```go
-// PropInfo describes a prop that a component's template references.
-type PropInfo struct {
-    // Name is the variable name as it appears in template expressions.
-    Name string
-    // Expressions lists the expression source strings where this prop is used.
-    // For example, if a template has both {{ title }} and :class="title + ' bold'",
-    // Expressions would contain ["title", "title + ' bold'"].
-    Expressions []string
-}
+**Default scoped slot on the component tag:**
+```html
+<MyComponent v-slot="{ item }">
+  <p>{{ item.name }}</p>
+</MyComponent>
 ```
 
-### 3. Component.Props() Method
-
-```go
-// Props walks the component's parsed template AST and returns the set of
-// props (top-level variable references) that the template uses.
-// Built-in identifiers (len) and renderer-injected variables ($slot) are
-// excluded. Locally scoped variables from v-for are excluded.
-func (c *Component) Props() []PropInfo
+Equivalent shorthand:
+```html
+<MyComponent #default="{ item }">
+  <p>{{ item.name }}</p>
+</MyComponent>
 ```
 
-**Expression sources to scan** (these are all the places where `expr.Eval` is called during rendering):
+**Named slots via `<template>` wrappers:**
+```html
+<MyComponent>
+  <template v-slot:header>
+    <h1>Title</h1>
+  </template>
 
-| Source | How to extract the expression |
+  <p>Default slot content</p>
+
+  <template #footer>
+    <p>Footer</p>
+  </template>
+</MyComponent>
+```
+
+**Named scoped slots:**
+```html
+<UserList :users="users">
+  <template #item="{ user, index }">
+    <li>{{ index }}: {{ user.name }}</li>
+  </template>
+</UserList>
+```
+
+#### 1.2 Component Side (Defining Slots)
+
+**Default slot:**
+```html
+<template>
+  <div>
+    <slot />
+  </div>
+</template>
+```
+
+**Named slots:**
+```html
+<template>
+  <div>
+    <slot name="header" />
+    <slot />
+    <slot name="footer" />
+  </div>
+</template>
+```
+
+**Scoped slot (passing data to the caller):**
+```html
+<template>
+  <ul>
+    <li v-for="(user, index) in users">
+      <slot :user="user" :index="index" />
+    </li>
+  </ul>
+</template>
+```
+
+**Named scoped slot:**
+```html
+<template>
+  <div>
+    <slot name="header" :title="computedTitle" />
+    <slot :items="filteredItems" />
+  </div>
+</template>
+```
+
+**Fallback content (rendered when the caller provides no content for that slot):**
+```html
+<template>
+  <div>
+    <slot name="header">
+      <h1>Default Header</h1>
+    </slot>
+    <slot>
+      <p>Default body content</p>
+    </slot>
+  </div>
+</template>
+```
+
+#### 1.3 Shorthand
+
+`#name` is shorthand for `v-slot:name`:
+
+| Full syntax | Shorthand |
 |---|---|
-| `{{ expr }}` in text nodes | Match `\{\{(.*?)\}\}` regex on `TextNode.Data` |
-| `:attr="expr"` | Attribute key starts with `:`, value is the expression |
-| `v-bind:attr="expr"` | Attribute key starts with `v-bind:`, value is the expression |
-| `v-if="expr"` | Attribute value |
-| `v-else-if="expr"` | Attribute value |
-| `v-show="expr"` | Attribute value |
-| `v-text="expr"` | Attribute value |
-| `v-html="expr"` | Attribute value |
-| `v-for="vars in expr"` | Right side of ` in ` is the collection expression; left side declares local variables |
+| `v-slot:header` | `#header` |
+| `v-slot:header="{ item }"` | `#header="{ item }"` |
+| `v-slot:default` | `#default` |
+| `v-slot:default="{ item }"` | `#default="{ item }"` |
+| `v-slot="{ item }"` (on component tag) | `#default="{ item }"` |
 
-**Excluded identifiers:**
-- `$slot` and any identifier starting with `$` (renderer-injected)
-- `len` (built-in function from `expr.builtins`)
+### 2. Binding Patterns
 
-**Scope tracking for v-for:**
-- `v-for="item in items"` → `item` is local to the v-for subtree
-- `v-for="(item, index) in items"` → `item` and `index` are local
-- `v-for="(value, key) in obj"` → `value` and `key` are local
-- `v-for="(value, key, index) in obj"` → `value`, `key`, and `index` are local
-- The collection expression (`items`, `obj`) is scanned for identifiers in the **parent** scope
-- All child nodes of the v-for element are scanned with the v-for variables added to the set of locally scoped names
+The value of `v-slot` / `#name` is a **binding pattern** that destructures the slot props provided by the child component.
 
-**Template walking algorithm:**
+| Pattern | Meaning |
+|---|---|
+| *(empty or absent)* | No slot props received |
+| `props` | All slot props bound to a single object variable named `props` |
+| `{ a, b }` | Individual variables `a` and `b` extracted from the slot props object |
+
+**Not supported:**
+- Destructuring with defaults: `{ item = defaultValue }` — not supported
+- Destructuring with rename: `{ item: myItem }` — not supported
+- Dynamic slot names: `v-slot:[dynamicName]` — not supported
+- Nested destructuring: `{ user: { name } }` — not supported
+
+#### 2.1 Binding Pattern Parsing
+
+The binding pattern is parsed as follows:
+
+1. Trim whitespace.
+2. If empty → no bindings (the slot content receives no props from the child).
+3. If it matches a single identifier (`/^\w+$/`) → single variable binding. At render time, the variable receives the entire slot props object.
+4. If it starts with `{` and ends with `}` → destructured binding. Parse the interior as a comma-separated list of identifiers. Whitespace around commas and braces is ignored.
+5. Otherwise → render error.
+
+### 3. Rendering Behavior
+
+#### 3.1 Slot Content Collection
+
+When `renderComponentElement` processes a component invocation, it separates the component's children into slot buckets:
+
+1. **Scan children** for `<template>` elements that have a `v-slot:name`, `v-slot`, `#name`, or `#default` attribute.
+2. Each such `<template>` defines a **named slot**. The slot name comes from the directive argument (e.g. `v-slot:header` → name is `"header"`, `v-slot` without argument → name is `"default"`).
+3. All remaining children (not wrapped in a `<template v-slot:...>`) form the **default slot** content.
+4. If `v-slot` or `#default` appears on the **component tag itself**, then all of the component's children are the default slot content, and the binding pattern comes from that attribute's value. This form is only valid when there are no `<template v-slot:...>` children — mixing the two is a render error.
+
+Each slot bucket is stored as a `SlotDefinition` (see §4) containing the AST nodes, the caller's scope, and the parsed binding pattern.
+
+#### 3.2 Slot Rendering (at `<slot>` elements)
+
+When the child component's renderer encounters a `<slot>` element:
+
+1. Determine the slot **name**: read the `name` attribute (default: `"default"`).
+2. Look up the `SlotDefinition` for that name in the slot definitions passed by the parent.
+3. If **no definition found** → render the `<slot>` element's own children as fallback content (evaluated in the child's scope).
+4. If a definition **is found**:
+   a. Collect **slot props**: evaluate all dynamic bindings (`:attr="expr"`) on the `<slot>` element in the **child's** current scope. Static attributes on `<slot>` (other than `name`) are also included as string values. The result is a `map[string]any` of slot props.
+   b. Build the **render scope**: start with a clone of the slot definition's parent scope, then apply the binding pattern:
+      - *No binding*: no slot props added; render scope = parent scope.
+      - *Single variable* (`props`): set `renderScope["props"] = slotPropsMap`.
+      - *Destructured* (`{ a, b }`): for each variable name, set `renderScope["a"] = slotPropsMap["a"]`, etc. Missing keys become `nil`.
+   c. **Render** the slot definition's AST nodes into the output using the render scope.
+
+#### 3.3 Scope Rules
+
+- Slot content has access to the **caller's (parent's) scope**. This is Vue's standard behavior.
+- Slot props from the child are **merged into** a clone of the parent scope according to the binding pattern.
+- If a slot prop name conflicts with a parent scope variable, the slot prop wins (within the slot content only).
+- Slot props do **not** leak into the parent's scope outside the slot content.
+- The `<slot>` element itself is **not** rendered to the output — only its content (provided or fallback) is rendered.
+
+#### 3.4 Constraint: v-slot on Component Tag vs. Named Templates
+
+Following Vue's rule: if `v-slot` (or `#default`) appears directly on the component tag, the component must not also contain `<template v-slot:...>` children. This is because `v-slot` on the component tag means "all my children are the default slot content", which conflicts with children being distributed to named slots. Violating this constraint produces a render error:
 
 ```
-func collectProps(node, localVars) -> map[name][]expression:
-    props = {}
-    for each child of node:
-        if child is TextNode:
-            for each {{ expr }} match in child.Data:
-                ids = expr.CollectIdentifiers(expr)
-                for each id not in localVars and not excluded:
-                    props[id].add(expr)
-        if child is ElementNode:
-            if child has v-for:
-                vars, collExpr = parseVFor(v-for value)
-                ids = expr.CollectIdentifiers(collExpr)
-                for each id not in localVars and not excluded:
-                    props[id].add(collExpr)
-                newLocalVars = localVars ∪ vars
-                scan attributes of child (except v-for) with localVars
-                collectProps(child, newLocalVars)  // recurse with extended locals
-            else:
-                scan all directive/binding attributes for expressions
-                collectProps(child, localVars)  // recurse with same locals
-    return props
+component "MyComponent": v-slot on component tag cannot be mixed with named slot templates
 ```
 
-### 4. Missing Prop Handling at Render Time
+### 4. New Types
 
-#### 4.1. MissingPropFunc Type
+#### 4.1 SlotDefinition
 
 ```go
-// MissingPropFunc is called when a prop expected by the component's template
-// is not present in the render scope. It receives the prop name and returns
-// a substitute value, or an error to abort rendering.
-type MissingPropFunc func(name string) (any, error)
-```
+// SlotDefinition holds the deferred content for a single named slot.
+// It captures the caller's AST nodes and scope so the child component
+// can render slot content at <slot> time with slot props merged in.
+type SlotDefinition struct {
+    // Nodes are the AST nodes to render (children of the <template> wrapper,
+    // or direct children of the component element for the default slot).
+    Nodes []*html.Node
 
-#### 4.2. Built-in MissingPropFunc Implementations
+    // ParentScope is the caller's scope at the time the component was invoked.
+    // It is cloned before merging slot props to avoid mutation.
+    ParentScope map[string]any
 
-```go
-// SubstituteMissingProp returns a placeholder string "MISSING PROP: <name>"
-// for any missing prop. Use this during development to make missing data
-// visible in the rendered output without aborting.
-func SubstituteMissingProp(name string) (any, error) {
-    return fmt.Sprintf("MISSING PROP: %s", name), nil
+    // BindingVar is set when the binding pattern is a single variable
+    // (e.g. v-slot="props"). The entire slot props object is bound to this name.
+    BindingVar string
+
+    // Bindings is set when the binding pattern uses destructuring
+    // (e.g. v-slot="{ user, index }"). Each string is a variable name.
+    Bindings []string
 }
 ```
 
-#### 4.3. Renderer Configuration
+### 5. Backward Compatibility
 
-```go
-// WithMissingPropHandler sets the function called when a prop expected by
-// the component template is not found in the render scope.
-// If not set, rendering returns an error for any missing prop.
-func (r *Renderer) WithMissingPropHandler(fn MissingPropFunc) *Renderer
-```
+The internal `$slot` string variable is replaced by slot definitions passed through the renderer. This is an internal change — the `$` prefix means it is renderer-injected and not part of the public API.
 
-#### 4.4. Validation Logic
+**Behavior preserved:**
+- `<slot />` with plain children (no `v-slot`) continues to work. The children are collected as the default slot with no binding pattern.
+- Fallback content (children of `<slot>`) continues to work.
+- Slot content is still evaluated in the caller's scope (now explicitly, via `ParentScope`).
+- `<slot>` elements produce no wrapper element in the output.
 
-When `Renderer.Render(scope)` is called:
+**What changes internally:**
+- Slot content is no longer pre-rendered to a string. Instead, AST nodes and the parent scope are captured and rendered when the child component's `<slot>` element is processed. This is necessary because scoped slots depend on data from the child component that isn't available at the time the parent renders.
 
-1. Call `r.component.Props()` to get the expected props.
-2. For each `PropInfo`, check if `Name` exists as a key in `scope`.
-3. If a prop is missing:
-   - If `MissingPropHandler` is set: call it, inject the returned value into a copy of the scope.
-   - If no handler is set: return `fmt.Errorf("missing prop %q (used in: %s)", name, expressions)`.
-4. Proceed with rendering using the (possibly augmented) scope.
+### 6. `<template>` Element Handling
 
-This validation applies at every component boundary. Child components get their own scope built from attributes in `renderComponentElement`, and that scope is validated against the child component's own `Props()`.
+`<template>` elements with `v-slot` or `#` directives are **transparent wrappers**: they are not rendered to the output. Only their children are rendered. This is consistent with how `<template v-if>` and `<template v-for>` already behave in the renderer.
 
-#### 4.5. Engine Integration
+A bare `<template>` without any directive renders its children without a wrapper element (same behavior as `v-if` / `v-for` cases).
 
-The `Engine` propagates the `MissingPropFunc` to every `Renderer` it creates internally. Add a configuration option:
+### 7. Props Discovery Integration
 
-```go
-// WithMissingPropHandler sets the function called when any component rendered
-// by this engine has a missing prop. If not set, missing props cause render errors.
-func (e *Engine) WithMissingPropHandler(fn MissingPropFunc) *Engine
-```
+The `Component.Props()` method must be updated to account for `v-slot` binding patterns:
+
+- Variables introduced by `v-slot` binding patterns (e.g. `user` and `index` from `v-slot="{ user, index }"`) are **locally scoped** to the slot content, similar to how `v-for` variables are locally scoped. They must be excluded from the component's prop list.
+- The expression in a `:attr` binding on a `<slot>` element references the **component's own** scope, so identifiers in those expressions are part of the component's props.
 
 ## Scope of Changes
 
 ### Files to modify:
-- **`expr/identifiers.go`** (new): add `CollectIdentifiers` function
-- **`component.go`**: add `PropInfo` type and `Component.Props()` method
-- **`renderer.go`**: add `MissingPropFunc`, `SubstituteMissingProp`, `WithMissingPropHandler`, and the validation logic in `Render()` and `renderComponentElement()`
-- **`engine.go`**: add `WithMissingPropHandler` option and propagation
+- **`renderer.go`**: Major changes — add `SlotDefinition` type, rewrite `renderComponentElement` to collect slot definitions instead of pre-rendering, rewrite `<slot>` rendering to use slot definitions with scope merging, add binding pattern parsing, add validation for mixed `v-slot` usage
+- **`component.go`**: Update `Props()` to handle `v-slot` binding patterns as local scope variables and to recognize `#` shorthand attributes
+
+### Files that may need changes:
+- **`renderer_test.go`**: Add comprehensive tests for named slots, scoped slots, fallback content, binding patterns, error cases
+- **`integration_test.go`**: Add integration tests with multi-component slot scenarios
+- **`example_test.go`**: Add example tests demonstrating slot usage
 
 ### New test coverage:
-- `expr/identifiers_test.go`: test identifier collection for various expression forms (simple, member access, nested, calls, v-for-like)
-- `component_test.go`: test `Props()` for templates with interpolations, bindings, directives, v-for scoping, nested v-for
-- `renderer_test.go`: test missing prop error, `SubstituteMissingProp` behavior, custom handler
-- `engine_test.go`: test engine-level missing prop handler propagation
+
+**Named slots:**
+- Component with `<slot name="header" />` and `<slot name="footer" />` receives content via `<template #header>` and `<template #footer>`
+- Unnamed content goes to default slot
+- Missing named slot renders fallback content
+- Provided named slot overrides fallback content
+
+**Scoped slots:**
+- Child passes `:user="user"` on `<slot>`, caller receives via `v-slot="{ user }"`
+- Single variable binding: `v-slot="props"` receives the full props object
+- Scoped slot inside `v-for` — each iteration passes different data
+- Slot content accesses both parent scope variables and slot props
+
+**Binding pattern parsing:**
+- Empty pattern (no binding)
+- Single identifier pattern
+- Destructured pattern with one variable
+- Destructured pattern with multiple variables
+- Whitespace tolerance in destructured patterns
+- Invalid pattern produces error
+
+**Error cases:**
+- `v-slot` on component tag mixed with `<template #named>` children → error
+- Invalid binding pattern → error
+
+**Backward compatibility:**
+- Existing tests continue to pass (plain `<slot />` with no `v-slot` on caller)
 
 ## Examples
 
-### Querying Props
+### Named Slots
 
 ```go
-comp, _ := htmlc.ParseFile("card.vue", `
+layout, _ := htmlc.ParseFile("Layout.vue", `
 <template>
-  <div :class="cardClass">
-    <h1>{{ title }}</h1>
-    <ul>
-      <li v-for="item in items">{{ item.name }}</li>
-    </ul>
+  <div class="layout">
+    <header><slot name="header" /></header>
+    <main><slot /></main>
+    <footer><slot name="footer" /></footer>
   </div>
 </template>`)
 
-props := comp.Props()
-// props contains:
-// - {Name: "cardClass", Expressions: ["cardClass"]}
-// - {Name: "title",     Expressions: ["title"]}
-// - {Name: "items",     Expressions: ["items"]}
-// "item" is NOT included (it's a v-for local variable)
+page, _ := htmlc.ParseFile("Page.vue", `
+<template>
+  <Layout>
+    <template #header><h1>My Site</h1></template>
+    <p>Main content here.</p>
+    <template #footer><small>© 2025</small></template>
+  </Layout>
+</template>`)
+
+out, _ := htmlc.NewRenderer(page).
+    WithComponents(htmlc.Registry{"Layout": layout}).
+    RenderString(nil)
+
+// Output:
+// <div class="layout">
+//   <header><h1>My Site</h1></header>
+//   <main><p>Main content here.</p></main>
+//   <footer><small>© 2025</small></footer>
+// </div>
 ```
 
-### Rendering with Missing Props
+### Scoped Slots
 
 ```go
-// Default: error on missing prop
-_, err := htmlc.NewRenderer(comp).Render(map[string]any{"title": "Hello"})
-// err: missing prop "cardClass" (used in: cardClass)
+userList, _ := htmlc.ParseFile("UserList.vue", `
+<template>
+  <ul>
+    <li v-for="(user, i) in users">
+      <slot :user="user" :index="i" />
+    </li>
+  </ul>
+</template>`)
 
-// With placeholder substitution
-out, _ := htmlc.NewRenderer(comp).
-    WithMissingPropHandler(htmlc.SubstituteMissingProp).
-    Render(map[string]any{"title": "Hello"})
-// out contains "MISSING PROP: cardClass" and "MISSING PROP: items" in the output
+page, _ := htmlc.ParseFile("Page.vue", `
+<template>
+  <UserList :users="users" v-slot="{ user, index }">
+    <strong>{{ index }}</strong>: {{ user.name }}
+  </UserList>
+</template>`)
 
-// With custom handler
-out, _ := htmlc.NewRenderer(comp).
-    WithMissingPropHandler(func(name string) (any, error) {
-        return nil, nil  // treat all missing props as nil
-    }).
-    Render(map[string]any{"title": "Hello"})
+out, _ := htmlc.NewRenderer(page).
+    WithComponents(htmlc.Registry{"UserList": userList}).
+    RenderString(map[string]any{
+        "users": []map[string]any{
+            {"name": "Alice"},
+            {"name": "Bob"},
+        },
+    })
+
+// Output:
+// <ul>
+//   <li><strong>0</strong>: Alice</li>
+//   <li><strong>1</strong>: Bob</li>
+// </ul>
+```
+
+### Fallback Content
+
+```go
+card, _ := htmlc.ParseFile("Card.vue", `
+<template>
+  <div class="card">
+    <slot name="title"><h2>Untitled</h2></slot>
+    <slot><p>No content provided.</p></slot>
+  </div>
+</template>`)
+
+page, _ := htmlc.ParseFile("Page.vue", `
+<template>
+  <Card>
+    <template #title><h2>My Card</h2></template>
+  </Card>
+</template>`)
+
+out, _ := htmlc.NewRenderer(page).
+    WithComponents(htmlc.Registry{"Card": card}).
+    RenderString(nil)
+
+// Output:
+// <div class="card">
+//   <h2>My Card</h2>
+//   <p>No content provided.</p>
+// </div>
+```
+
+### Single Variable Binding
+
+```go
+wrapper, _ := htmlc.ParseFile("Wrapper.vue", `
+<template>
+  <div><slot :msg="greeting" :count="total" /></div>
+</template>`)
+
+page, _ := htmlc.ParseFile("Page.vue", `
+<template>
+  <Wrapper :greeting="'hello'" :total="42" v-slot="slotProps">
+    {{ slotProps.msg }} ({{ slotProps.count }})
+  </Wrapper>
+</template>`)
+
+out, _ := htmlc.NewRenderer(page).
+    WithComponents(htmlc.Registry{"Wrapper": wrapper}).
+    RenderString(nil)
+
+// Output:
+// <div>hello (42)</div>
 ```
