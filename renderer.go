@@ -3,6 +3,7 @@ package htmlc
 import (
 	stdhtml "html"
 	"fmt"
+	"io"
 	"math"
 	"reflect"
 	"regexp"
@@ -105,12 +106,12 @@ func (r *Renderer) validateProps(scope map[string]any) (map[string]any, error) {
 }
 
 // Render evaluates the component's template against the given data scope and
-// returns the rendered HTML string.
-func (r *Renderer) Render(scope map[string]any) (string, error) {
+// writes the rendered HTML directly to w.
+func (r *Renderer) Render(w io.Writer, scope map[string]any) error {
 	var err error
 	scope, err = r.validateProps(scope)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	// Collect this component's styles before rendering.
@@ -125,80 +126,92 @@ func (r *Renderer) Render(scope map[string]any) (string, error) {
 		r.styleCollector.Add(StyleContribution{ScopeID: sid, CSS: css})
 	}
 
+	return r.renderNode(w, r.component.Template, scope)
+}
+
+// RenderString evaluates the component's template against the given data scope
+// and returns the rendered HTML as a string. It is a convenience wrapper
+// around Render.
+func (r *Renderer) RenderString(scope map[string]any) (string, error) {
 	var sb strings.Builder
-	if err := r.renderNode(&sb, r.component.Template, scope); err != nil {
+	if err := r.Render(&sb, scope); err != nil {
 		return "", err
 	}
 	return sb.String(), nil
 }
 
+// RenderString is a convenience wrapper that creates a temporary Renderer for c
+// and renders it against scope, returning the result as a string. It does not
+// collect styles or support component composition; use NewRenderer with
+// WithStyles and WithComponents for those features.
+func RenderString(c *Component, scope map[string]any) (string, error) {
+	return NewRenderer(c).RenderString(scope)
+}
+
 // Render is a convenience wrapper that creates a temporary Renderer for c and
-// renders it against scope in one call. It does not collect styles or support
+// writes the rendered HTML directly to w. It does not collect styles or support
 // component composition; use NewRenderer with WithStyles and WithComponents for
 // those features.
-func Render(c *Component, scope map[string]any) (string, error) {
-	return NewRenderer(c).Render(scope)
+func Render(w io.Writer, c *Component, scope map[string]any) error {
+	return NewRenderer(c).Render(w, scope)
 }
 
 // mustacheRe matches {{ expression }} patterns inside text nodes.
 var mustacheRe = regexp.MustCompile(`\{\{(.*?)\}\}`)
 
-// renderNode recursively writes n into sb.
-func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node, scope map[string]any) error {
+// renderNode recursively writes n into w.
+func (r *Renderer) renderNode(w io.Writer, n *html.Node, scope map[string]any) error {
 	switch n.Type {
 	case html.DocumentNode:
-		if err := r.renderChildren(sb, n, scope); err != nil {
+		if err := r.renderChildren(w, n, scope); err != nil {
 			return err
 		}
 
 	case html.TextNode:
-		result, err := r.interpolate(n.Data, scope)
-		if err != nil {
+		if err := r.interpolate(w, n.Data, scope); err != nil {
 			return err
 		}
-		sb.WriteString(result)
 
 	case html.ElementNode:
-		if err := r.renderElement(sb, n, scope); err != nil {
+		if err := r.renderElement(w, n, scope); err != nil {
 			return err
 		}
 
 	case html.CommentNode:
-		sb.WriteString("<!--")
-		sb.WriteString(n.Data)
-		sb.WriteString("-->")
+		io.WriteString(w, "<!--")
+		io.WriteString(w, n.Data)
+		io.WriteString(w, "-->")
 
 	case html.DoctypeNode:
-		sb.WriteString("<!DOCTYPE ")
-		sb.WriteString(n.Data)
-		sb.WriteByte('>')
+		io.WriteString(w, "<!DOCTYPE ")
+		io.WriteString(w, n.Data)
+		w.Write([]byte{'>'})
 	}
 	return nil
 }
 
-// interpolate processes mustache expressions within text and returns the result.
+// interpolate processes mustache expressions within text and writes the result to w.
 // Literal segments are HTML-escaped; {{ expr }} segments are evaluated and escaped.
-func (r *Renderer) interpolate(text string, scope map[string]any) (string, error) {
-	var sb strings.Builder
+func (r *Renderer) interpolate(w io.Writer, text string, scope map[string]any) error {
 	lastEnd := 0
 
 	for _, loc := range mustacheRe.FindAllStringSubmatchIndex(text, -1) {
 		// Write literal text before this match, HTML-escaped.
-		sb.WriteString(stdhtml.EscapeString(text[lastEnd:loc[0]]))
+		io.WriteString(w, stdhtml.EscapeString(text[lastEnd:loc[0]]))
 
 		// Evaluate the captured expression (loc[2]:loc[3]).
 		exprSrc := strings.TrimSpace(text[loc[2]:loc[3]])
 		val, err := expr.Eval(exprSrc, scope)
 		if err != nil {
-			return "", fmt.Errorf("interpolation %q: %w", exprSrc, err)
+			return fmt.Errorf("interpolation %q: %w", exprSrc, err)
 		}
-		sb.WriteString(stdhtml.EscapeString(valueToString(val)))
+		io.WriteString(w, stdhtml.EscapeString(valueToString(val)))
 
 		lastEnd = loc[1]
 	}
 	// Write remaining literal text.
-	sb.WriteString(stdhtml.EscapeString(text[lastEnd:]))
-	return sb.String(), nil
+	io.WriteString(w, stdhtml.EscapeString(text[lastEnd:]))
+	return nil
 }
 
 // conditionalDirective returns the conditional directive key on an element node,
@@ -239,13 +252,13 @@ func nextSignificantSibling(n *html.Node) *html.Node {
 
 // renderChildren iterates the children of parent and renders them, handling
 // v-if/v-else-if/v-else chains and v-for directives.
-func (r *Renderer) renderChildren(sb *strings.Builder, parent *html.Node, scope map[string]any) error {
+func (r *Renderer) renderChildren(w io.Writer, parent *html.Node, scope map[string]any) error {
 	child := parent.FirstChild
 	for child != nil {
 		if child.Type == html.ElementNode {
 			// v-for takes precedence; render the loop and move on.
 			if vforExpr, ok := attrValue(child, "v-for"); ok {
-				if err := r.renderVFor(sb, child, vforExpr, scope); err != nil {
+				if err := r.renderVFor(w, child, vforExpr, scope); err != nil {
 					return err
 				}
 				child = child.NextSibling
@@ -253,7 +266,7 @@ func (r *Renderer) renderChildren(sb *strings.Builder, parent *html.Node, scope 
 			}
 			switch conditionalDirective(child) {
 			case "v-if":
-				lastInChain, err := r.renderConditionalChain(sb, child, scope)
+				lastInChain, err := r.renderConditionalChain(w, child, scope)
 				if err != nil {
 					return err
 				}
@@ -265,7 +278,7 @@ func (r *Renderer) renderChildren(sb *strings.Builder, parent *html.Node, scope 
 				return fmt.Errorf("v-else without preceding v-if or v-else-if")
 			}
 		}
-		if err := r.renderNode(sb, child, scope); err != nil {
+		if err := r.renderNode(w, child, scope); err != nil {
 			return err
 		}
 		child = child.NextSibling
@@ -276,7 +289,7 @@ func (r *Renderer) renderChildren(sb *strings.Builder, parent *html.Node, scope 
 // renderConditionalChain collects and evaluates a v-if/v-else-if/v-else chain
 // starting at vIfNode. It renders the first truthy branch and returns the last
 // node consumed in the chain so the caller can advance past it.
-func (r *Renderer) renderConditionalChain(sb *strings.Builder, vIfNode *html.Node, scope map[string]any) (*html.Node, error) {
+func (r *Renderer) renderConditionalChain(w io.Writer, vIfNode *html.Node, scope map[string]any) (*html.Node, error) {
 	type condBranch struct {
 		node   *html.Node
 		expr   string
@@ -322,11 +335,11 @@ func (r *Renderer) renderConditionalChain(sb *strings.Builder, vIfNode *html.Nod
 		}
 		// Render the branch. <template> renders only its children.
 		if b.node.Data == "template" {
-			if err := r.renderChildren(sb, b.node, scope); err != nil {
+			if err := r.renderChildren(w, b.node, scope); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := r.renderElement(sb, b.node, scope); err != nil {
+			if err := r.renderElement(w, b.node, scope); err != nil {
 				return nil, err
 			}
 		}
@@ -346,51 +359,51 @@ type outAttr struct {
 // renderRaw serializes n and its descendants verbatim, without any directive
 // processing or interpolation. The v-pre attribute itself is stripped from the
 // root element's output. Used by v-pre.
-func (r *Renderer) renderRaw(sb *strings.Builder, n *html.Node) {
+func (r *Renderer) renderRaw(w io.Writer, n *html.Node) {
 	switch n.Type {
 	case html.TextNode:
-		sb.WriteString(stdhtml.EscapeString(n.Data))
+		io.WriteString(w, stdhtml.EscapeString(n.Data))
 
 	case html.ElementNode:
-		sb.WriteByte('<')
-		sb.WriteString(n.Data)
+		w.Write([]byte{'<'})
+		io.WriteString(w, n.Data)
 		for _, attr := range n.Attr {
 			if attr.Key == "v-pre" {
 				continue // strip v-pre directive from output
 			}
-			sb.WriteByte(' ')
-			sb.WriteString(attr.Key)
+			w.Write([]byte{' '})
+			io.WriteString(w, attr.Key)
 			if attr.Val != "" {
-				sb.WriteString(`="`)
-				sb.WriteString(stdhtml.EscapeString(attr.Val))
-				sb.WriteByte('"')
+				io.WriteString(w, `="`)
+				io.WriteString(w, stdhtml.EscapeString(attr.Val))
+				w.Write([]byte{'"'})
 			}
 		}
 		if isVoidElement(n.Data) {
-			sb.WriteByte('>')
+			w.Write([]byte{'>'})
 			return
 		}
-		sb.WriteByte('>')
+		w.Write([]byte{'>'})
 		for child := n.FirstChild; child != nil; child = child.NextSibling {
-			r.renderRaw(sb, child)
+			r.renderRaw(w, child)
 		}
-		sb.WriteString("</")
-		sb.WriteString(n.Data)
-		sb.WriteByte('>')
+		io.WriteString(w, "</")
+		io.WriteString(w, n.Data)
+		w.Write([]byte{'>'})
 
 	case html.CommentNode:
-		sb.WriteString("<!--")
-		sb.WriteString(n.Data)
-		sb.WriteString("-->")
+		io.WriteString(w, "<!--")
+		io.WriteString(w, n.Data)
+		io.WriteString(w, "-->")
 	}
 }
 
-// renderElement writes the HTML element n into sb, processing directives and
+// renderElement writes the HTML element n into w, processing directives and
 // dynamic attribute bindings (:attr / v-bind:attr).
-func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[string]any) error {
+func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any) error {
 	// v-pre: emit the element and all descendants verbatim, no processing.
 	if _, hasPre := attrValue(n, "v-pre"); hasPre {
-		r.renderRaw(sb, n)
+		r.renderRaw(w, n)
 		return nil
 	}
 
@@ -398,17 +411,17 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 	if n.Data == "slot" {
 		if slotContent, ok := scope["$slot"]; ok {
 			if s, ok2 := slotContent.(string); ok2 {
-				sb.WriteString(s)
+				io.WriteString(w, s)
 				return nil
 			}
 		}
 		// No slot content: render fallback children (if any).
-		return r.renderChildren(sb, n, scope)
+		return r.renderChildren(w, n, scope)
 	}
 
 	// Component: resolve the tag name against the registry.
 	if comp := r.resolveComponent(n.Data); comp != nil {
-		return r.renderComponentElement(sb, n, scope, comp)
+		return r.renderComponentElement(w, n, scope, comp)
 	}
 	// Unknown component-like tag (kebab-case with hyphen, not in registry).
 	if r.registry != nil && isComponentLike(n.Data) {
@@ -515,54 +528,54 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 	}
 
 	// Open tag.
-	sb.WriteByte('<')
-	sb.WriteString(n.Data)
+	w.Write([]byte{'<'})
+	io.WriteString(w, n.Data)
 
 	// Static non-class/style attrs.
 	for _, attr := range staticAttrs {
-		sb.WriteByte(' ')
-		sb.WriteString(attr.Key)
-		sb.WriteString(`="`)
-		sb.WriteString(stdhtml.EscapeString(attr.Val))
-		sb.WriteByte('"')
+		w.Write([]byte{' '})
+		io.WriteString(w, attr.Key)
+		io.WriteString(w, `="`)
+		io.WriteString(w, stdhtml.EscapeString(attr.Val))
+		w.Write([]byte{'"'})
 	}
 
 	// Merged class.
 	if len(classParts) > 0 {
-		sb.WriteString(` class="`)
-		sb.WriteString(stdhtml.EscapeString(strings.Join(classParts, " ")))
-		sb.WriteByte('"')
+		io.WriteString(w, ` class="`)
+		io.WriteString(w, stdhtml.EscapeString(strings.Join(classParts, " ")))
+		w.Write([]byte{'"'})
 	}
 
 	// Merged style.
 	if len(styleParts) > 0 {
-		sb.WriteString(` style="`)
-		sb.WriteString(stdhtml.EscapeString(strings.Join(styleParts, ";")))
-		sb.WriteByte('"')
+		io.WriteString(w, ` style="`)
+		io.WriteString(w, stdhtml.EscapeString(strings.Join(styleParts, ";")))
+		w.Write([]byte{'"'})
 	}
 
 	// Dynamic attrs (data-key, boolean, regular).
 	for _, a := range dynAttrs {
-		sb.WriteByte(' ')
-		sb.WriteString(a.key)
+		w.Write([]byte{' '})
+		io.WriteString(w, a.key)
 		if !a.boolOnly {
-			sb.WriteString(`="`)
-			sb.WriteString(stdhtml.EscapeString(a.val))
-			sb.WriteByte('"')
+			io.WriteString(w, `="`)
+			io.WriteString(w, stdhtml.EscapeString(a.val))
+			w.Write([]byte{'"'})
 		}
 	}
 
 	// Add scope attribute for scoped components.
 	if r.component.Scoped {
-		sb.WriteByte(' ')
-		sb.WriteString(ScopeID(r.component.Path))
+		w.Write([]byte{' '})
+		io.WriteString(w, ScopeID(r.component.Path))
 	}
 
 	if isVoidElement(n.Data) {
-		sb.WriteByte('>')
+		w.Write([]byte{'>'})
 		return nil
 	}
-	sb.WriteByte('>')
+	w.Write([]byte{'>'})
 
 	// Content: v-text, v-html, or child nodes.
 	switch {
@@ -571,25 +584,25 @@ func (r *Renderer) renderElement(sb *strings.Builder, n *html.Node, scope map[st
 		if err != nil {
 			return fmt.Errorf("v-text %q: %w", vTextExpr, err)
 		}
-		sb.WriteString(stdhtml.EscapeString(valueToString(val)))
+		io.WriteString(w, stdhtml.EscapeString(valueToString(val)))
 
 	case vHTMLExpr != "":
 		val, err := expr.Eval(strings.TrimSpace(vHTMLExpr), scope)
 		if err != nil {
 			return fmt.Errorf("v-html %q: %w", vHTMLExpr, err)
 		}
-		sb.WriteString(valueToString(val))
+		io.WriteString(w, valueToString(val))
 
 	default:
-		if err := r.renderChildren(sb, n, scope); err != nil {
+		if err := r.renderChildren(w, n, scope); err != nil {
 			return err
 		}
 	}
 
 	// Close tag.
-	sb.WriteString("</")
-	sb.WriteString(n.Data)
-	sb.WriteByte('>')
+	io.WriteString(w, "</")
+	io.WriteString(w, n.Data)
+	w.Write([]byte{'>'})
 	return nil
 }
 
@@ -678,7 +691,7 @@ func (r *Renderer) resolveComponent(tagName string) *Component {
 // renderComponentElement renders n as a component invocation: props are built
 // from the element's attributes, inner content is pre-rendered as the default
 // slot, and then the child component's template is rendered with those props.
-func (r *Renderer) renderComponentElement(sb *strings.Builder, n *html.Node, scope map[string]any, comp *Component) error {
+func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[string]any, comp *Component) error {
 	childScope := make(map[string]any)
 
 	for _, attr := range n.Attr {
@@ -724,16 +737,14 @@ func (r *Renderer) renderComponentElement(sb *strings.Builder, n *html.Node, sco
 		missingPropHandler: r.missingPropHandler,
 	}
 
-	result, err := childRenderer.Render(childScope)
-	if err != nil {
+	if err := childRenderer.Render(w, childScope); err != nil {
 		return fmt.Errorf("component %q: %w", n.Data, err)
 	}
-	sb.WriteString(result)
 	return nil
 }
 
 // renderVFor renders n repeatedly for each element in the v-for collection.
-func (r *Renderer) renderVFor(sb *strings.Builder, n *html.Node, vforExpr string, scope map[string]any) error {
+func (r *Renderer) renderVFor(w io.Writer, n *html.Node, vforExpr string, scope map[string]any) error {
 	vars, collExpr, err := parseVFor(vforExpr)
 	if err != nil {
 		return err
@@ -746,9 +757,9 @@ func (r *Renderer) renderVFor(sb *strings.Builder, n *html.Node, vforExpr string
 
 	renderOne := func(iterScope map[string]any) error {
 		if n.Data == "template" {
-			return r.renderChildren(sb, n, iterScope)
+			return r.renderChildren(w, n, iterScope)
 		}
-		return r.renderElement(sb, n, iterScope)
+		return r.renderElement(w, n, iterScope)
 	}
 
 	if collection == nil {

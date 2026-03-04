@@ -133,9 +133,9 @@ func TestRenderer_ScopedElementsHaveScopeAttr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
-	out, err := Render(c, nil)
+	out, err := RenderString(c, nil)
 	if err != nil {
-		t.Fatalf("Render: %v", err)
+		t.Fatalf("RenderString: %v", err)
 	}
 	sid := ScopeID("Card.vue")
 	// Both <div> and <p> should carry the scope attribute.
@@ -151,9 +151,9 @@ func TestRenderer_ScopedVoidElementHasScopeAttr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
-	out, err := Render(c, nil)
+	out, err := RenderString(c, nil)
 	if err != nil {
-		t.Fatalf("Render: %v", err)
+		t.Fatalf("RenderString: %v", err)
 	}
 	sid := ScopeID("Img.vue")
 	if !strings.Contains(out, sid) {
@@ -167,9 +167,9 @@ func TestRenderer_GlobalComponentNoScopeAttr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
-	out, err := Render(c, nil)
+	out, err := RenderString(c, nil)
 	if err != nil {
-		t.Fatalf("Render: %v", err)
+		t.Fatalf("RenderString: %v", err)
 	}
 	if strings.Contains(out, "data-v-") {
 		t.Errorf("rendered %q: global component must not add scope attr", out)
@@ -185,7 +185,7 @@ func TestStyleCollector_ScopedCSSRewritten(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 	sc := &StyleCollector{}
-	if _, err := NewRenderer(c).WithStyles(sc).Render(nil); err != nil {
+	if _, err := NewRenderer(c).WithStyles(sc).RenderString(nil); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	contribs := sc.All()
@@ -212,7 +212,7 @@ func TestStyleCollector_GlobalCSSUnchanged(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 	sc := &StyleCollector{}
-	if _, err := NewRenderer(c).WithStyles(sc).Render(nil); err != nil {
+	if _, err := NewRenderer(c).WithStyles(sc).RenderString(nil); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	contribs := sc.All()
@@ -235,8 +235,8 @@ func TestStyleCollector_MultipleComponents(t *testing.T) {
 	c2, _ := ParseFile("B.vue", src2)
 
 	sc := &StyleCollector{}
-	NewRenderer(c1).WithStyles(sc).Render(nil) //nolint:errcheck
-	NewRenderer(c2).WithStyles(sc).Render(nil) //nolint:errcheck
+	NewRenderer(c1).WithStyles(sc).RenderString(nil) //nolint:errcheck
+	NewRenderer(c2).WithStyles(sc).RenderString(nil) //nolint:errcheck
 
 	got := sc.All()
 	if len(got) != 2 {
@@ -259,7 +259,7 @@ func TestStyleCollector_NoStyleNoContribution(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 	sc := &StyleCollector{}
-	if _, err := NewRenderer(c).WithStyles(sc).Render(nil); err != nil {
+	if _, err := NewRenderer(c).WithStyles(sc).RenderString(nil); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	if len(sc.All()) != 0 {
@@ -277,7 +277,7 @@ func TestStyleCollector_DeduplicatesSameComponent(t *testing.T) {
 	}
 	sc := &StyleCollector{}
 	for range 3 {
-		if _, err := NewRenderer(c).WithStyles(sc).Render(nil); err != nil {
+		if _, err := NewRenderer(c).WithStyles(sc).RenderString(nil); err != nil {
 			t.Fatalf("Render: %v", err)
 		}
 	}
@@ -294,10 +294,10 @@ func TestStyleCollector_DifferentComponentsBothKept(t *testing.T) {
 	c2, _ := ParseFile("B.vue", src2)
 
 	sc := &StyleCollector{}
-	NewRenderer(c1).WithStyles(sc).Render(nil) //nolint:errcheck
-	NewRenderer(c2).WithStyles(sc).Render(nil) //nolint:errcheck
+	NewRenderer(c1).WithStyles(sc).RenderString(nil) //nolint:errcheck
+	NewRenderer(c2).WithStyles(sc).RenderString(nil) //nolint:errcheck
 	// Render c1 again — should still be deduplicated.
-	NewRenderer(c1).WithStyles(sc).Render(nil) //nolint:errcheck
+	NewRenderer(c1).WithStyles(sc).RenderString(nil) //nolint:errcheck
 
 	if got := len(sc.All()); got != 2 {
 		t.Errorf("two different components: got %d contributions, want 2", got)
@@ -313,8 +313,8 @@ func TestStyleCollector_DeduplicatesGlobalCSS(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 	sc := &StyleCollector{}
-	NewRenderer(c).WithStyles(sc).Render(nil) //nolint:errcheck
-	NewRenderer(c).WithStyles(sc).Render(nil) //nolint:errcheck
+	NewRenderer(c).WithStyles(sc).RenderString(nil) //nolint:errcheck
+	NewRenderer(c).WithStyles(sc).RenderString(nil) //nolint:errcheck
 
 	if got := len(sc.All()); got != 1 {
 		t.Errorf("same global component rendered twice: got %d contributions, want 1", got)
@@ -328,7 +328,7 @@ func TestStyleCollector_NilCollectorDoesNotPanic(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 	// No WithStyles call — styleCollector is nil.
-	if _, err := NewRenderer(c).Render(nil); err != nil {
+	if _, err := NewRenderer(c).RenderString(nil); err != nil {
 		t.Fatalf("Render with nil collector: %v", err)
 	}
 }

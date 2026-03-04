@@ -166,7 +166,7 @@ func (e *Engine) renderComponent(name string, data map[string]any) (string, *Sty
 	if e.missingPropHandler != nil {
 		renderer = renderer.WithMissingPropHandler(e.missingPropHandler)
 	}
-	out, err := renderer.Render(data)
+	out, err := renderer.RenderString(data)
 	if err != nil {
 		return "", nil, err
 	}

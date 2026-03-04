@@ -14,9 +14,9 @@ func renderTemplate(t *testing.T, tmpl string, scope map[string]any) string {
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
-	out, err := Render(c, scope)
+	out, err := RenderString(c, scope)
 	if err != nil {
-		t.Fatalf("Render: %v", err)
+		t.Fatalf("RenderString: %v", err)
 	}
 	return out
 }
@@ -221,7 +221,7 @@ func TestRender_VElseOrphanError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
-	_, renderErr := Render(c, nil)
+	_, renderErr := RenderString(c, nil)
 	if renderErr == nil {
 		t.Error("expected an error for orphan v-else, got nil")
 	}
@@ -597,7 +597,7 @@ func TestRender_ComponentDynamicProp(t *testing.T) {
 	// <Card :title="t"> renders Card's template with title in scope.
 	card := mustParseComponent(t, "card.vue", `<div class="card"><h1>{{ title }}</h1></div>`)
 	main := mustParseComponent(t, "main.vue", `<Card :title="t"></Card>`)
-	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).Render(map[string]any{"t": "Hello"})
+	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).RenderString(map[string]any{"t": "Hello"})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -610,7 +610,7 @@ func TestRender_ComponentSlot(t *testing.T) {
 	// <slot /> in the child component emits the caller's inner content.
 	card := mustParseComponent(t, "card.vue", `<div class="card"><slot /></div>`)
 	main := mustParseComponent(t, "main.vue", `<Card>inner content</Card>`)
-	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).Render(nil)
+	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).RenderString(nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -626,7 +626,7 @@ func TestRender_ComponentStaticAttr(t *testing.T) {
 	// Static attributes like <Card class="x"> pass class as a string prop.
 	card := mustParseComponent(t, "card.vue", `<div>{{ class }}</div>`)
 	main := mustParseComponent(t, "main.vue", `<Card class="x"></Card>`)
-	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).Render(nil)
+	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).RenderString(nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -639,7 +639,7 @@ func TestRender_ComponentKebabCase(t *testing.T) {
 	// <my-card> resolves to a component registered as MyCard.
 	card := mustParseComponent(t, "my-card.vue", `<section>{{ label }}</section>`)
 	main := mustParseComponent(t, "main.vue", `<my-card :label="lbl"></my-card>`)
-	out, err := NewRenderer(main).WithComponents(Registry{"MyCard": card}).Render(map[string]any{"lbl": "kebab"})
+	out, err := NewRenderer(main).WithComponents(Registry{"MyCard": card}).RenderString(map[string]any{"lbl": "kebab"})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -652,7 +652,7 @@ func TestRender_ComponentKebabCaseDirectMatch(t *testing.T) {
 	// <my-card> also resolves to a component registered as "my-card".
 	card := mustParseComponent(t, "my-card.vue", `<section>direct</section>`)
 	main := mustParseComponent(t, "main.vue", `<my-card></my-card>`)
-	out, err := NewRenderer(main).WithComponents(Registry{"my-card": card}).Render(nil)
+	out, err := NewRenderer(main).WithComponents(Registry{"my-card": card}).RenderString(nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -664,7 +664,7 @@ func TestRender_ComponentKebabCaseDirectMatch(t *testing.T) {
 func TestRender_ComponentUnknown(t *testing.T) {
 	// A kebab-case tag not found in the registry must return an error.
 	main := mustParseComponent(t, "main.vue", `<unknown-widget></unknown-widget>`)
-	_, err := NewRenderer(main).WithComponents(Registry{}).Render(nil)
+	_, err := NewRenderer(main).WithComponents(Registry{}).RenderString(nil)
 	if err == nil {
 		t.Error("expected an error for unknown component, got nil")
 	}
@@ -676,7 +676,7 @@ func TestRender_ComponentNested(t *testing.T) {
 	outer := mustParseComponent(t, "outer.vue", `<div><Inner :text="msg"></Inner></div>`)
 	main := mustParseComponent(t, "main.vue", `<Outer :msg="greeting"></Outer>`)
 	reg := Registry{"Inner": inner, "Outer": outer}
-	out, err := NewRenderer(main).WithComponents(reg).Render(map[string]any{"greeting": "hi"})
+	out, err := NewRenderer(main).WithComponents(reg).RenderString(map[string]any{"greeting": "hi"})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -689,7 +689,7 @@ func TestRender_ComponentSlotWithExpression(t *testing.T) {
 	// Slot content that contains interpolation is evaluated in the caller's scope.
 	card := mustParseComponent(t, "card.vue", `<div><slot /></div>`)
 	main := mustParseComponent(t, "main.vue", `<Card>{{ val }}</Card>`)
-	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).Render(map[string]any{"val": "dynamic"})
+	out, err := NewRenderer(main).WithComponents(Registry{"Card": card}).RenderString(map[string]any{"val": "dynamic"})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -703,7 +703,7 @@ func TestRender_ComponentPascalCaseMultiWord(t *testing.T) {
 	// resolveComponent must find the "PostCard" registry entry via case-insensitive lookup.
 	postCard := mustParseComponent(t, "PostCard.vue", `<article><h2>{{ title }}</h2></article>`)
 	main := mustParseComponent(t, "main.vue", `<PostCard title="Hello" />`)
-	out, err := NewRenderer(main).WithComponents(Registry{"PostCard": postCard}).Render(nil)
+	out, err := NewRenderer(main).WithComponents(Registry{"PostCard": postCard}).RenderString(nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -725,7 +725,7 @@ func TestRender_ComponentPascalCaseVFor(t *testing.T) {
 		map[string]any{"title": "First", "slug": "first"},
 		map[string]any{"title": "Second", "slug": "second"},
 	}
-	out, err := NewRenderer(main).WithComponents(Registry{"PostCard": postCard}).Render(map[string]any{"posts": posts})
+	out, err := NewRenderer(main).WithComponents(Registry{"PostCard": postCard}).RenderString(map[string]any{"posts": posts})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -763,7 +763,7 @@ func TestRender_VIfSliceLengthNonEmpty(t *testing.T) {
 func TestRender_AllPropsProvided(t *testing.T) {
 	// Rendering with all props provided succeeds (no regression).
 	c := mustParseComponent(t, "test.vue", `<p>{{ greeting }}, {{ name }}!</p>`)
-	out, err := NewRenderer(c).Render(map[string]any{"greeting": "Hello", "name": "World"})
+	out, err := NewRenderer(c).RenderString(map[string]any{"greeting": "Hello", "name": "World"})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -775,7 +775,7 @@ func TestRender_AllPropsProvided(t *testing.T) {
 func TestRender_MissingPropError(t *testing.T) {
 	// Missing prop with no handler returns a descriptive error mentioning the prop name and expression.
 	c := mustParseComponent(t, "test.vue", `<p>{{ name }}</p>`)
-	_, err := NewRenderer(c).Render(map[string]any{})
+	_, err := NewRenderer(c).RenderString(map[string]any{})
 	if err == nil {
 		t.Fatal("expected error for missing prop, got nil")
 	}
@@ -790,7 +790,7 @@ func TestRender_MissingPropError(t *testing.T) {
 func TestRender_MissingPropSubstitute(t *testing.T) {
 	// SubstituteMissingProp injects "MISSING PROP: <name>" placeholder.
 	c := mustParseComponent(t, "test.vue", `<p>{{ name }}</p>`)
-	out, err := NewRenderer(c).WithMissingPropHandler(SubstituteMissingProp).Render(map[string]any{})
+	out, err := NewRenderer(c).WithMissingPropHandler(SubstituteMissingProp).RenderString(map[string]any{})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -804,7 +804,7 @@ func TestRender_MissingPropNilHandler(t *testing.T) {
 	c := mustParseComponent(t, "test.vue", `<p>{{ name }}</p>`)
 	_, err := NewRenderer(c).WithMissingPropHandler(func(string) (any, error) {
 		return nil, nil
-	}).Render(map[string]any{})
+	}).RenderString(map[string]any{})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -815,7 +815,7 @@ func TestRender_MissingPropHandlerError(t *testing.T) {
 	c := mustParseComponent(t, "test.vue", `<p>{{ name }}</p>`)
 	_, err := NewRenderer(c).WithMissingPropHandler(func(string) (any, error) {
 		return nil, fmt.Errorf("prop not allowed")
-	}).Render(map[string]any{})
+	}).RenderString(map[string]any{})
 	if err == nil {
 		t.Fatal("expected error from handler, got nil")
 	}
@@ -828,7 +828,7 @@ func TestRender_ChildComponentMissingProp(t *testing.T) {
 	// Missing prop in a child component is validated at render time.
 	child := mustParseComponent(t, "child.vue", `<span>{{ label }}</span>`)
 	parent := mustParseComponent(t, "parent.vue", `<Child></Child>`)
-	_, err := NewRenderer(parent).WithComponents(Registry{"Child": child}).Render(nil)
+	_, err := NewRenderer(parent).WithComponents(Registry{"Child": child}).RenderString(nil)
 	if err == nil {
 		t.Fatal("expected error for child missing prop, got nil")
 	}
@@ -842,7 +842,7 @@ func TestRender_ComponentLayoutSlot(t *testing.T) {
 	// with {{ title }} = "My Blog" and <slot /> filled with <p>content</p>.
 	layout := mustParseComponent(t, "Layout.vue", `<div class="layout"><h1>{{ title }}</h1><slot /></div>`)
 	main := mustParseComponent(t, "main.vue", `<Layout title="My Blog"><p>content</p></Layout>`)
-	out, err := NewRenderer(main).WithComponents(Registry{"Layout": layout}).Render(nil)
+	out, err := NewRenderer(main).WithComponents(Registry{"Layout": layout}).RenderString(nil)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}

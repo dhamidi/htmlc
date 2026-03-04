@@ -166,9 +166,9 @@ func TestParseFile_FullDocumentTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
-	out, err := Render(c, nil)
+	out, err := RenderString(c, nil)
 	if err != nil {
-		t.Fatalf("Render: %v", err)
+		t.Fatalf("RenderString: %v", err)
 	}
 	if !strings.Contains(out, "<html") {
 		t.Errorf("output should contain <html, got: %q", out)
