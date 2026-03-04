@@ -1,4 +1,3 @@
-// Package htmlc provides style scoping utilities for htmlc components.
 package htmlc
 
 import (
@@ -107,7 +106,9 @@ type StyleContribution struct {
 }
 
 // StyleCollector accumulates StyleContributions from one or more component
-// renders into a single ordered list.
+// renders into a single ordered list, deduplicating repeated contributions
+// from the same scoped component. It is part of the low-level API; Engine
+// creates and manages a StyleCollector automatically on each render call.
 type StyleCollector struct {
 	items []StyleContribution
 	seen  map[string]struct{}
@@ -129,7 +130,8 @@ func (sc *StyleCollector) Add(c StyleContribution) {
 	sc.items = append(sc.items, c)
 }
 
-// All returns the contributions in the order they were added.
+// All returns all StyleContributions in the order they were added.
+// The slice is nil when no contributions have been collected.
 func (sc *StyleCollector) All() []StyleContribution {
 	return sc.items
 }

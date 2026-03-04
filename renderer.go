@@ -1,4 +1,3 @@
-// Package htmlc provides the Renderer that evaluates components and produces HTML output.
 package htmlc
 
 import (
@@ -17,16 +16,23 @@ import (
 
 // Registry maps component names to their parsed components.
 // Keys may be PascalCase (e.g., "Card") or kebab-case (e.g., "my-card").
+// Registry is part of the low-level API; most callers should use Engine, which
+// builds and maintains a Registry automatically from a component directory.
 type Registry map[string]*Component
 
 // Renderer walks a component's parsed template and produces HTML output.
+// It is the low-level rendering primitive — most callers should use Engine
+// (via RenderPage or RenderFragment) rather than constructing a Renderer
+// directly. Use NewRenderer when you need fine-grained control over style
+// collection or registry attachment.
 type Renderer struct {
 	component      *Component
 	styleCollector *StyleCollector
 	registry       Registry
 }
 
-// NewRenderer creates a Renderer for the given component.
+// NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
+// before Render to enable style collection and component composition.
 func NewRenderer(c *Component) *Renderer {
 	return &Renderer{component: c}
 }
@@ -68,7 +74,10 @@ func (r *Renderer) Render(scope map[string]any) (string, error) {
 	return sb.String(), nil
 }
 
-// Render is a convenience function that creates a Renderer for c and calls Render.
+// Render is a convenience wrapper that creates a temporary Renderer for c and
+// renders it against scope in one call. It does not collect styles or support
+// component composition; use NewRenderer with WithStyles and WithComponents for
+// those features.
 func Render(c *Component, scope map[string]any) (string, error) {
 	return NewRenderer(c).Render(scope)
 }

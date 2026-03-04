@@ -1,4 +1,3 @@
-// Package htmlc implements the htmlc component template engine.
 package htmlc
 
 import (
@@ -10,15 +9,20 @@ import (
 	"time"
 )
 
-// Options configures an Engine.
+// Options holds configuration for creating a new Engine.
 type Options struct {
 	// ComponentDir is the directory to scan recursively for *.vue files.
-	// Each file is registered using its base name (without extension) as the
-	// component name. When two files share the same base name the last one
+	// Components are discovered by walking the tree in lexical order; each file
+	// is registered by its base name without extension (e.g. "Button.vue"
+	// becomes "Button"). When two files share the same base name the last one
 	// encountered in lexical-order traversal wins.
 	ComponentDir string
-	// Reload causes the engine to check the mtime of every registered file
-	// before each render and re-parse any file that has changed.
+	// Reload enables hot-reload for development use. When true, the engine
+	// checks the modification time of every registered component file before
+	// each render and automatically re-parses any file that has changed since
+	// it was last loaded. This lets you edit .vue files and see the results
+	// without restarting the server. For production, leave Reload false and
+	// create the Engine once at startup.
 	Reload bool
 }
 
@@ -30,8 +34,10 @@ type engineEntry struct {
 	modTime time.Time
 }
 
-// Engine manages a registry of parsed components and exposes high-level render
-// methods.
+// Engine is the entry point for rendering .vue components. Create one with
+// New; call RenderPage or RenderFragment to produce HTML. ServeComponent wraps
+// a component as a net/http handler so it can be mounted directly in an
+// http.Handler-based server.
 type Engine struct {
 	opts    Options
 	entries map[string]*engineEntry
@@ -93,7 +99,9 @@ func (e *Engine) registerPath(name, path string) error {
 	return nil
 }
 
-// Register manually registers a component under name, loaded from path.
+// Register manually adds a component from path to the engine's registry under
+// name, without requiring a directory scan. This is useful when components are
+// generated programmatically or loaded from locations outside ComponentDir.
 func (e *Engine) Register(name, path string) error {
 	return e.registerPath(name, path)
 }
@@ -170,9 +178,16 @@ func styleBlock(sc *StyleCollector) string {
 	return sb.String()
 }
 
-// RenderPage renders name as a full HTML page. The collected <style> block is
-// inserted immediately before the first </head> tag; if the output contains no
-// </head> the style block is prepended instead.
+// RenderPage renders name as a full HTML page. It collects all scoped styles
+// from the component tree and inserts them as a <style> block immediately
+// before the first </head> tag, keeping styles in the document head where
+// browsers expect them. If the output contains no </head> the style block is
+// prepended to the output instead.
+//
+// Use RenderPage when rendering a complete HTML document (e.g. a page
+// component that includes <!DOCTYPE html>, <html>, <head>, and <body>).
+// For partial HTML — such as HTMX responses or turbo-frame updates — use
+// RenderFragment instead, which prepends styles without searching for </head>.
 func (e *Engine) RenderPage(name string, data map[string]any) (string, error) {
 	out, sc, err := e.renderComponent(name, data)
 	if err != nil {
@@ -188,8 +203,14 @@ func (e *Engine) RenderPage(name string, data map[string]any) (string, error) {
 	return style + out, nil
 }
 
-// RenderFragment renders name as an HTML fragment, prepending the collected
-// <style> block to the output.
+// RenderFragment renders name as an HTML fragment and prepends the collected
+// <style> block to the output. Unlike RenderPage, it does not search for a
+// </head> tag — it simply places the styles before the HTML, making it
+// suitable for partial page updates (e.g. HTMX responses, turbo frames, or
+// any context where a complete HTML document structure is not present).
+//
+// For full HTML documents that include a <head> section, use RenderPage
+// instead so that styles are injected in the document head.
 func (e *Engine) RenderFragment(name string, data map[string]any) (string, error) {
 	out, sc, err := e.renderComponent(name, data)
 	if err != nil {
