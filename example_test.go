@@ -29,7 +29,7 @@ func Example() {
 		log.Fatal(err)
 	}
 
-	out, err := engine.RenderFragment("Greeting", map[string]any{"name": "World"})
+	out, err := engine.RenderFragmentString("Greeting", map[string]any{"name": "World"})
 	if err != nil {
 		log.Fatal(err)
 	}

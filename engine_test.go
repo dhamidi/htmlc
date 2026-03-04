@@ -32,18 +32,18 @@ func TestEngine_DiscoverRegistersVueFiles(t *testing.T) {
 	}
 
 	// Card should be registered.
-	out, err := e.RenderFragment("Card", map[string]any{"title": "Hello"})
+	out, err := e.RenderFragmentString("Card", map[string]any{"title": "Hello"})
 	if err != nil {
-		t.Fatalf("RenderFragment Card: %v", err)
+		t.Fatalf("RenderFragmentString Card: %v", err)
 	}
 	if !strings.Contains(out, "Hello") {
 		t.Errorf("Card: got %q, want 'Hello'", out)
 	}
 
 	// Alert (from ui/ subdir) should register as Alert.
-	out, err = e.RenderFragment("Alert", map[string]any{"msg": "Warning"})
+	out, err = e.RenderFragmentString("Alert", map[string]any{"msg": "Warning"})
 	if err != nil {
-		t.Fatalf("RenderFragment Alert: %v", err)
+		t.Fatalf("RenderFragmentString Alert: %v", err)
 	}
 	if !strings.Contains(out, "Warning") {
 		t.Errorf("Alert: got %q, want 'Warning'", out)
@@ -61,9 +61,9 @@ func TestEngine_DuplicateNameLastWins(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragment("Card", nil)
+	out, err := e.RenderFragmentString("Card", nil)
 	if err != nil {
-		t.Fatalf("RenderFragment: %v", err)
+		t.Fatalf("RenderFragmentString: %v", err)
 	}
 	// b/Card.vue comes after a/Card.vue lexically, so it should win.
 	if !strings.Contains(out, "second") {
@@ -84,9 +84,9 @@ func TestEngine_RegisterManual(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	out, err := e.RenderFragment("Alias", map[string]any{"val": "manual"})
+	out, err := e.RenderFragmentString("Alias", map[string]any{"val": "manual"})
 	if err != nil {
-		t.Fatalf("RenderFragment: %v", err)
+		t.Fatalf("RenderFragmentString: %v", err)
 	}
 	if !strings.Contains(out, "manual") {
 		t.Errorf("got %q, want 'manual'", out)
@@ -98,7 +98,7 @@ func TestEngine_UnknownComponentReturnsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, err = e.RenderFragment("Missing", nil)
+	err = e.RenderFragment(nil, "Missing", nil)
 	if err == nil {
 		t.Error("expected error for unknown component, got nil")
 	}
@@ -116,11 +116,11 @@ func TestEngine_RenderPageInjectsStyleBeforeHead(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderPage("Page", map[string]any{
+	out, err := e.RenderPageString("Page", map[string]any{
 		"content": "<head><title>T</title></head><body>hello</body>",
 	})
 	if err != nil {
-		t.Fatalf("RenderPage: %v", err)
+		t.Fatalf("RenderPageString: %v", err)
 	}
 	styleIdx := strings.Index(out, "<style>")
 	headIdx := strings.Index(out, "</head>")
@@ -145,9 +145,9 @@ func TestEngine_RenderPageNoHeadPrependsStyle(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderPage("Frag", nil)
+	out, err := e.RenderPageString("Frag", nil)
 	if err != nil {
-		t.Fatalf("RenderPage: %v", err)
+		t.Fatalf("RenderPageString: %v", err)
 	}
 	if !strings.HasPrefix(out, "<style>") {
 		t.Errorf("got %q, want output to start with <style>", out)
@@ -164,9 +164,9 @@ func TestEngine_RenderFragmentPrependsStyle(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragment("Badge", nil)
+	out, err := e.RenderFragmentString("Badge", nil)
 	if err != nil {
-		t.Fatalf("RenderFragment: %v", err)
+		t.Fatalf("RenderFragmentString: %v", err)
 	}
 	if !strings.HasPrefix(out, "<style>") {
 		t.Errorf("got %q, want output to start with <style>", out)
@@ -261,9 +261,9 @@ func TestEngine_RenderPage_LayoutStyleBeforeHead(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderPage("Layout", nil)
+	out, err := e.RenderPageString("Layout", nil)
 	if err != nil {
-		t.Fatalf("RenderPage: %v", err)
+		t.Fatalf("RenderPageString: %v", err)
 	}
 
 	if !strings.Contains(out, "<html") {
@@ -299,7 +299,7 @@ func TestEngine_MissingProp_NoHandler_ReturnsError(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	_, err = e.RenderFragment("Greeter", nil)
+	_, err = e.RenderFragmentString("Greeter", nil)
 	if err == nil {
 		t.Error("expected error for missing prop, got nil")
 	}
@@ -318,9 +318,9 @@ func TestEngine_MissingProp_SubstituteHandler_ProducesPlaceholder(t *testing.T) 
 	}
 	e.WithMissingPropHandler(SubstituteMissingProp)
 
-	out, err := e.RenderFragment("Greeter", nil)
+	out, err := e.RenderFragmentString("Greeter", nil)
 	if err != nil {
-		t.Fatalf("RenderFragment: %v", err)
+		t.Fatalf("RenderFragmentString: %v", err)
 	}
 	if !strings.Contains(out, "MISSING PROP: greeting") {
 		t.Errorf("expected placeholder output, got: %q", out)
@@ -344,9 +344,9 @@ func TestEngine_MissingProp_CustomHandler_InvokedForAllComponents(t *testing.T) 
 		return "CUSTOM:" + name, nil
 	})
 
-	out, err := e.RenderFragment("Parent", nil)
+	out, err := e.RenderFragmentString("Parent", nil)
 	if err != nil {
-		t.Fatalf("RenderFragment: %v", err)
+		t.Fatalf("RenderFragmentString: %v", err)
 	}
 	if !strings.Contains(out, "CUSTOM:parentProp") {
 		t.Errorf("expected CUSTOM:parentProp in output, got: %q", out)
@@ -381,9 +381,9 @@ func TestEngine_AllPropsProvided_NoHandler_Succeeds(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragment("Nameplate", map[string]any{"text": "hello"})
+	out, err := e.RenderFragmentString("Nameplate", map[string]any{"text": "hello"})
 	if err != nil {
-		t.Fatalf("RenderFragment: %v", err)
+		t.Fatalf("RenderFragmentString: %v", err)
 	}
 	if !strings.Contains(out, "hello") {
 		t.Errorf("expected 'hello' in output, got: %q", out)
@@ -400,9 +400,9 @@ func TestEngine_ReloadDetectsChangedFile(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragment("Live", nil)
+	out, err := e.RenderFragmentString("Live", nil)
 	if err != nil {
-		t.Fatalf("RenderFragment (before): %v", err)
+		t.Fatalf("RenderFragmentString (before): %v", err)
 	}
 	if !strings.Contains(out, "original") {
 		t.Errorf("before reload: got %q, want 'original'", out)
@@ -412,9 +412,9 @@ func TestEngine_ReloadDetectsChangedFile(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	writeVue(t, p, `<template><p>updated</p></template>`)
 
-	out, err = e.RenderFragment("Live", nil)
+	out, err = e.RenderFragmentString("Live", nil)
 	if err != nil {
-		t.Fatalf("RenderFragment (after): %v", err)
+		t.Fatalf("RenderFragmentString (after): %v", err)
 	}
 	if !strings.Contains(out, "updated") {
 		t.Errorf("after reload: got %q, want 'updated'", out)

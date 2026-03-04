@@ -2,6 +2,7 @@ package htmlc
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -150,14 +151,14 @@ func (e *Engine) buildRegistry() Registry {
 }
 
 // renderComponent renders the named component with the given data scope,
-// returning the HTML output and collected styles.
-func (e *Engine) renderComponent(name string, data map[string]any) (string, *StyleCollector, error) {
+// writing HTML to w and returning the collected styles.
+func (e *Engine) renderComponent(w io.Writer, name string, data map[string]any) (*StyleCollector, error) {
 	if err := e.maybeReload(); err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	entry, ok := e.entries[name]
 	if !ok {
-		return "", nil, fmt.Errorf("engine: unknown component %q", name)
+		return nil, fmt.Errorf("engine: unknown component %q", name)
 	}
 	sc := &StyleCollector{}
 	renderer := NewRenderer(entry.comp).
@@ -166,11 +167,10 @@ func (e *Engine) renderComponent(name string, data map[string]any) (string, *Sty
 	if e.missingPropHandler != nil {
 		renderer = renderer.WithMissingPropHandler(e.missingPropHandler)
 	}
-	out, err := renderer.RenderString(data)
-	if err != nil {
-		return "", nil, err
+	if err := renderer.Render(w, data); err != nil {
+		return nil, err
 	}
-	return out, sc, nil
+	return sc, nil
 }
 
 // styleBlock builds a "<style>…</style>" string from sc's contributions.
@@ -189,49 +189,90 @@ func styleBlock(sc *StyleCollector) string {
 	return sb.String()
 }
 
-// RenderPage renders name as a full HTML page. It collects all scoped styles
-// from the component tree and inserts them as a <style> block immediately
-// before the first </head> tag, keeping styles in the document head where
-// browsers expect them. If the output contains no </head> the style block is
-// prepended to the output instead.
+// RenderPage renders name as a full HTML page, writing the result to w. It
+// collects all scoped styles from the component tree and inserts them as a
+// <style> block immediately before the first </head> tag, keeping styles in
+// the document head where browsers expect them. If the output contains no
+// </head> the style block is prepended to the output instead.
 //
 // Use RenderPage when rendering a complete HTML document (e.g. a page
 // component that includes <!DOCTYPE html>, <html>, <head>, and <body>).
 // For partial HTML — such as HTMX responses or turbo-frame updates — use
 // RenderFragment instead, which prepends styles without searching for </head>.
-func (e *Engine) RenderPage(name string, data map[string]any) (string, error) {
-	out, sc, err := e.renderComponent(name, data)
+func (e *Engine) RenderPage(w io.Writer, name string, data map[string]any) error {
+	var buf strings.Builder
+	sc, err := e.renderComponent(&buf, name, data)
 	if err != nil {
-		return "", err
+		return err
 	}
+	out := buf.String()
 	style := styleBlock(sc)
 	if style == "" {
-		return out, nil
+		_, err = io.WriteString(w, out)
+		return err
 	}
 	if idx := strings.Index(out, "</head>"); idx >= 0 {
-		return out[:idx] + style + out[idx:], nil
+		if _, err = io.WriteString(w, out[:idx]); err != nil {
+			return err
+		}
+		if _, err = io.WriteString(w, style); err != nil {
+			return err
+		}
+		_, err = io.WriteString(w, out[idx:])
+		return err
 	}
-	return style + out, nil
+	if _, err = io.WriteString(w, style); err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, out)
+	return err
 }
 
-// RenderFragment renders name as an HTML fragment and prepends the collected
-// <style> block to the output. Unlike RenderPage, it does not search for a
-// </head> tag — it simply places the styles before the HTML, making it
-// suitable for partial page updates (e.g. HTMX responses, turbo frames, or
-// any context where a complete HTML document structure is not present).
+// RenderFragment renders name as an HTML fragment, writing the result to w,
+// and prepends the collected <style> block to the output. Unlike RenderPage,
+// it does not search for a </head> tag — it simply places the styles before
+// the HTML, making it suitable for partial page updates (e.g. HTMX responses,
+// turbo frames, or any context where a complete HTML document structure is not
+// present).
 //
 // For full HTML documents that include a <head> section, use RenderPage
 // instead so that styles are injected in the document head.
-func (e *Engine) RenderFragment(name string, data map[string]any) (string, error) {
-	out, sc, err := e.renderComponent(name, data)
+func (e *Engine) RenderFragment(w io.Writer, name string, data map[string]any) error {
+	var buf strings.Builder
+	sc, err := e.renderComponent(&buf, name, data)
 	if err != nil {
-		return "", err
+		return err
 	}
 	style := styleBlock(sc)
-	if style == "" {
-		return out, nil
+	if style != "" {
+		if _, err = io.WriteString(w, style); err != nil {
+			return err
+		}
 	}
-	return style + out, nil
+	_, err = io.WriteString(w, buf.String())
+	return err
+}
+
+// RenderPageString renders name as a full HTML page and returns the result as
+// a string. It is a convenience wrapper around RenderPage for callers that
+// need a string rather than writing to an io.Writer.
+func (e *Engine) RenderPageString(name string, data map[string]any) (string, error) {
+	var buf strings.Builder
+	if err := e.RenderPage(&buf, name, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// RenderFragmentString renders name as an HTML fragment and returns the result
+// as a string. It is a convenience wrapper around RenderFragment for callers
+// that need a string rather than writing to an io.Writer.
+func (e *Engine) RenderFragmentString(name string, data map[string]any) (string, error) {
+	var buf strings.Builder
+	if err := e.RenderFragment(&buf, name, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // ServeComponent returns an http.HandlerFunc that renders name as a fragment
@@ -244,12 +285,10 @@ func (e *Engine) ServeComponent(name string, data func(*http.Request) map[string
 		if data != nil {
 			scope = data(r)
 		}
-		out, err := e.RenderFragment(name, scope)
-		if err != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := e.RenderFragment(w, name, scope); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, out)
 	}
 }

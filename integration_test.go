@@ -34,7 +34,7 @@ func TestIntegration_FullPipeline(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragment("Featured", map[string]any{
+	out, err := e.RenderFragmentString("Featured", map[string]any{
 		"title":      "Hello World",
 		"isActive":   true,
 		"isDisabled": false,
@@ -42,7 +42,7 @@ func TestIntegration_FullPipeline(t *testing.T) {
 		"items":      []any{"alpha", "beta", "gamma"},
 	})
 	if err != nil {
-		t.Fatalf("RenderFragment: %v", err)
+		t.Fatalf("RenderFragmentString: %v", err)
 	}
 
 	// mustache interpolation
@@ -98,9 +98,9 @@ func TestIntegration_NestedComponentsWithSlots(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragment("Page", nil)
+	out, err := e.RenderFragmentString("Page", nil)
 	if err != nil {
-		t.Fatalf("RenderFragment: %v", err)
+		t.Fatalf("RenderFragmentString: %v", err)
 	}
 
 	// Card's wrapper div must be present
@@ -171,11 +171,11 @@ func TestIntegration_VIfWithLength(t *testing.T) {
 	}
 
 	// Non-empty slice: the v-if branch must render.
-	out, err := e.RenderFragment("Posts", map[string]any{
+	out, err := e.RenderFragmentString("Posts", map[string]any{
 		"posts": []any{"first", "second"},
 	})
 	if err != nil {
-		t.Fatalf("RenderFragment (non-empty): %v", err)
+		t.Fatalf("RenderFragmentString (non-empty): %v", err)
 	}
 	if !strings.Contains(out, "Has posts") {
 		t.Errorf("non-empty: want 'Has posts' in output:\n%s", out)
@@ -185,11 +185,11 @@ func TestIntegration_VIfWithLength(t *testing.T) {
 	}
 
 	// Empty slice: the v-else branch must render.
-	out, err = e.RenderFragment("Posts", map[string]any{
+	out, err = e.RenderFragmentString("Posts", map[string]any{
 		"posts": []any{},
 	})
 	if err != nil {
-		t.Fatalf("RenderFragment (empty): %v", err)
+		t.Fatalf("RenderFragmentString (empty): %v", err)
 	}
 	if strings.Contains(out, "Has posts") {
 		t.Errorf("empty: 'Has posts' must not appear in output:\n%s", out)
@@ -212,9 +212,9 @@ func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragment("Live", nil)
+	out, err := e.RenderFragmentString("Live", nil)
 	if err != nil {
-		t.Fatalf("RenderFragment (before reload): %v", err)
+		t.Fatalf("RenderFragmentString (before reload): %v", err)
 	}
 	if !strings.Contains(out, "version one") {
 		t.Errorf("before reload: want 'version one' in output:\n%s", out)
@@ -224,9 +224,9 @@ func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	writeVue(t, p, `<template><p>version two</p></template>`)
 
-	out, err = e.RenderFragment("Live", nil)
+	out, err = e.RenderFragmentString("Live", nil)
 	if err != nil {
-		t.Fatalf("RenderFragment (after reload): %v", err)
+		t.Fatalf("RenderFragmentString (after reload): %v", err)
 	}
 	if !strings.Contains(out, "version two") {
 		t.Errorf("after reload: want 'version two' in output:\n%s", out)
