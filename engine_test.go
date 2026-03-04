@@ -290,6 +290,106 @@ func TestEngine_RenderPage_LayoutStyleBeforeHead(t *testing.T) {
 	}
 }
 
+func TestEngine_MissingProp_NoHandler_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Greeter.vue"), `<template><p>{{ greeting }}</p></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	_, err = e.RenderFragment("Greeter", nil)
+	if err == nil {
+		t.Error("expected error for missing prop, got nil")
+	}
+	if !strings.Contains(err.Error(), "greeting") {
+		t.Errorf("expected error to mention 'greeting', got: %v", err)
+	}
+}
+
+func TestEngine_MissingProp_SubstituteHandler_ProducesPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Greeter.vue"), `<template><p>{{ greeting }}</p></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	e.WithMissingPropHandler(SubstituteMissingProp)
+
+	out, err := e.RenderFragment("Greeter", nil)
+	if err != nil {
+		t.Fatalf("RenderFragment: %v", err)
+	}
+	if !strings.Contains(out, "MISSING PROP: greeting") {
+		t.Errorf("expected placeholder output, got: %q", out)
+	}
+}
+
+func TestEngine_MissingProp_CustomHandler_InvokedForAllComponents(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Child.vue"), `<template><span>{{ childProp }}</span></template>`)
+	writeVue(t, filepath.Join(dir, "Parent.vue"),
+		`<template><div>{{ parentProp }}<Child /></div></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	var seen []string
+	e.WithMissingPropHandler(func(name string) (any, error) {
+		seen = append(seen, name)
+		return "CUSTOM:" + name, nil
+	})
+
+	out, err := e.RenderFragment("Parent", nil)
+	if err != nil {
+		t.Fatalf("RenderFragment: %v", err)
+	}
+	if !strings.Contains(out, "CUSTOM:parentProp") {
+		t.Errorf("expected CUSTOM:parentProp in output, got: %q", out)
+	}
+	if !strings.Contains(out, "CUSTOM:childProp") {
+		t.Errorf("expected CUSTOM:childProp in output, got: %q", out)
+	}
+
+	foundParent, foundChild := false, false
+	for _, name := range seen {
+		if name == "parentProp" {
+			foundParent = true
+		}
+		if name == "childProp" {
+			foundChild = true
+		}
+	}
+	if !foundParent {
+		t.Error("custom handler was not called for parentProp")
+	}
+	if !foundChild {
+		t.Error("custom handler was not called for childProp")
+	}
+}
+
+func TestEngine_AllPropsProvided_NoHandler_Succeeds(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Nameplate.vue"), `<template><span>{{ text }}</span></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragment("Nameplate", map[string]any{"text": "hello"})
+	if err != nil {
+		t.Fatalf("RenderFragment: %v", err)
+	}
+	if !strings.Contains(out, "hello") {
+		t.Errorf("expected 'hello' in output, got: %q", out)
+	}
+}
+
 func TestEngine_ReloadDetectsChangedFile(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "Live.vue")

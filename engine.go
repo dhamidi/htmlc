@@ -39,8 +39,16 @@ type engineEntry struct {
 // a component as a net/http handler so it can be mounted directly in an
 // http.Handler-based server.
 type Engine struct {
-	opts    Options
-	entries map[string]*engineEntry
+	opts               Options
+	entries            map[string]*engineEntry
+	missingPropHandler MissingPropFunc
+}
+
+// WithMissingPropHandler sets the function called when any component rendered
+// by this engine has a missing prop. If not set, missing props cause render errors.
+func (e *Engine) WithMissingPropHandler(fn MissingPropFunc) *Engine {
+	e.missingPropHandler = fn
+	return e
 }
 
 // New creates an Engine configured by opts. If opts.ComponentDir is set the
@@ -152,10 +160,13 @@ func (e *Engine) renderComponent(name string, data map[string]any) (string, *Sty
 		return "", nil, fmt.Errorf("engine: unknown component %q", name)
 	}
 	sc := &StyleCollector{}
-	out, err := NewRenderer(entry.comp).
+	renderer := NewRenderer(entry.comp).
 		WithStyles(sc).
-		WithComponents(e.buildRegistry()).
-		Render(data)
+		WithComponents(e.buildRegistry())
+	if e.missingPropHandler != nil {
+		renderer = renderer.WithMissingPropHandler(e.missingPropHandler)
+	}
+	out, err := renderer.Render(data)
 	if err != nil {
 		return "", nil, err
 	}
