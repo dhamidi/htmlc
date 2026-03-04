@@ -837,6 +837,154 @@ func TestRender_ChildComponentMissingProp(t *testing.T) {
 	}
 }
 
+// --- parseBindingPattern tests ---
+
+func TestParseBindingPattern_Empty(t *testing.T) {
+	bindingVar, bindings, err := parseBindingPattern("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bindingVar != "" {
+		t.Errorf("got bindingVar=%q, want empty", bindingVar)
+	}
+	if len(bindings) != 0 {
+		t.Errorf("got bindings=%v, want none", bindings)
+	}
+}
+
+func TestParseBindingPattern_SingleIdentifier(t *testing.T) {
+	bindingVar, bindings, err := parseBindingPattern("props")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bindingVar != "props" {
+		t.Errorf("got bindingVar=%q, want %q", bindingVar, "props")
+	}
+	if len(bindings) != 0 {
+		t.Errorf("got bindings=%v, want none", bindings)
+	}
+}
+
+func TestParseBindingPattern_Destructured(t *testing.T) {
+	bindingVar, bindings, err := parseBindingPattern("{ user, index }")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bindingVar != "" {
+		t.Errorf("got bindingVar=%q, want empty", bindingVar)
+	}
+	if len(bindings) != 2 || bindings[0] != "user" || bindings[1] != "index" {
+		t.Errorf("got bindings=%v, want [user index]", bindings)
+	}
+}
+
+func TestParseBindingPattern_WhitespaceTolerated(t *testing.T) {
+	_, bindings, err := parseBindingPattern("{  user ,  index  }")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(bindings) != 2 || bindings[0] != "user" || bindings[1] != "index" {
+		t.Errorf("got bindings=%v, want [user index]", bindings)
+	}
+}
+
+func TestParseBindingPattern_SingleVariableDestructure(t *testing.T) {
+	_, bindings, err := parseBindingPattern("{ item }")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(bindings) != 1 || bindings[0] != "item" {
+		t.Errorf("got bindings=%v, want [item]", bindings)
+	}
+}
+
+func TestParseBindingPattern_InvalidEmpty(t *testing.T) {
+	_, _, err := parseBindingPattern("{ }")
+	if err == nil {
+		t.Error("expected error for empty destructure, got nil")
+	}
+}
+
+func TestParseBindingPattern_InvalidTrailingComma(t *testing.T) {
+	_, _, err := parseBindingPattern("{ a, }")
+	if err == nil {
+		t.Error("expected error for trailing comma, got nil")
+	}
+}
+
+func TestParseBindingPattern_InvalidStartsWithDigit(t *testing.T) {
+	_, _, err := parseBindingPattern("123")
+	if err == nil {
+		t.Error("expected error for pattern starting with digit, got nil")
+	}
+}
+
+func TestParseBindingPattern_InvalidSpacedIdentifiers(t *testing.T) {
+	_, _, err := parseBindingPattern("{ a b }")
+	if err == nil {
+		t.Error("expected error for space-separated identifiers without comma, got nil")
+	}
+}
+
+// --- parseSlotDirective tests ---
+
+func TestParseSlotDirective_VSlot(t *testing.T) {
+	name, ok := parseSlotDirective("v-slot")
+	if !ok {
+		t.Error("expected isSlotDirective=true for v-slot")
+	}
+	if name != "default" {
+		t.Errorf("got name=%q, want %q", name, "default")
+	}
+}
+
+func TestParseSlotDirective_VSlotNamed(t *testing.T) {
+	name, ok := parseSlotDirective("v-slot:header")
+	if !ok {
+		t.Error("expected isSlotDirective=true for v-slot:header")
+	}
+	if name != "header" {
+		t.Errorf("got name=%q, want %q", name, "header")
+	}
+}
+
+func TestParseSlotDirective_HashNamed(t *testing.T) {
+	name, ok := parseSlotDirective("#header")
+	if !ok {
+		t.Error("expected isSlotDirective=true for #header")
+	}
+	if name != "header" {
+		t.Errorf("got name=%q, want %q", name, "header")
+	}
+}
+
+func TestParseSlotDirective_HashDefault(t *testing.T) {
+	name, ok := parseSlotDirective("#default")
+	if !ok {
+		t.Error("expected isSlotDirective=true for #default")
+	}
+	if name != "default" {
+		t.Errorf("got name=%q, want %q", name, "default")
+	}
+}
+
+func TestParseSlotDirective_NonSlot(t *testing.T) {
+	name, ok := parseSlotDirective("class")
+	if ok {
+		t.Errorf("expected isSlotDirective=false for 'class', got name=%q", name)
+	}
+	if name != "" {
+		t.Errorf("got name=%q, want empty string", name)
+	}
+}
+
+func TestParseSlotDirective_VBind(t *testing.T) {
+	_, ok := parseSlotDirective("v-bind:title")
+	if ok {
+		t.Error("expected isSlotDirective=false for v-bind:title")
+	}
+}
+
 func TestRender_ComponentLayoutSlot(t *testing.T) {
 	// <Layout title="My Blog"><p>content</p></Layout> renders Layout's template
 	// with {{ title }} = "My Blog" and <slot /> filled with <p>content</p>.

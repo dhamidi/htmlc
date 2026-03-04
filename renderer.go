@@ -15,6 +15,79 @@ import (
 	"golang.org/x/net/html"
 )
 
+// SlotDefinition captures everything needed to defer slot rendering: the AST
+// nodes from the caller's template, the caller's scope at invocation time, and
+// the parsed binding information from the v-slot / # directive.
+type SlotDefinition struct {
+	Nodes       []*html.Node
+	ParentScope map[string]any
+	BindingVar  string
+	Bindings    []string
+}
+
+// identRe matches a valid JS/Vue identifier: starts with letter, _ or $,
+// followed by letters, digits, _ or $.
+var identRe = regexp.MustCompile(`^[a-zA-Z_$][a-zA-Z0-9_$]*$`)
+
+// parseBindingPattern parses the value of a v-slot / # directive into binding
+// information. Returns (bindingVar, bindings, err).
+//   - Empty string → no bindings
+//   - Single identifier → bindingVar set, bindings nil
+//   - Destructured "{ a, b }" → bindings set, bindingVar empty
+//   - Anything else → error
+func parseBindingPattern(s string) (bindingVar string, bindings []string, err error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil, nil
+	}
+	if strings.HasPrefix(s, "{") {
+		if !strings.HasSuffix(s, "}") {
+			return "", nil, fmt.Errorf("parseBindingPattern: invalid pattern %q", s)
+		}
+		inner := strings.TrimSpace(s[1 : len(s)-1])
+		if inner == "" {
+			return "", nil, fmt.Errorf("parseBindingPattern: empty destructure in %q", s)
+		}
+		parts := strings.Split(inner, ",")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				return "", nil, fmt.Errorf("parseBindingPattern: trailing comma in %q", s)
+			}
+			if !identRe.MatchString(p) {
+				return "", nil, fmt.Errorf("parseBindingPattern: invalid identifier %q in %q", p, s)
+			}
+			result = append(result, p)
+		}
+		return "", result, nil
+	}
+	if identRe.MatchString(s) {
+		return s, nil, nil
+	}
+	return "", nil, fmt.Errorf("parseBindingPattern: invalid pattern %q", s)
+}
+
+// parseSlotDirective parses an attribute name and returns the slot name and
+// whether it is a slot directive.
+//   - "v-slot"        → ("default", true)
+//   - "v-slot:header" → ("header", true)
+//   - "#header"       → ("header", true)
+//   - "#default"      → ("default", true)
+//   - anything else   → ("", false)
+func parseSlotDirective(attrName string) (slotName string, isSlotDirective bool) {
+	if attrName == "v-slot" {
+		return "default", true
+	}
+	if strings.HasPrefix(attrName, "v-slot:") {
+		return attrName[7:], true
+	}
+	if strings.HasPrefix(attrName, "#") {
+		return attrName[1:], true
+	}
+	return "", false
+}
+
 // Registry maps component names to their parsed components.
 // Keys may be PascalCase (e.g., "Card") or kebab-case (e.g., "my-card").
 // Registry is part of the low-level API; most callers should use Engine, which
