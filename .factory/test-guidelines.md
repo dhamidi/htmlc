@@ -39,7 +39,9 @@ For each exported type (`Engine`, `Options`, `Component`, `Renderer`, `Registry`
 
 ### Examples (Diátaxis: tutorial)
 
-`go doc -all` must show at least one `Example` function demonstrating end-to-end
-usage: create an Engine, register components, call RenderPage, write to
-http.ResponseWriter. The example must be in an `_test.go` file so it appears in
-`go doc` output and is verified by `go test`.
+At least one `Example` function must exist in an `example_test.go` file demonstrating
+end-to-end usage: create an Engine, register or discover components, call RenderPage,
+write to http.ResponseWriter. Verify with `go test -run Example ./...` — it must pass.
+
+Note: `go doc -all` does not display Example functions; verify their existence and
+correctness via `go test -v -run Example ./...` instead.
