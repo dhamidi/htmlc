@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -208,5 +209,168 @@ func TestParseFile_TemplateContentExtracted(t *testing.T) {
 		if !found {
 			t.Errorf("expected <%s> in template tree, but not found (got %v)", tag, names)
 		}
+	}
+}
+
+// propNames returns a sorted slice of prop names from a []PropInfo.
+func propNames(props []PropInfo) []string {
+	names := make([]string, len(props))
+	for i, p := range props {
+		names[i] = p.Name
+	}
+	sort.Strings(names)
+	return names
+}
+
+// propByName finds a PropInfo by name (returns zero value if not found).
+func propByName(props []PropInfo, name string) PropInfo {
+	for _, p := range props {
+		if p.Name == name {
+			return p
+		}
+	}
+	return PropInfo{}
+}
+
+func parseForProps(t *testing.T, tmpl string) []PropInfo {
+	t.Helper()
+	src := "<template>" + tmpl + "</template>"
+	c, err := ParseFile("test.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	return c.Props()
+}
+
+func TestProps_SimpleInterpolation(t *testing.T) {
+	props := parseForProps(t, `<p>{{ title }}</p>`)
+	names := propNames(props)
+	if len(names) != 1 || names[0] != "title" {
+		t.Errorf("props = %v, want [title]", names)
+	}
+}
+
+func TestProps_BoundAttribute(t *testing.T) {
+	props := parseForProps(t, `<div :class="cls"></div>`)
+	names := propNames(props)
+	if len(names) != 1 || names[0] != "cls" {
+		t.Errorf("props = %v, want [cls]", names)
+	}
+}
+
+func TestProps_VBindAttribute(t *testing.T) {
+	props := parseForProps(t, `<a v-bind:href="url">link</a>`)
+	names := propNames(props)
+	if len(names) != 1 || names[0] != "url" {
+		t.Errorf("props = %v, want [url]", names)
+	}
+}
+
+func TestProps_DirectiveExpressions(t *testing.T) {
+	props := parseForProps(t, `<div v-if="show" v-show="visible" v-text="msg" v-html="raw"></div>`)
+	names := propNames(props)
+	want := []string{"msg", "raw", "show", "visible"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Errorf("props = %v, want %v", names, want)
+	}
+}
+
+func TestProps_VForScoping(t *testing.T) {
+	// items should be a prop; item should NOT be
+	props := parseForProps(t, `<ul><li v-for="item in items">{{ item }}</li></ul>`)
+	names := propNames(props)
+	for _, n := range names {
+		if n == "item" {
+			t.Errorf("'item' should not be a prop (it is a v-for loop variable)")
+		}
+	}
+	found := false
+	for _, n := range names {
+		if n == "items" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("props = %v, want 'items' to be included", names)
+	}
+}
+
+func TestProps_VForWithIndex(t *testing.T) {
+	props := parseForProps(t, `<ul><li v-for="(item, index) in list">{{ item }}-{{ index }}</li></ul>`)
+	names := propNames(props)
+	for _, n := range names {
+		if n == "item" || n == "index" {
+			t.Errorf("'%s' should not be a prop (it is a v-for loop variable)", n)
+		}
+	}
+	found := false
+	for _, n := range names {
+		if n == "list" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("props = %v, want 'list' to be included", names)
+	}
+}
+
+func TestProps_NestedVFor(t *testing.T) {
+	// outer loop var "section" used as inner collection: should be a prop of the outer loop? No.
+	// outer: section in sections → sections is prop, section is local
+	// inner: item in section.items → section is local (not a prop)
+	props := parseForProps(t, `<div v-for="section in sections"><span v-for="item in section.items">{{ item.name }}</span></div>`)
+	names := propNames(props)
+	for _, n := range names {
+		if n == "section" || n == "item" {
+			t.Errorf("'%s' should not be a prop (v-for loop variable)", n)
+		}
+	}
+	found := false
+	for _, n := range names {
+		if n == "sections" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("props = %v, want 'sections' to be included", names)
+	}
+}
+
+func TestProps_ExcludeDollarPrefixed(t *testing.T) {
+	props := parseForProps(t, `<slot>{{ $slot }}</slot>`)
+	for _, p := range props {
+		if strings.HasPrefix(p.Name, "$") {
+			t.Errorf("prop '%s' starts with '$' and should be excluded", p.Name)
+		}
+	}
+}
+
+func TestProps_ExcludeLen(t *testing.T) {
+	props := parseForProps(t, `<p>{{ len(items) }}</p>`)
+	names := propNames(props)
+	for _, n := range names {
+		if n == "len" {
+			t.Errorf("'len' should be excluded from props")
+		}
+	}
+	found := false
+	for _, n := range names {
+		if n == "items" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("props = %v, want 'items' included", names)
+	}
+}
+
+func TestProps_MultipleExpressionsAggregate(t *testing.T) {
+	props := parseForProps(t, `<p>{{ title }}</p><h1>{{ title }}</h1>`)
+	p := propByName(props, "title")
+	if p.Name != "title" {
+		t.Fatal("prop 'title' not found")
+	}
+	if len(p.Expressions) < 2 {
+		t.Errorf("expected at least 2 expressions for 'title', got %v", p.Expressions)
 	}
 }

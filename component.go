@@ -2,10 +2,13 @@ package htmlc
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
+
+	"github.com/dhamidi/htmlc/expr"
 )
 
 // Component holds the parsed representation of a .vue Single File Component.
@@ -145,6 +148,119 @@ func extractSections(src string) (map[string]string, error) {
 	}
 
 	return result, nil
+}
+
+// PropInfo describes a single top-level prop (variable reference) found in a
+// component's template, together with the expression strings in which it appears.
+type PropInfo struct {
+	Name        string
+	Expressions []string
+}
+
+var interpolationRe = regexp.MustCompile(`\{\{(.*?)\}\}`)
+
+// Props walks the component's parsed template AST and returns all top-level
+// variable references (props) that the template uses.
+//
+// Identifiers starting with '$' and the built-in 'len' are excluded.
+// v-for loop variables are excluded within their subtree.
+func (c *Component) Props() []PropInfo {
+	props := map[string]*PropInfo{}
+	walkForProps(c.Template, map[string]bool{}, props)
+
+	result := make([]PropInfo, 0, len(props))
+	for _, p := range props {
+		result = append(result, *p)
+	}
+	return result
+}
+
+func walkForProps(n *html.Node, locals map[string]bool, props map[string]*PropInfo) {
+	switch n.Type {
+	case html.TextNode:
+		for _, m := range interpolationRe.FindAllStringSubmatch(n.Data, -1) {
+			collectExprIdents(strings.TrimSpace(m[1]), locals, props)
+		}
+		return
+	case html.ElementNode:
+		childLocals := cloneLocals(locals)
+
+		for _, attr := range n.Attr {
+			if attr.Key == "v-for" {
+				if idx := strings.Index(attr.Val, " in "); idx >= 0 {
+					collExpr := strings.TrimSpace(attr.Val[idx+4:])
+					varsStr := strings.TrimSpace(attr.Val[:idx])
+					// Collection expression is scanned in the parent scope.
+					collectExprIdents(collExpr, locals, props)
+					for _, v := range parseVForVars(varsStr) {
+						childLocals[v] = true
+					}
+				}
+				continue
+			}
+			var exprVal string
+			switch {
+			case strings.HasPrefix(attr.Key, ":"), strings.HasPrefix(attr.Key, "v-bind:"):
+				exprVal = attr.Val
+			case attr.Key == "v-if", attr.Key == "v-else-if", attr.Key == "v-show",
+				attr.Key == "v-text", attr.Key == "v-html":
+				exprVal = attr.Val
+			}
+			if exprVal != "" {
+				collectExprIdents(exprVal, childLocals, props)
+			}
+		}
+
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walkForProps(child, childLocals, props)
+		}
+		return
+	}
+
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		walkForProps(child, locals, props)
+	}
+}
+
+func collectExprIdents(exprStr string, locals map[string]bool, props map[string]*PropInfo) {
+	idents, err := expr.CollectIdentifiers(exprStr)
+	if err != nil {
+		return
+	}
+	for _, name := range idents {
+		if strings.HasPrefix(name, "$") || name == "len" || locals[name] {
+			continue
+		}
+		if _, ok := props[name]; !ok {
+			props[name] = &PropInfo{Name: name}
+		}
+		props[name].Expressions = append(props[name].Expressions, exprStr)
+	}
+}
+
+func cloneLocals(m map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func parseVForVars(s string) []string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
+		s = s[1 : len(s)-1]
+		parts := strings.Split(s, ",")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				result = append(result, p)
+			}
+		}
+		return result
+	}
+	return []string{s}
 }
 
 // parseTemplateHTML parses the raw HTML string from a <template> section into
