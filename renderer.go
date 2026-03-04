@@ -20,15 +20,27 @@ import (
 // builds and maintains a Registry automatically from a component directory.
 type Registry map[string]*Component
 
+// MissingPropFunc is called when a prop expected by the component's template
+// is not present in the render scope. It receives the prop name and returns
+// a substitute value, or an error to abort rendering.
+type MissingPropFunc func(name string) (any, error)
+
+// SubstituteMissingProp returns a placeholder string "MISSING PROP: <name>"
+// for any missing prop.
+func SubstituteMissingProp(name string) (any, error) {
+	return fmt.Sprintf("MISSING PROP: %s", name), nil
+}
+
 // Renderer walks a component's parsed template and produces HTML output.
 // It is the low-level rendering primitive — most callers should use Engine
 // (via RenderPage or RenderFragment) rather than constructing a Renderer
 // directly. Use NewRenderer when you need fine-grained control over style
 // collection or registry attachment.
 type Renderer struct {
-	component      *Component
-	styleCollector *StyleCollector
-	registry       Registry
+	component          *Component
+	styleCollector     *StyleCollector
+	registry           Registry
+	missingPropHandler MissingPropFunc
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -52,9 +64,55 @@ func (r *Renderer) WithComponents(reg Registry) *Renderer {
 	return r
 }
 
+// WithMissingPropHandler sets a handler that is called when a prop referenced
+// in the template is not present in the render scope. Returns the Renderer for
+// chaining.
+func (r *Renderer) WithMissingPropHandler(fn MissingPropFunc) *Renderer {
+	r.missingPropHandler = fn
+	return r
+}
+
+// validateProps checks scope against the component's expected props. If a prop
+// is missing and a handler is set, the handler's returned value is injected
+// into a copy of the scope. If no handler is set, an error is returned.
+func (r *Renderer) validateProps(scope map[string]any) (map[string]any, error) {
+	props := r.component.Props()
+	var augmented map[string]any
+	for _, p := range props {
+		if _, ok := scope[p.Name]; ok {
+			continue
+		}
+		if r.missingPropHandler != nil {
+			val, err := r.missingPropHandler(p.Name)
+			if err != nil {
+				return nil, err
+			}
+			if augmented == nil {
+				augmented = make(map[string]any, len(scope)+1)
+				for k, v := range scope {
+					augmented[k] = v
+				}
+			}
+			augmented[p.Name] = val
+		} else {
+			return nil, fmt.Errorf("missing prop %q (used in: %s)", p.Name, strings.Join(p.Expressions, ", "))
+		}
+	}
+	if augmented != nil {
+		return augmented, nil
+	}
+	return scope, nil
+}
+
 // Render evaluates the component's template against the given data scope and
 // returns the rendered HTML string.
 func (r *Renderer) Render(scope map[string]any) (string, error) {
+	var err error
+	scope, err = r.validateProps(scope)
+	if err != nil {
+		return "", err
+	}
+
 	// Collect this component's styles before rendering.
 	if r.styleCollector != nil && r.component.Style != "" {
 		sid := ScopeID(r.component.Path)
@@ -660,9 +718,10 @@ func (r *Renderer) renderComponentElement(sb *strings.Builder, n *html.Node, sco
 
 	// Build a child renderer that shares the registry and style collector.
 	childRenderer := &Renderer{
-		component:      comp,
-		styleCollector: r.styleCollector,
-		registry:       r.registry,
+		component:          comp,
+		styleCollector:     r.styleCollector,
+		registry:           r.registry,
+		missingPropHandler: r.missingPropHandler,
 	}
 
 	result, err := childRenderer.Render(childScope)

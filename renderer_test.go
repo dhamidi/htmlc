@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -754,6 +755,85 @@ func TestRender_VIfSliceLengthNonEmpty(t *testing.T) {
 	out := renderTemplate(t, `<p v-if="posts.length === 0">No posts yet.</p>`, scope)
 	if strings.Contains(out, "No posts yet.") {
 		t.Errorf("got %q, element should be hidden when posts is non-empty", out)
+	}
+}
+
+// --- missing prop validation tests ---
+
+func TestRender_AllPropsProvided(t *testing.T) {
+	// Rendering with all props provided succeeds (no regression).
+	c := mustParseComponent(t, "test.vue", `<p>{{ greeting }}, {{ name }}!</p>`)
+	out, err := NewRenderer(c).Render(map[string]any{"greeting": "Hello", "name": "World"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "Hello, World!") {
+		t.Errorf("got %q, want 'Hello, World!'", out)
+	}
+}
+
+func TestRender_MissingPropError(t *testing.T) {
+	// Missing prop with no handler returns a descriptive error mentioning the prop name and expression.
+	c := mustParseComponent(t, "test.vue", `<p>{{ name }}</p>`)
+	_, err := NewRenderer(c).Render(map[string]any{})
+	if err == nil {
+		t.Fatal("expected error for missing prop, got nil")
+	}
+	if !strings.Contains(err.Error(), "name") {
+		t.Errorf("error %q should mention prop name 'name'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "used in") {
+		t.Errorf("error %q should mention expressions", err.Error())
+	}
+}
+
+func TestRender_MissingPropSubstitute(t *testing.T) {
+	// SubstituteMissingProp injects "MISSING PROP: <name>" placeholder.
+	c := mustParseComponent(t, "test.vue", `<p>{{ name }}</p>`)
+	out, err := NewRenderer(c).WithMissingPropHandler(SubstituteMissingProp).Render(map[string]any{})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "MISSING PROP: name") {
+		t.Errorf("got %q, want 'MISSING PROP: name'", out)
+	}
+}
+
+func TestRender_MissingPropNilHandler(t *testing.T) {
+	// A handler that returns (nil, nil) succeeds (treats missing props as nil).
+	c := mustParseComponent(t, "test.vue", `<p>{{ name }}</p>`)
+	_, err := NewRenderer(c).WithMissingPropHandler(func(string) (any, error) {
+		return nil, nil
+	}).Render(map[string]any{})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+}
+
+func TestRender_MissingPropHandlerError(t *testing.T) {
+	// A handler that returns an error propagates that error.
+	c := mustParseComponent(t, "test.vue", `<p>{{ name }}</p>`)
+	_, err := NewRenderer(c).WithMissingPropHandler(func(string) (any, error) {
+		return nil, fmt.Errorf("prop not allowed")
+	}).Render(map[string]any{})
+	if err == nil {
+		t.Fatal("expected error from handler, got nil")
+	}
+	if !strings.Contains(err.Error(), "prop not allowed") {
+		t.Errorf("error %q should contain handler error message", err.Error())
+	}
+}
+
+func TestRender_ChildComponentMissingProp(t *testing.T) {
+	// Missing prop in a child component is validated at render time.
+	child := mustParseComponent(t, "child.vue", `<span>{{ label }}</span>`)
+	parent := mustParseComponent(t, "parent.vue", `<Child></Child>`)
+	_, err := NewRenderer(parent).WithComponents(Registry{"Child": child}).Render(nil)
+	if err == nil {
+		t.Fatal("expected error for child missing prop, got nil")
+	}
+	if !strings.Contains(err.Error(), "label") {
+		t.Errorf("error %q should mention missing prop 'label'", err.Error())
 	}
 }
 
