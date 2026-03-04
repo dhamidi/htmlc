@@ -1001,3 +1001,76 @@ func TestRender_ComponentLayoutSlot(t *testing.T) {
 		t.Errorf("got %q, want <p>content</p> in slot", out)
 	}
 }
+
+func TestRender_NamedSlots(t *testing.T) {
+	// Component with named slots receives content via <template v-slot:name>;
+	// remaining children fill the default slot.
+	// Note: explicit </slot> closing tags are required because the Go HTML
+	// parser nests adjacent self-closing <slot/> elements inside each other.
+	comp := mustParseComponent(t, "comp.vue",
+		`<div><slot name="header"></slot><slot></slot><slot name="footer"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Comp><template v-slot:header><h1>Header</h1></template><p>Body</p><template v-slot:footer><em>Footer</em></template></Comp>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Comp": comp}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<h1>Header</h1>") {
+		t.Errorf("got %q, want <h1>Header</h1> from header slot", out)
+	}
+	if !strings.Contains(out, "<p>Body</p>") {
+		t.Errorf("got %q, want <p>Body</p> from default slot", out)
+	}
+	if !strings.Contains(out, "<em>Footer</em>") {
+		t.Errorf("got %q, want <em>Footer</em> from footer slot", out)
+	}
+}
+
+func TestRender_NamedSlotsHashSyntax(t *testing.T) {
+	// #name shorthand for v-slot:name works the same way.
+	comp := mustParseComponent(t, "comp.vue",
+		`<div><slot name="header"></slot><slot></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Comp><template #header><h2>Title</h2></template><p>content</p></Comp>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Comp": comp}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<h2>Title</h2>") {
+		t.Errorf("got %q, want <h2>Title</h2> from header slot", out)
+	}
+	if !strings.Contains(out, "<p>content</p>") {
+		t.Errorf("got %q, want <p>content</p> from default slot", out)
+	}
+}
+
+func TestRender_SlotFallbackWhenMissing(t *testing.T) {
+	// <slot name="header">Default Header</slot> renders its fallback children
+	// when no matching slot definition is provided.
+	comp := mustParseComponent(t, "comp.vue", `<div><slot name="header"><span>Default</span></slot></div>`)
+	main := mustParseComponent(t, "main.vue", `<Comp></Comp>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Comp": comp}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<span>Default</span>") {
+		t.Errorf("got %q, want fallback '<span>Default</span>'", out)
+	}
+}
+
+func TestRender_NamedSlotOverridesFallback(t *testing.T) {
+	// Providing content for a named slot overrides its fallback children.
+	comp := mustParseComponent(t, "comp.vue", `<div><slot name="header"><span>Default</span></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Comp><template v-slot:header><h1>Custom</h1></template></Comp>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Comp": comp}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<h1>Custom</h1>") {
+		t.Errorf("got %q, want '<h1>Custom</h1>'", out)
+	}
+	if strings.Contains(out, "<span>Default</span>") {
+		t.Errorf("got %q, fallback should be replaced by provided slot content", out)
+	}
+}

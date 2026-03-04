@@ -115,6 +115,7 @@ type Renderer struct {
 	styleCollector     *StyleCollector
 	registry           Registry
 	missingPropHandler MissingPropFunc
+	slotDefs           map[string]*SlotDefinition
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -480,15 +481,21 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		return nil
 	}
 
-	// <slot>: emit the default slot content injected by the parent component.
+	// <slot>: emit slot content from the caller's SlotDefinition, or fallback children.
 	if n.Data == "slot" {
-		if slotContent, ok := scope["$slot"]; ok {
-			if s, ok2 := slotContent.(string); ok2 {
-				io.WriteString(w, s)
-				return nil
-			}
+		slotName := "default"
+		if nameAttr, ok := attrValue(n, "name"); ok {
+			slotName = nameAttr
 		}
-		// No slot content: render fallback children (if any).
+		if def, ok := r.slotDefs[slotName]; ok {
+			for _, node := range def.Nodes {
+				if err := r.renderNode(w, node, def.ParentScope); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		// No slot definition: render fallback children (if any).
 		return r.renderChildren(w, n, scope)
 	}
 
@@ -761,9 +768,67 @@ func (r *Renderer) resolveComponent(tagName string) *Component {
 	return nil
 }
 
+// collectSlotDefs scans the direct children of n and returns a map of slot
+// definitions. Children that are <template v-slot:name> / <template #name>
+// elements become named slot definitions; all other children form the
+// "default" slot definition. parentScope is shallow-cloned into each
+// SlotDefinition so that slot content is rendered with the caller's bindings.
+func collectSlotDefs(n *html.Node, parentScope map[string]any) map[string]*SlotDefinition {
+	defs := make(map[string]*SlotDefinition)
+	var defaultNodes []*html.Node
+
+	cloneScope := func() map[string]any {
+		s := make(map[string]any, len(parentScope))
+		for k, v := range parentScope {
+			s[k] = v
+		}
+		return s
+	}
+
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == html.ElementNode && child.Data == "template" {
+			slotName := ""
+			attrVal := ""
+			isSlot := false
+			for _, attr := range child.Attr {
+				if name, ok := parseSlotDirective(attr.Key); ok {
+					slotName = name
+					attrVal = attr.Val
+					isSlot = true
+					break
+				}
+			}
+			if isSlot {
+				var nodes []*html.Node
+				for c := child.FirstChild; c != nil; c = c.NextSibling {
+					nodes = append(nodes, c)
+				}
+				bindingVar, bindings, _ := parseBindingPattern(attrVal)
+				defs[slotName] = &SlotDefinition{
+					Nodes:       nodes,
+					ParentScope: cloneScope(),
+					BindingVar:  bindingVar,
+					Bindings:    bindings,
+				}
+				continue
+			}
+		}
+		defaultNodes = append(defaultNodes, child)
+	}
+
+	if len(defaultNodes) > 0 {
+		defs["default"] = &SlotDefinition{
+			Nodes:       defaultNodes,
+			ParentScope: cloneScope(),
+		}
+	}
+
+	return defs
+}
+
 // renderComponentElement renders n as a component invocation: props are built
-// from the element's attributes, inner content is pre-rendered as the default
-// slot, and then the child component's template is rendered with those props.
+// from the element's attributes, slot definitions are collected from the
+// children, and then the child component's template is rendered with those props.
 func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[string]any, comp *Component) error {
 	childScope := make(map[string]any)
 
@@ -795,12 +860,8 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		}
 	}
 
-	// Pre-render inner content as the default slot (evaluated in the caller's scope).
-	var slotSB strings.Builder
-	if err := r.renderChildren(&slotSB, n, scope); err != nil {
-		return err
-	}
-	childScope["$slot"] = slotSB.String()
+	// Collect slot definitions from children.
+	slotDefs := collectSlotDefs(n, scope)
 
 	// Build a child renderer that shares the registry and style collector.
 	childRenderer := &Renderer{
@@ -808,6 +869,7 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		styleCollector:     r.styleCollector,
 		registry:           r.registry,
 		missingPropHandler: r.missingPropHandler,
+		slotDefs:           slotDefs,
 	}
 
 	if err := childRenderer.Render(w, childScope); err != nil {
