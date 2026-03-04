@@ -1221,3 +1221,74 @@ func TestRender_ScopedSlotDestructuredMissingKey(t *testing.T) {
 		t.Errorf("got %q, want <p>1-null</p>", out)
 	}
 }
+
+// --- v-slot on component tag tests ---
+
+func TestRender_VSlotOnComponentTag_Destructured(t *testing.T) {
+	// v-slot="{ user, index }" on the component tag: all children are default slot content.
+	// The main scoped slot example from the spec.
+	child := mustParseComponent(t, "child.vue", `<ul><li v-for="(item, idx) in items"><slot :user="item" :index="idx"></slot></li></ul>`)
+	main := mustParseComponent(t, "main.vue",
+		`<List :items="items" v-slot="{ user, index }"><span>{{ user.name }}</span></List>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"List": child}).RenderString(map[string]any{
+		"items": []any{
+			map[string]any{"name": "Alice"},
+			map[string]any{"name": "Bob"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<span>Alice</span>") {
+		t.Errorf("got %q, want <span>Alice</span>", out)
+	}
+	if !strings.Contains(out, "<span>Bob</span>") {
+		t.Errorf("got %q, want <span>Bob</span>", out)
+	}
+}
+
+func TestRender_VSlotOnComponentTag_HashDefault(t *testing.T) {
+	// #default="{ item }" on component tag works identically to v-slot="{ item }".
+	child := mustParseComponent(t, "child.vue", `<div><slot :item="theitem"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child :theitem="val" #default="{ item }"><p>{{ item }}</p></Child>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(map[string]any{
+		"val": "hello",
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>hello</p>") {
+		t.Errorf("got %q, want <p>hello</p>", out)
+	}
+}
+
+func TestRender_VSlotOnComponentTag_NoBinding(t *testing.T) {
+	// v-slot (no value) on component tag: all children are default slot, no binding.
+	child := mustParseComponent(t, "child.vue", `<div><slot></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child v-slot><p>static content</p></Child>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>static content</p>") {
+		t.Errorf("got %q, want <p>static content</p>", out)
+	}
+}
+
+func TestRender_VSlotOnComponentTag_MixedError(t *testing.T) {
+	// Mixing v-slot on the component tag with <template #header> children is invalid.
+	// Note: the HTML parser lowercases tag names, so "Child" becomes "child" in the error.
+	child := mustParseComponent(t, "child.vue", `<div><slot name="header"></slot><slot></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Child v-slot="{ x }"><template #header><h1>Title</h1></template></Child>`)
+	_, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(nil)
+	if err == nil {
+		t.Fatal("expected error for mixed v-slot usage, got nil")
+	}
+	want := `v-slot on component tag cannot be mixed with named slot templates`
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("got error %q, want it to contain %q", err.Error(), want)
+	}
+}

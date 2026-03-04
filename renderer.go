@@ -878,11 +878,24 @@ func collectSlotDefs(n *html.Node, parentScope map[string]any) map[string]*SlotD
 func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[string]any, comp *Component) error {
 	childScope := make(map[string]any)
 
+	// Look for a v-slot / # directive on the component tag itself.
+	var componentSlotName string
+	var componentSlotAttrVal string
+	var hasComponentSlot bool
+
 	for _, attr := range n.Attr {
 		// Directives that have already been consumed or don't apply to components.
 		switch attr.Key {
 		case "v-if", "v-else-if", "v-else", "v-for",
 			"v-pre", "v-once", "v-show", "v-text", "v-html":
+			continue
+		}
+
+		// Slot directive on the component tag itself — captured, not passed as prop.
+		if slotName, ok := parseSlotDirective(attr.Key); ok {
+			componentSlotName = slotName
+			componentSlotAttrVal = attr.Val
+			hasComponentSlot = true
 			continue
 		}
 
@@ -906,8 +919,42 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		}
 	}
 
-	// Collect slot definitions from children.
-	slotDefs := collectSlotDefs(n, scope)
+	var slotDefs map[string]*SlotDefinition
+
+	if hasComponentSlot {
+		// Mixing v-slot on the component tag with <template #name> children is invalid.
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type == html.ElementNode && child.Data == "template" {
+				for _, attr := range child.Attr {
+					if _, ok := parseSlotDirective(attr.Key); ok {
+						return fmt.Errorf("component %q: v-slot on component tag cannot be mixed with named slot templates", n.Data)
+					}
+				}
+			}
+		}
+
+		// Collect all children as the named slot (typically "default").
+		var nodes []*html.Node
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			nodes = append(nodes, child)
+		}
+		parentScope := make(map[string]any, len(scope))
+		for k, v := range scope {
+			parentScope[k] = v
+		}
+		bindingVar, bindings, _ := parseBindingPattern(componentSlotAttrVal)
+		slotDefs = map[string]*SlotDefinition{
+			componentSlotName: {
+				Nodes:       nodes,
+				ParentScope: parentScope,
+				BindingVar:  bindingVar,
+				Bindings:    bindings,
+			},
+		}
+	} else {
+		// Collect slot definitions from children.
+		slotDefs = collectSlotDefs(n, scope)
+	}
 
 	// Build a child renderer that shares the registry and style collector.
 	childRenderer := &Renderer{
