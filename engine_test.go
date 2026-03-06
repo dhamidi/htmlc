@@ -1,12 +1,14 @@
 package htmlc
 
 import (
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -387,6 +389,98 @@ func TestEngine_AllPropsProvided_NoHandler_Succeeds(t *testing.T) {
 	}
 	if !strings.Contains(out, "hello") {
 		t.Errorf("expected 'hello' in output, got: %q", out)
+	}
+}
+
+func TestNew_WithFS_DiscoverAndRender(t *testing.T) {
+	memFS := fstest.MapFS{
+		"UserCard.vue":   &fstest.MapFile{Data: []byte(`<template><div class="card">{{ label }}</div></template>`)},
+		"StatusBadge.vue": &fstest.MapFile{Data: []byte(`<template><span class="badge">{{ msg }}</span></template>`)},
+	}
+
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("UserCard", map[string]any{"label": "Click me"})
+	if err != nil {
+		t.Fatalf("RenderFragmentString UserCard: %v", err)
+	}
+	if !strings.Contains(out, "Click me") {
+		t.Errorf("UserCard: got %q, want 'Click me'", out)
+	}
+
+	out, err = e.RenderFragmentString("StatusBadge", map[string]any{"msg": "Watch out"})
+	if err != nil {
+		t.Fatalf("RenderFragmentString StatusBadge: %v", err)
+	}
+	if !strings.Contains(out, "Watch out") {
+		t.Errorf("StatusBadge: got %q, want 'Watch out'", out)
+	}
+}
+
+func TestNew_WithFS_ComponentDir(t *testing.T) {
+	memFS := fstest.MapFS{
+		"templates/Card.vue": &fstest.MapFile{Data: []byte(`<template><div>{{ title }}</div></template>`)},
+	}
+
+	e, err := New(Options{FS: memFS, ComponentDir: "templates"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Card", map[string]any{"title": "Hello FS"})
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "Hello FS") {
+		t.Errorf("got %q, want 'Hello FS'", out)
+	}
+}
+
+func TestNew_WithFS_NoReload(t *testing.T) {
+	// Wrap MapFS in a type that only exposes fs.FS (no StatFS), so that
+	// hot-reload is silently skipped without panicking or erroring.
+	inner := fstest.MapFS{
+		"Live.vue": &fstest.MapFile{Data: []byte(`<template><p>static</p></template>`)},
+	}
+	type minFS struct{ fs.FS }
+	memFS := minFS{inner}
+
+	e, err := New(Options{FS: memFS, ComponentDir: ".", Reload: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Live", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "static") {
+		t.Errorf("got %q, want 'static'", out)
+	}
+}
+
+func TestEngine_Register_WithFS(t *testing.T) {
+	memFS := fstest.MapFS{
+		"Widget.vue": &fstest.MapFile{Data: []byte(`<template><aside>{{ val }}</aside></template>`)},
+	}
+
+	e, err := New(Options{FS: memFS})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := e.Register("MyWidget", "Widget.vue"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("MyWidget", map[string]any{"val": "from fs"})
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "from fs") {
+		t.Errorf("got %q, want 'from fs'", out)
 	}
 }
 

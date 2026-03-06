@@ -3,6 +3,7 @@ package htmlc
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,7 +25,17 @@ type Options struct {
 	// it was last loaded. This lets you edit .vue files and see the results
 	// without restarting the server. For production, leave Reload false and
 	// create the Engine once at startup.
+	//
+	// When FS is also set, reload only works if the FS implements fs.StatFS.
+	// If it does not, reload is silently skipped for all entries.
 	Reload bool
+	// FS, when set, is used instead of the OS filesystem for all file reads
+	// and directory walks. ComponentDir is then interpreted as a path within
+	// this FS. This allows callers to use embedded filesystems (//go:embed),
+	// in-memory virtual filesystems, or any other fs.FS implementation.
+	//
+	// When FS is nil, the OS filesystem is used (default behaviour).
+	FS fs.FS
 }
 
 // engineEntry holds a parsed component together with its source path and the
@@ -69,6 +80,23 @@ func New(opts Options) (*Engine, error) {
 
 // discover walks dir in lexical order and registers every *.vue file found.
 func (e *Engine) discover(dir string) error {
+	if e.opts.FS != nil {
+		return fs.WalkDir(e.opts.FS, dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			base := filepath.Base(path)
+			ext := filepath.Ext(base)
+			if !strings.EqualFold(ext, ".vue") {
+				return nil
+			}
+			name := strings.TrimSuffix(base, ext)
+			return e.registerPath(name, path)
+		})
+	}
 	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -88,7 +116,15 @@ func (e *Engine) discover(dir string) error {
 
 // registerPath reads and parses the .vue file at path, then stores it under name.
 func (e *Engine) registerPath(name, path string) error {
-	data, err := os.ReadFile(path)
+	var (
+		data []byte
+		err  error
+	)
+	if e.opts.FS != nil {
+		data, err = fs.ReadFile(e.opts.FS, path)
+	} else {
+		data, err = os.ReadFile(path)
+	}
 	if err != nil {
 		return fmt.Errorf("engine: read %s: %w", path, err)
 	}
@@ -97,8 +133,16 @@ func (e *Engine) registerPath(name, path string) error {
 		return err
 	}
 	var modTime time.Time
-	if info, statErr := os.Stat(path); statErr == nil {
-		modTime = info.ModTime()
+	if e.opts.FS != nil {
+		if statFS, ok := e.opts.FS.(fs.StatFS); ok {
+			if info, statErr := statFS.Stat(path); statErr == nil {
+				modTime = info.ModTime()
+			}
+		}
+	} else {
+		if info, statErr := os.Stat(path); statErr == nil {
+			modTime = info.ModTime()
+		}
 	}
 	entry := &engineEntry{path: path, comp: comp, modTime: modTime}
 	e.entries[name] = entry
@@ -128,13 +172,30 @@ func (e *Engine) maybeReload() error {
 	}
 	for _, name := range names {
 		entry := e.entries[name]
-		info, err := os.Stat(entry.path)
-		if err != nil {
-			continue
-		}
-		if info.ModTime().After(entry.modTime) {
-			if rerr := e.registerPath(name, entry.path); rerr != nil {
-				return rerr
+		if e.opts.FS != nil {
+			statFS, ok := e.opts.FS.(fs.StatFS)
+			if !ok {
+				// FS does not support Stat; skip reload for this entry.
+				continue
+			}
+			info, err := statFS.Stat(entry.path)
+			if err != nil {
+				continue
+			}
+			if info.ModTime().After(entry.modTime) {
+				if rerr := e.registerPath(name, entry.path); rerr != nil {
+					return rerr
+				}
+			}
+		} else {
+			info, err := os.Stat(entry.path)
+			if err != nil {
+				continue
+			}
+			if info.ModTime().After(entry.modTime) {
+				if rerr := e.registerPath(name, entry.path); rerr != nil {
+					return rerr
+				}
 			}
 		}
 	}

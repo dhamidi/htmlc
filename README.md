@@ -419,6 +419,32 @@ engine, err := htmlc.New(htmlc.Options{
 })
 ```
 
+### Load components from an embedded filesystem
+
+Set `Options.FS` to any `fs.FS` implementation — including `embed.FS` — and
+the engine reads and walks component files through that FS instead of the OS
+filesystem. `ComponentDir` is then interpreted as a path within the FS.
+
+```go
+import "embed"
+
+//go:embed templates
+var templateFS embed.FS
+
+engine, err := htmlc.New(htmlc.Options{
+    FS:           templateFS,
+    ComponentDir: "templates",
+})
+```
+
+This embeds the entire `templates/` directory into the binary at compile time.
+Any `fs.FS` implementation works — `embed.FS`, `testing/fstest.MapFS`,
+`fs.Sub`, or a custom virtual filesystem.
+
+Hot-reload (`Reload: true`) is supported when the FS implements `fs.StatFS`
+(which `embed.FS` does not — embedded files have no mtime). When the FS does
+not implement `fs.StatFS`, reload checks are silently skipped.
+
 ---
 
 ## 7. Expression Language Reference
