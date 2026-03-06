@@ -437,7 +437,7 @@ out, _ := htmlc.NewRenderer(page).
 ```
 
 
-Additional context from operator: Do a pass over all documentation to ensure it is up to date -- I just saw that we still reference the removed len function.  Then we also need to integrate with the stdlib's fs.FS interface
+Additional context from operator: Add an example application in a subpackage that shows how to implement a blog (create + edit posts, list page that shows all posts)
 
 After writing all task files, run these commands:
   git add .factory/
