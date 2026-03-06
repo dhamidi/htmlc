@@ -374,3 +374,45 @@ func TestProps_MultipleExpressionsAggregate(t *testing.T) {
 		t.Errorf("expected at least 2 expressions for 'title', got %v", p.Expressions)
 	}
 }
+
+func TestProps_VSlotTemplateDestructured(t *testing.T) {
+	// user and index come from the slot binding, not from the parent scope
+	props := parseForProps(t, `<UserList><template #item="{ user, index }"><li>{{ index }}: {{ user.name }}</li></template></UserList>`)
+	names := propNames(props)
+	for _, n := range names {
+		if n == "user" || n == "index" {
+			t.Errorf("'%s' should not be a prop (it is a v-slot binding variable)", n)
+		}
+	}
+}
+
+func TestProps_VSlotComponentTag(t *testing.T) {
+	// msg comes from the v-slot binding on the component tag
+	props := parseForProps(t, `<Wrapper v-slot="{ msg }"><p>{{ msg }}</p></Wrapper>`)
+	names := propNames(props)
+	for _, n := range names {
+		if n == "msg" {
+			t.Errorf("'msg' should not be a prop (it is a v-slot binding variable)")
+		}
+	}
+}
+
+func TestProps_VSlotWithBoundProp(t *testing.T) {
+	// users is a prop (bound via :users), user is NOT (comes from slot binding)
+	props := parseForProps(t, `<UserList :users="users"><template #item="{ user }">{{ user.name }}</template></UserList>`)
+	names := propNames(props)
+	for _, n := range names {
+		if n == "user" {
+			t.Errorf("'user' should not be a prop (it is a v-slot binding variable)")
+		}
+	}
+	found := false
+	for _, n := range names {
+		if n == "users" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("props = %v, want 'users' to be included", names)
+	}
+}
