@@ -91,6 +91,44 @@ func TestServer_CreatePost(t *testing.T) {
 	}
 }
 
+func TestServer_GetPost_Found(t *testing.T) {
+	srv, handler := newTestServer(t)
+	srv.store.Create("Hello World", "This is the body.")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/posts/1", nil)
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Hello World") {
+		t.Errorf("expected post title in body: %s", body)
+	}
+	if !strings.Contains(body, "This is the body.") {
+		t.Errorf("expected post body in body: %s", body)
+	}
+	if !strings.Contains(body, `href="/"`) {
+		t.Errorf("expected back link to / in body: %s", body)
+	}
+	if !strings.Contains(body, `href="/posts/1/edit"`) {
+		t.Errorf("expected edit link in body: %s", body)
+	}
+}
+
+func TestServer_GetPost_NotFound(t *testing.T) {
+	_, handler := newTestServer(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/posts/999", nil)
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
 func TestServer_EditForm_Found(t *testing.T) {
 	srv, handler := newTestServer(t)
 	srv.store.Create("Edit Me", "Some Body")

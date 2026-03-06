@@ -23,12 +23,13 @@ func NewServer(store *Store, templateDir string) (*Server, error) {
 	return &Server{store: store, engine: engine}, nil
 }
 
-// Routes returns an http.Handler serving all five blog routes.
+// Routes returns an http.Handler serving all blog routes.
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleListPosts)
 	mux.HandleFunc("GET /posts/new", s.handleNewPostForm)
 	mux.HandleFunc("POST /posts/new", s.handleCreatePost)
+	mux.HandleFunc("GET /posts/{id}", s.handleGetPost)
 	mux.HandleFunc("GET /posts/{id}/edit", s.handleEditPostForm)
 	mux.HandleFunc("POST /posts/{id}/edit", s.handleUpdatePost)
 	return mux
@@ -70,6 +71,22 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.Create(r.FormValue("title"), r.FormValue("body"))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *Server) handleGetPost(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	post, ok := s.store.Get(id)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	s.renderPage(w, "PostDetailPage", map[string]any{
+		"post": map[string]any{"ID": post.ID, "Title": post.Title, "Body": post.Body},
+	})
 }
 
 func (s *Server) handleEditPostForm(w http.ResponseWriter, r *http.Request) {

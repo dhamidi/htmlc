@@ -1,6 +1,6 @@
 <template>
   <div class="post-card">
-    <h2 v-text="title"></h2>
+    <h2><a :href="'/posts/' + id" v-text="title"></a></h2>
     <p v-text="body"></p>
     <a :href="'/posts/' + id + '/edit'">Edit</a>
   </div>
