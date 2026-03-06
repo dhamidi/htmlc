@@ -55,16 +55,22 @@ Multiple interpolations in a single text node are supported.
 | Logical | `&&`, `\|\|`, `!` |
 | Nullish coalescing | `??` |
 | Ternary | `condition ? then : else` |
-| Member access | `obj.key`, `arr[i]` |
-| Function calls | `len(items)` |
+| Member access | `obj.key`, `arr[i]`, `arr.length` |
+| Function calls | `fn(args)` (via `expr.RegisterBuiltin`) |
 | Array literals | `[a, b, c]` |
 | Object literals | `{ key: value }` |
 
 #### Built-in functions
 
-| Function | Description |
-|---|---|
-| `len(x)` | Returns the length of a string, array, slice, or map as a number. |
+The engine ships with no pre-registered built-in functions. Use `expr.RegisterBuiltin` to add custom functions that are callable from templates by name. For measuring collection sizes, use the `.length` member property instead — it works on strings, slices, arrays, and maps with no registration required:
+
+```html
+<!-- number of elements in a slice -->
+<span>{{ items.length }}</span>
+
+<!-- number of bytes in a string -->
+<span>{{ name.length }}</span>
+```
 
 ### Not supported
 
@@ -99,7 +105,7 @@ Multiple interpolations in a single text node are supported.
 
 | Directive | Status |
 |---|---|
-| `v-slot` | Not supported. Only the default `<slot />` is available. Named and scoped slots are not implemented. |
+| `v-slot` | Yes | Used on `<template>` elements to target named or scoped slots. Shorthand: `#name`. See [Slots](#slots) under §4. |
 | `v-cloak` | Not relevant for server-side rendering. |
 | `v-memo` | Not implemented. |
 
@@ -200,6 +206,94 @@ Use `<slot />` inside a component to render the caller's inner content:
 
 Slot content is evaluated in the **caller's** scope, not the child component's scope.
 
+#### Slots
+
+##### Default slot
+
+As shown above, `<slot />` renders the caller's inner content. Children of `<slot>` act as **fallback content** — rendered only when the caller provides nothing:
+
+```html
+<!-- Button.vue -->
+<template>
+  <button>
+    <slot>Click me</slot>
+  </button>
+</template>
+```
+
+```html
+<!-- renders "Click me" because no content provided -->
+<Button />
+
+<!-- renders "Submit" -->
+<Button>Submit</Button>
+```
+
+##### Named slots
+
+A component can expose multiple insertion points by giving each `<slot>` a `name` attribute. The caller targets a named slot with `<template v-slot:name>` or the `#` shorthand `<template #name>`:
+
+```html
+<!-- Layout.vue -->
+<template>
+  <div class="layout">
+    <header><slot name="header" /></header>
+    <main><slot /></main>
+    <footer><slot name="footer" /></footer>
+  </div>
+</template>
+```
+
+```html
+<!-- caller -->
+<Layout>
+  <template #header><h1>{{ pageTitle }}</h1></template>
+  <p>Main body content.</p>
+  <template #footer><small>© 2024</small></template>
+</Layout>
+```
+
+Content without a `v-slot` / `#` target goes to the default slot.
+
+##### Scoped slots
+
+A component can pass data back to the caller's slot content by binding props on the `<slot>` element. The caller receives them via `v-slot="{ … }"` or `#name="{ … }"`:
+
+```html
+<!-- List.vue -->
+<template>
+  <ul>
+    <li v-for="item in items">
+      <slot :item="item" :index="index" />
+    </li>
+  </ul>
+</template>
+```
+
+```html
+<!-- caller — destructured binding -->
+<List :items="products">
+  <template #default="{ item, index }">
+    <strong>{{ index }}.</strong> {{ item.name }}
+  </template>
+</List>
+```
+
+Binding patterns:
+
+| Syntax | Effect |
+|---|---|
+| `v-slot` | Slot targeted, no props exposed |
+| `v-slot="slotProps"` | All slot props available as `slotProps.x` |
+| `v-slot="{ item }"` | Destructured; `item` available directly |
+| `v-slot="{ item, index }"` | Multiple destructured props |
+
+##### Scope rules
+
+- Slot content is always evaluated in the **caller's** scope.
+- Slot props (from `:prop="expr"` on `<slot>`) are merged into the scope when rendering that slot's content — they do not leak into the rest of the caller's template.
+- Named-slot props are scoped to the `<template #name="…">` block.
+
 #### Component resolution
 
 Given a tag name, the engine tries these strategies in order:
@@ -227,7 +321,6 @@ Components can freely use other components registered in the same engine.
 
 | Feature | Status |
 |---|---|
-| Named slots / scoped slots / `v-slot` | Not implemented. |
 | `<script setup>` / Composition API | Not supported. `<script>` content is never executed. |
 | Computed properties, watchers, lifecycle hooks | Not applicable (no runtime). |
 | `$emit` / custom events | Not implemented. |
@@ -365,7 +458,7 @@ Everything else is truthy, including empty arrays and empty objects.
 {{ count > 0 ? count : "none" }}
 {{ user.name ?? "Guest" }}
 {{ items[0].title }}
-{{ len(tags) }}
+{{ tags.length }}
 {{ price * 1.2 }}
 {{ active ? "active" : "" }}
 ```

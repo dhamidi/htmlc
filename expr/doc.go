@@ -29,7 +29,7 @@ An identifier is a sequence of letters, digits, underscores, or dollar signs
 that does not begin with a digit. Names are resolved in the following order:
 
  1. The caller-supplied scope map (map[string]any).
- 2. The built-in function table (currently only "len").
+ 2. The built-in function table (registered via RegisterBuiltin).
  3. If absent from both, the name evaluates to UndefinedValue.
 
 Scope map keys shadow built-in names.
@@ -123,19 +123,27 @@ values of the correct function type can be called directly.
 
 # Built-in Functions
 
-## len(value) float64
+The engine ships with no pre-registered built-in functions. Callers add custom
+functions via RegisterBuiltin:
 
-Returns the length of value as float64.
+	expr.RegisterBuiltin("upper", func(args ...any) (any, error) {
+	    if len(args) != 1 {
+	        return nil, fmt.Errorf("upper: want 1 arg")
+	    }
+	    s, _ := args[0].(string)
+	    return strings.ToUpper(s), nil
+	})
 
-Accepted argument types:
+Functions registered this way are available in all expressions by name.
+Scope map keys shadow built-in names.
 
-	string      number of bytes
-	[]T         number of elements (any slice)
-	[N]T        number of elements (any array)
-	map[K]V     number of entries (any map)
+For the common case of measuring collection sizes, use the built-in .length
+member property instead of a function call. It is available on strings, slices,
+arrays, and maps via member-access syntax and requires no registration:
 
-Returns an error if called with zero or more than one argument, or if value is
-none of the above types.
+	items.length     // number of elements in a slice or array
+	name.length      // number of bytes in a string
+	obj.length       // number of entries in a map
 
 # Type Coercion
 
