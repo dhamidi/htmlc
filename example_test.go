@@ -388,6 +388,84 @@ func ExampleEngine_ServeComponent() {
 	// <p>hello</p>
 }
 
+// ExampleRender_namedSlots demonstrates named slots: a Layout component
+// declares header and footer named slots plus a default slot for body content,
+// and the caller fills each slot with a <template #name> element.
+func ExampleRender_namedSlots() {
+	layout, _ := htmlc.ParseFile("Layout.vue",
+		`<template><div class="layout"><slot name="header"></slot><main><slot></slot></main><slot name="footer"></slot></div></template>`)
+	page, _ := htmlc.ParseFile("Page.vue",
+		`<template><Layout><template #header><h1>Title</h1></template><p>Content</p><template #footer><em>Footer</em></template></Layout></template>`)
+	out, err := htmlc.NewRenderer(page).
+		WithComponents(htmlc.Registry{"Layout": layout}).
+		RenderString(nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(out)
+	// Output:
+	// <div class="layout"><h1>Title</h1><main><p>Content</p></main><em>Footer</em></div>
+}
+
+// ExampleRender_scopedSlots demonstrates scoped slots: a List component
+// passes each item and its index to the caller via slot props, and the caller
+// uses v-slot="{ item, index }" to render a custom item template.
+func ExampleRender_scopedSlots() {
+	list, _ := htmlc.ParseFile("List.vue",
+		`<template><ul><li v-for="(item, i) in items"><slot :item="item" :index="i"></slot></li></ul></template>`)
+	page, _ := htmlc.ParseFile("Page.vue",
+		`<template><List :items="items" v-slot="{ item, index }"><span>{{ index }}: {{ item }}</span></List></template>`)
+	out, err := htmlc.NewRenderer(page).
+		WithComponents(htmlc.Registry{"List": list}).
+		RenderString(map[string]any{"items": []any{"a", "b"}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(out)
+	// Output:
+	// <ul><li><span>0: a</span></li><li><span>1: b</span></li></ul>
+}
+
+// ExampleRender_slotFallbackContent demonstrates slot fallback content:
+// when the caller provides no content for a slot, the child component's
+// fallback children inside <slot>…</slot> are rendered instead.
+func ExampleRender_slotFallbackContent() {
+	card, _ := htmlc.ParseFile("Card.vue",
+		`<template><div class="card"><slot><p>No content provided</p></slot></div></template>`)
+	page, _ := htmlc.ParseFile("Page.vue", `<template><Card></Card></template>`)
+	out, err := htmlc.NewRenderer(page).
+		WithComponents(htmlc.Registry{"Card": card}).
+		RenderString(nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(out)
+	// Output:
+	// <div class="card"><p>No content provided</p></div>
+}
+
+// ExampleRender_singleVariableSlotBinding demonstrates v-slot="slotProps"
+// binding: the entire slot props map is bound to a single variable, allowing
+// the caller to access any prop via slotProps.key.
+func ExampleRender_singleVariableSlotBinding() {
+	child, _ := htmlc.ParseFile("Child.vue",
+		`<template><div><slot :user="theuser" :count="total"></slot></div></template>`)
+	page, _ := htmlc.ParseFile("Page.vue",
+		`<template><Child :theuser="u" :total="n" v-slot="props"><p>{{ props.user.name }}: {{ props.count }}</p></Child></template>`)
+	out, err := htmlc.NewRenderer(page).
+		WithComponents(htmlc.Registry{"Child": child}).
+		RenderString(map[string]any{
+			"u": map[string]any{"name": "Alice"},
+			"n": float64(3),
+		})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(out)
+	// Output:
+	// <div><p>Alice: 3</p></div>
+}
+
 // ExampleRender_eventPassthrough shows that client-side directives such as
 // @click and v-model are preserved in the server-rendered output unchanged,
 // ready to be activated by the client-side framework.

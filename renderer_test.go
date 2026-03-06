@@ -1292,3 +1292,143 @@ func TestRender_VSlotOnComponentTag_MixedError(t *testing.T) {
 		t.Errorf("got error %q, want it to contain %q", err.Error(), want)
 	}
 }
+
+// --- binding pattern edge cases ---
+
+func TestParseBindingPattern_ExtraWhitespaceEverywhere(t *testing.T) {
+	// Extra whitespace outside and inside the braces is tolerated.
+	_, bindings, err := parseBindingPattern("  {  a  ,  b  }  ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(bindings) != 2 || bindings[0] != "a" || bindings[1] != "b" {
+		t.Errorf("got bindings=%v, want [a b]", bindings)
+	}
+}
+
+func TestRender_VSlotOnTemplate_NoValue(t *testing.T) {
+	// <template v-slot> (no = sign) creates the default slot with no binding;
+	// slot content is rendered with the parent scope unchanged.
+	comp := mustParseComponent(t, "comp.vue", `<div><slot :ignored="42"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Comp><template v-slot><p>{{ label }}</p></template></Comp>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Comp": comp}).RenderString(map[string]any{
+		"label": "hello",
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<p>hello</p>") {
+		t.Errorf("got %q, want <p>hello</p>", out)
+	}
+}
+
+// --- named slot edge cases ---
+
+func TestRender_MultipleNamedSlotsSameName_LastWins(t *testing.T) {
+	// When two <template #name> elements share the same slot name, the last
+	// one in document order wins (overwrites the first).
+	comp := mustParseComponent(t, "comp.vue", `<div><slot name="title"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Comp><template #title><h1>first</h1></template><template #title><h2>last</h2></template></Comp>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Comp": comp}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(out, "<h1>first</h1>") {
+		t.Errorf("got %q, first duplicate slot must be overwritten", out)
+	}
+	if !strings.Contains(out, "<h2>last</h2>") {
+		t.Errorf("got %q, want <h2>last</h2> from last duplicate slot", out)
+	}
+}
+
+func TestRender_TemplatePlainTransparent(t *testing.T) {
+	// A <template> element without any directive renders its children
+	// transparently — no <template> wrapper tag appears in the output.
+	comp := mustParseComponent(t, "comp.vue", `<div><slot></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Comp><template><p>first</p><p>second</p></template></Comp>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Comp": comp}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(out, "<template") {
+		t.Errorf("got %q, bare <template> must not appear in output", out)
+	}
+	if !strings.Contains(out, "<p>first</p>") || !strings.Contains(out, "<p>second</p>") {
+		t.Errorf("got %q, want both paragraphs in output", out)
+	}
+}
+
+func TestRender_NamedSlotExplicitDefault(t *testing.T) {
+	// <template #default> explicitly names the default slot — equivalent to
+	// providing default slot content without a template wrapper.
+	comp := mustParseComponent(t, "comp.vue", `<div><slot name="header"><em>fallback</em></slot><slot></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Comp><template #default><p>body</p></template></Comp>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Comp": comp}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// The header slot has no provided content, so its fallback renders.
+	if !strings.Contains(out, "<em>fallback</em>") {
+		t.Errorf("got %q, want header fallback <em>fallback</em>", out)
+	}
+	// The explicit #default content renders in the default slot.
+	if !strings.Contains(out, "<p>body</p>") {
+		t.Errorf("got %q, want <p>body</p> from #default slot", out)
+	}
+}
+
+// --- scoped slot edge cases ---
+
+func TestRender_ScopedSlot_ExtraKeysIgnored(t *testing.T) {
+	// Slot props map has keys not in the destructuring binding pattern —
+	// extra keys are silently ignored.
+	comp := mustParseComponent(t, "comp.vue", `<div><slot :a="1" :b="2" :c="3"></slot></div>`)
+	main := mustParseComponent(t, "main.vue",
+		`<Comp><template #default="{ a, c }"><p>{{ a }}-{{ c }}</p></template></Comp>`)
+	out, err := NewRenderer(main).WithComponents(Registry{"Comp": comp}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// Only a and c are bound; b is ignored.
+	if !strings.Contains(out, "<p>1-3</p>") {
+		t.Errorf("got %q, want <p>1-3</p>", out)
+	}
+}
+
+func TestRender_DeeplyNestedSlots(t *testing.T) {
+	// Component A uses component B with named slots; component B uses
+	// component C with scoped slots. Three levels of composition.
+	//
+	//   ComponentC: <div><slot :value="data"></slot></div>   (prop: data)
+	//   ComponentB: <section><slot name="head"></slot>
+	//               <ComponentC :data="msg"><template #default="{ value }">
+	//                 <em>{{ value }}</em></template></ComponentC></section>
+	//               (prop: msg)
+	//   ComponentA: <article><ComponentB msg="hello">
+	//               <template #head><h2>Title</h2></template>
+	//               </ComponentB></article>
+	compC := mustParseComponent(t, "C.vue", `<div><slot :value="data"></slot></div>`)
+	compB := mustParseComponent(t, "B.vue",
+		`<section><slot name="head"></slot><CompC :data="msg"><template #default="{ value }"><em>{{ value }}</em></template></CompC></section>`)
+	compA := mustParseComponent(t, "A.vue",
+		`<article><CompB msg="hello"><template #head><h2>Title</h2></template></CompB></article>`)
+
+	reg := Registry{"CompC": compC, "CompB": compB}
+	out, err := NewRenderer(compA).WithComponents(reg).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<article>") {
+		t.Errorf("got %q, want <article> from ComponentA", out)
+	}
+	if !strings.Contains(out, "<h2>Title</h2>") {
+		t.Errorf("got %q, want <h2>Title</h2> from named slot in ComponentB", out)
+	}
+	if !strings.Contains(out, "<em>hello</em>") {
+		t.Errorf("got %q, want <em>hello</em> from scoped slot in ComponentC", out)
+	}
+}

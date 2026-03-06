@@ -199,6 +199,119 @@ func TestIntegration_VIfWithLength(t *testing.T) {
 	}
 }
 
+// TestIntegration_LayoutPattern exercises the three-slot layout pattern:
+// a Layout component with named header/main/footer slots is used by a Page
+// component that injects dynamic content into each slot.
+func TestIntegration_LayoutPattern(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Layout.vue"),
+		`<template><div class="layout"><header><slot name="header"></slot></header><main><slot></slot></main><footer><slot name="footer"></slot></footer></div></template>`)
+	writeVue(t, filepath.Join(dir, "Page.vue"),
+		`<template><Layout><template #header><h1>{{ title }}</h1></template><p>{{ body }}</p><template #footer><small>{{ copy }}</small></template></Layout></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Page", map[string]any{
+		"title": "My Blog",
+		"body":  "Welcome!",
+		"copy":  "2024",
+	})
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+
+	if !strings.Contains(out, `class="layout"`) {
+		t.Errorf("layout wrapper: want class=\"layout\" in output:\n%s", out)
+	}
+	if !strings.Contains(out, "<h1>My Blog</h1>") {
+		t.Errorf("header slot: want <h1>My Blog</h1> in output:\n%s", out)
+	}
+	if !strings.Contains(out, "<p>Welcome!</p>") {
+		t.Errorf("default slot: want <p>Welcome!</p> in output:\n%s", out)
+	}
+	if !strings.Contains(out, "<small>2024</small>") {
+		t.Errorf("footer slot: want <small>2024</small> in output:\n%s", out)
+	}
+}
+
+// TestIntegration_RenderlessListPattern exercises the renderless component
+// pattern: a UserList component iterates its items internally and exposes
+// each item and its index through a named scoped slot.
+func TestIntegration_RenderlessListPattern(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "UserList.vue"),
+		`<template><ul><li v-for="(user, index) in users"><slot name="item" :user="user" :index="index"></slot></li></ul></template>`)
+	writeVue(t, filepath.Join(dir, "Page.vue"),
+		`<template><UserList :users="users"><template #item="{ user, index }"><span>{{ index }}: {{ user.name }}</span></template></UserList></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Page", map[string]any{
+		"users": []any{
+			map[string]any{"name": "Alice"},
+			map[string]any{"name": "Bob"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+
+	if !strings.Contains(out, "<ul>") {
+		t.Errorf("list: want <ul> in output:\n%s", out)
+	}
+	if !strings.Contains(out, "<span>0: Alice</span>") {
+		t.Errorf("item 0: want <span>0: Alice</span> in output:\n%s", out)
+	}
+	if !strings.Contains(out, "<span>1: Bob</span>") {
+		t.Errorf("item 1: want <span>1: Bob</span> in output:\n%s", out)
+	}
+}
+
+// TestIntegration_NestedParentChildGrandchild verifies a three-level component
+// hierarchy where each level uses slots: Parent provides content to Child via
+// a named slot, and Child provides content to Grandchild via a named slot.
+func TestIntegration_NestedParentChildGrandchild(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Grandchild.vue"),
+		`<template><span class="gc"><slot name="data"></slot></span></template>`)
+	writeVue(t, filepath.Join(dir, "Child.vue"),
+		`<template><div class="child"><slot name="main"></slot><Grandchild><template #data><em>gc-content</em></template></Grandchild></div></template>`)
+	writeVue(t, filepath.Join(dir, "Parent.vue"),
+		`<template><article><Child><template #main><strong>parent-content</strong></template></Child></article></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Parent", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+
+	if !strings.Contains(out, "<article>") {
+		t.Errorf("parent: want <article> in output:\n%s", out)
+	}
+	if !strings.Contains(out, `class="child"`) {
+		t.Errorf("child: want class=\"child\" in output:\n%s", out)
+	}
+	if !strings.Contains(out, "<strong>parent-content</strong>") {
+		t.Errorf("parent slot: want <strong>parent-content</strong> in output:\n%s", out)
+	}
+	if !strings.Contains(out, `class="gc"`) {
+		t.Errorf("grandchild: want class=\"gc\" in output:\n%s", out)
+	}
+	if !strings.Contains(out, "<em>gc-content</em>") {
+		t.Errorf("grandchild slot: want <em>gc-content</em> in output:\n%s", out)
+	}
+}
+
 // TestIntegration_ReloadPicksUpChanges verifies that Reload:true causes the
 // Engine to re-parse a component file when its modification time advances,
 // exercising the full path from file-system change through to rendered output.

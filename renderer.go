@@ -481,6 +481,14 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		return nil
 	}
 
+	// <template> without a controlling directive: render children transparently,
+	// without emitting a <template> wrapper element. Directives like v-if and
+	// v-for are intercepted in renderChildren before renderElement is reached,
+	// so this branch only fires for plain <template> elements.
+	if n.Data == "template" {
+		return r.renderChildren(w, n, scope)
+	}
+
 	// <slot>: emit slot content from the caller's SlotDefinition, or fallback children.
 	if n.Data == "slot" {
 		slotName := "default"
