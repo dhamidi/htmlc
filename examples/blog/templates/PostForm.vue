@@ -2,11 +2,11 @@
   <form method="POST" :action="action">
     <div class="form-group">
       <label for="title">Title</label>
-      <input id="title" name="title" type="text" :value="post.Title" />
+      <input id="title" name="title" type="text" :value="post.Title" placeholder="Post title" class="title-input" />
     </div>
     <div class="form-group">
       <label for="body">Body</label>
-      <textarea id="body" name="body">{{ post.Body }}</textarea>
+      <textarea id="body" name="body" placeholder="Write your post here…">{{ post.Body }}</textarea>
     </div>
     <button type="submit">{{ submitLabel }}</button>
   </form>
@@ -39,15 +39,23 @@ textarea {
   color: #000;
   border-radius: 0;
   outline: none;
+  box-shadow: inset 2px 2px 0 #eee;
+  transition: box-shadow 0.1s;
 }
 
 input[type="text"]:focus,
 textarea:focus {
-  box-shadow: 4px 4px 0 #000;
+  box-shadow: 5px 5px 0 #000;
+  outline: none;
+}
+
+.title-input {
+  font-size: 1.25rem;
+  font-weight: 700;
 }
 
 textarea {
-  min-height: 8rem;
+  min-height: 16rem;
   resize: vertical;
 }
 
