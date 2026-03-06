@@ -150,11 +150,39 @@ func (r *Renderer) WithMissingPropHandler(fn MissingPropFunc) *Renderer {
 // validateProps checks scope against the component's expected props. If a prop
 // is missing and a handler is set, the handler's returned value is injected
 // into a copy of the scope. If no handler is set, an error is returned.
+//
+// HTML parsers lowercase all attribute names, so a caller that writes
+// :myProp="x" will produce a scope key "myprop" instead of "myProp". When an
+// exact match fails, validateProps does a case-insensitive fallback: if a
+// matching key exists under a different case, the correct-case entry is added
+// to the augmented scope so template expressions like {{ myProp }} resolve.
 func (r *Renderer) validateProps(scope map[string]any) (map[string]any, error) {
 	props := r.component.Props()
 	var augmented map[string]any
 	for _, p := range props {
 		if _, ok := scope[p.Name]; ok {
+			continue
+		}
+		// Fallback: HTML parsers lowercase attribute names. Look for a
+		// case-insensitive match and re-inject under the expected casing.
+		lowerName := strings.ToLower(p.Name)
+		var caseVal any
+		caseFound := false
+		for k, v := range scope {
+			if strings.ToLower(k) == lowerName {
+				caseVal = v
+				caseFound = true
+				break
+			}
+		}
+		if caseFound {
+			if augmented == nil {
+				augmented = make(map[string]any, len(scope))
+				for k, v := range scope {
+					augmented[k] = v
+				}
+			}
+			augmented[p.Name] = caseVal
 			continue
 		}
 		if r.missingPropHandler != nil {

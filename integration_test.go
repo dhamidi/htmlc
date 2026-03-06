@@ -348,3 +348,33 @@ func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
 		t.Errorf("after reload: 'version one' must not appear in output:\n%s", out)
 	}
 }
+
+// TestIntegration_CamelCasePropViaSlot verifies that a camelCase prop passed
+// with v-bind inside a parent component's slot resolves correctly. The HTML
+// parser lowercases attribute names (e.g. :submitLabel → :submitlabel), so the
+// engine must recover the original casing when injecting into the child scope.
+func TestIntegration_CamelCasePropViaSlot(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Layout.vue"),
+		`<template><div class="layout"><slot></slot></div></template>`)
+	writeVue(t, filepath.Join(dir, "Inner.vue"),
+		`<template><span>{{ myProp }}</span></template>`)
+	writeVue(t, filepath.Join(dir, "Page.vue"),
+		`<template><Layout><Inner :myProp="myProp" /></Layout></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Page", map[string]any{
+		"myProp": "hello",
+	})
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+
+	if !strings.Contains(out, "<span>hello</span>") {
+		t.Errorf("camelCase prop via slot: want <span>hello</span> in output:\n%s", out)
+	}
+}
