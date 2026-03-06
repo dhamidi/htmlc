@@ -16,22 +16,12 @@ type UndefinedValue struct{}
 var Undefined = UndefinedValue{}
 
 // builtins contains built-in functions always available in expression scope.
-var builtins = map[string]any{
-	"len": func(args ...any) (any, error) {
-		if len(args) != 1 {
-			return nil, fmt.Errorf("len() requires exactly 1 argument, got %d", len(args))
-		}
-		rv := reflect.ValueOf(args[0])
-		for rv.Kind() == reflect.Ptr {
-			rv = rv.Elem()
-		}
-		switch rv.Kind() {
-		case reflect.Slice, reflect.Array, reflect.String, reflect.Map:
-			return float64(rv.Len()), nil
-		default:
-			return nil, fmt.Errorf("len() not supported for type %T", args[0])
-		}
-	},
+var builtins = map[string]any{}
+
+// RegisterBuiltin registers a custom function under name so that it is
+// callable in all subsequent Eval calls without being passed in the scope.
+func RegisterBuiltin(name string, fn func(...any) (any, error)) {
+	builtins[name] = fn
 }
 
 // Eval is a convenience wrapper: it compiles src and evaluates it against scope.
