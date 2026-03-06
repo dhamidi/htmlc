@@ -437,7 +437,7 @@ out, _ := htmlc.NewRenderer(page).
 ```
 
 
-Additional context from operator: Add an example application in a subpackage that shows how to implement a blog (create + edit posts, list page that shows all posts)
+Additional context from operator: Add neo-brutalist modern styling (black and white) to the blog components
 
 After writing all task files, run these commands:
   git add .factory/
