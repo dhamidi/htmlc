@@ -479,22 +479,15 @@ func TestSliceLengthOnNonSlice(t *testing.T) {
 	evalErr(t, "n.length", scope2)
 }
 
-// TestBuiltinLen verifies the len() built-in function.
+// TestBuiltinLen verifies that len() is no longer a built-in and that
+// .length is the correct alternative.
 func TestBuiltinLen(t *testing.T) {
 	scope := map[string]any{"items": []any{"x", "y", "z"}}
-	if v := eval(t, "len(items)", scope); v != float64(3) {
-		t.Errorf("len(items): got %v (%T), want float64(3)", v, v)
-	}
-
-	// len() and .length must agree
-	if v := eval(t, "len(items) === items.length", scope); v != true {
-		t.Errorf("len(items) === items.length: got %v, want true", v)
-	}
-
-	// Empty slice
-	scope2 := map[string]any{"empty": []any{}}
-	if v := eval(t, "len(empty)", scope2); v != float64(0) {
-		t.Errorf("len(empty): got %v (%T), want float64(0)", v, v)
+	// len resolves to undefined, which is not callable — must return an error.
+	evalErr(t, "len(items)", scope)
+	// .length is the correct way to get slice length.
+	if v := eval(t, "items.length", scope); v != float64(3) {
+		t.Errorf("items.length: got %v (%T), want float64(3)", v, v)
 	}
 }
 
@@ -519,18 +512,15 @@ func TestSliceLengthStrictEqual(t *testing.T) {
 	}
 }
 
-// TestBuiltinLenStrictEqual verifies that len() === <number> works correctly.
-func TestBuiltinLenStrictEqual(t *testing.T) {
-	// len(posts) === 0 must be true for an empty slice.
-	empty := map[string]any{"posts": []any{}}
-	if v := eval(t, "len(posts) === 0", empty); v != true {
-		t.Errorf("len(posts) === 0 (empty): got %v, want true", v)
-	}
-
-	// len(posts) === 0 must be false for a non-empty slice.
-	two := map[string]any{"posts": []any{"a", "b"}}
-	if v := eval(t, "len(posts) === 0", two); v != false {
-		t.Errorf("len(posts) === 0 (non-empty): got %v, want false", v)
+// TestRegisterBuiltin verifies that a custom function registered via
+// RegisterBuiltin is callable from expression strings.
+func TestRegisterBuiltin(t *testing.T) {
+	RegisterBuiltin("double", func(args ...any) (any, error) {
+		n := args[0].(float64)
+		return n * 2, nil
+	})
+	if v := eval(t, "double(5)", nil); v != float64(10) {
+		t.Errorf("double(5): got %v, want 10", v)
 	}
 }
 

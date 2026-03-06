@@ -31,10 +31,10 @@ func ExampleParse_ternary() {
 	// btn-active
 }
 
-// To safely read the first element of a list, guard the access with len().
+// To safely read the first element of a list, guard the access with .length.
 func ExampleParse_filterWithLen() {
 	scope := map[string]any{"items": []any{"first", "second"}}
-	result, _ := expr.Eval(`len(items) > 0 ? items[0] : null`, scope)
+	result, _ := expr.Eval(`items.length > 0 ? items[0] : null`, scope)
 	fmt.Println(result)
 	// Output:
 	// first
