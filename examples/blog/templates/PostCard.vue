@@ -23,20 +23,23 @@
 .post-card h2 {
   font-size: 1.4rem;
   font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-family: "Arial Black", Arial, sans-serif;
   margin-bottom: 0.5rem;
 }
 
 .post-card p {
   margin-bottom: 1rem;
-  line-height: 1.5;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .post-card a {
   display: inline-block;
-  background: #000;
-  color: #fff;
+  background: transparent;
+  color: #000;
   padding: 0.3rem 0.75rem;
   font-weight: 700;
   text-decoration: none;
@@ -44,7 +47,7 @@
 }
 
 .post-card a:hover {
-  background: #fff;
-  color: #000;
+  background: #000;
+  color: #fff;
 }
 </style>

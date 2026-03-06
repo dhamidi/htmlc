@@ -17,11 +17,7 @@
 }
 
 .post-list li {
-  border-bottom: 2px solid #000;
-}
-
-.post-list li:last-child {
-  border-bottom: none;
+  padding: 0.5rem 0;
 }
 
 .post-list p {
