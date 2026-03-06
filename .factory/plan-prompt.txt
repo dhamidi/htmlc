@@ -437,7 +437,7 @@ out, _ := htmlc.NewRenderer(page).
 ```
 
 
-Additional context from operator: Update the documentation of the expr package to match the diataxis.fr guidelines
+Additional context from operator: Remove the len function from the component expr language -- vue.js 3 does not have that; instead .length should be used on Array values.  Keep the concept of builtin functions though, that is useful and it should be possible to register new functions with the evaluator.
 
 After writing all task files, run these commands:
   git add .factory/
