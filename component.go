@@ -162,7 +162,7 @@ var interpolationRe = regexp.MustCompile(`\{\{(.*?)\}\}`)
 // Props walks the component's parsed template AST and returns all top-level
 // variable references (props) that the template uses.
 //
-// Identifiers starting with '$' and the built-in 'len' are excluded.
+// Identifiers starting with '$' are excluded.
 // v-for loop variables are excluded within their subtree.
 func (c *Component) Props() []PropInfo {
 	props := map[string]*PropInfo{}
@@ -239,7 +239,7 @@ func collectExprIdents(exprStr string, locals map[string]bool, props map[string]
 		return
 	}
 	for _, name := range idents {
-		if strings.HasPrefix(name, "$") || name == "len" || locals[name] {
+		if strings.HasPrefix(name, "$") || locals[name] {
 			continue
 		}
 		if _, ok := props[name]; !ok {

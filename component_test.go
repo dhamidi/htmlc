@@ -345,21 +345,23 @@ func TestProps_ExcludeDollarPrefixed(t *testing.T) {
 	}
 }
 
-func TestProps_ExcludeLen(t *testing.T) {
+func TestProps_IncludeLen(t *testing.T) {
 	props := parseForProps(t, `<p>{{ len(items) }}</p>`)
 	names := propNames(props)
+	foundLen := false
+	foundItems := false
 	for _, n := range names {
 		if n == "len" {
-			t.Errorf("'len' should be excluded from props")
+			foundLen = true
 		}
-	}
-	found := false
-	for _, n := range names {
 		if n == "items" {
-			found = true
+			foundItems = true
 		}
 	}
-	if !found {
+	if !foundLen {
+		t.Errorf("props = %v, want 'len' included", names)
+	}
+	if !foundItems {
 		t.Errorf("props = %v, want 'items' included", names)
 	}
 }
