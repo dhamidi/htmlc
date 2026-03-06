@@ -437,7 +437,7 @@ out, _ := htmlc.NewRenderer(page).
 ```
 
 
-Additional context from operator: Add neo-brutalist modern styling (black and white) to the blog components
+Additional context from operator: Make it look prettier and take care while you do it
 
 After writing all task files, run these commands:
   git add .factory/
