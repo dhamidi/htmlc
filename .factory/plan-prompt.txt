@@ -12,7 +12,7 @@ Each task file must use exactly this schema:
 
 - <measurable criterion>
 
-Write each task to /home/factory/workspace/.factory/queue/ starting from 001.md, incrementing by 1 for each subsequent task (zero-padded to 3 digits).
+Write each task to /home/factory/workspace/.factory/queue/ starting from 007.md, incrementing by 1 for each subsequent task (zero-padded to 3 digits).
 Create exactly one file per task. Do not output the task list as text — write the files only.
 
 Specification:
@@ -437,7 +437,11 @@ out, _ := htmlc.NewRenderer(page).
 ```
 
 
-Additional context from operator: Make it look prettier and take care while you do it
+The queue already contains these tasks (do NOT recreate them):
+- 006.md: Add Comprehensive Tests for Named and Scoped Slots
+
+
+Additional context from operator: Make the blog look better, desinged for a reader and with styled form fields for the editor.
 
 After writing all task files, run these commands:
   git add .factory/
