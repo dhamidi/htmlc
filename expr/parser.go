@@ -6,6 +6,13 @@ import (
 	"strconv"
 )
 
+// Parse tokenizes src, parses it, and returns a compiled Expr ready for
+// evaluation. It returns a descriptive error on any lexical or syntax error.
+// Parse is an alias for Compile.
+func Parse(src string) (Expr, error) {
+	return Compile(src)
+}
+
 // Compile tokenizes src, parses it, and returns a compiled Expr ready for
 // evaluation. It returns a descriptive error on any lexical or syntax error.
 func Compile(src string) (Expr, error) {
