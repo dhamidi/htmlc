@@ -9,7 +9,7 @@
         <slot name="header">Untitled</slot>
       </header>
       <main>
-        <slot></slot>
+        <slot>No content.</slot>
       </main>
       <footer>
         <slot name="footer">© 2024 My Blog</slot>
