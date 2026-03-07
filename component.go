@@ -139,7 +139,11 @@ func extractSections(src string) (map[string]string, error) {
 				current.buf.WriteString(tok.String())
 			}
 
-		case html.TextToken, html.CommentToken, html.DoctypeToken:
+		case html.TextToken:
+			if current != nil {
+				current.buf.WriteString(tok.Data)
+			}
+		case html.CommentToken, html.DoctypeToken:
 			if current != nil {
 				current.buf.WriteString(tok.String())
 			}

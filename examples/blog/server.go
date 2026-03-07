@@ -16,7 +16,7 @@ type Server struct {
 
 // NewServer creates a Server, loading .vue templates from templateDir.
 func NewServer(store *Store, templateDir string) (*Server, error) {
-	engine, err := htmlc.New(htmlc.Options{ComponentDir: templateDir})
+	engine, err := htmlc.New(htmlc.Options{ComponentDir: templateDir, Reload: true})
 	if err != nil {
 		return nil, fmt.Errorf("server: init engine: %w", err)
 	}

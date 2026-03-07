@@ -1,82 +1,89 @@
 <template>
-  <form method="POST" :action="action">
-    <div class="form-group">
-      <label for="title">Title</label>
-      <input id="title" name="title" type="text" :value="post.Title" placeholder="Post title" class="title-input" />
+  <form method="POST" :action="action" class="post-form">
+    <div class="post-form-group">
+      <label for="title" class="post-form-label">Title</label>
+      <input id="title" name="title" type="text" :value="post.Title" placeholder="Post title" class="post-form-input post-form-input--title" />
     </div>
-    <div class="form-group">
-      <label for="body">Body</label>
-      <textarea id="body" name="body" placeholder="Write your post here…">{{ post.Body }}</textarea>
+    <div class="post-form-group">
+      <label for="body" class="post-form-label">Body</label>
+      <textarea id="body" name="body" placeholder="Write your post here…" class="post-form-textarea">{{ post.Body }}</textarea>
     </div>
-    <button type="submit">{{ submitLabel }}</button>
+    <button type="submit" class="post-form-submit">{{ submitLabel }}</button>
   </form>
 </template>
 
 <style>
-form {
+.post-form {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1.5rem;
+  background: #fff;
+  border: 2px solid #1a1a1a;
+  padding: 2rem;
+  box-shadow: 4px 4px 0 #1a1a1a;
 }
 
-label {
+.post-form-label {
   display: block;
+  font-family: inherit;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 0.85rem;
-  margin-bottom: 0.35rem;
+  font-size: 0.75rem;
+  margin-bottom: 0.4rem;
+  color: #666;
 }
 
-input[type="text"],
-textarea {
+.post-form-input,
+.post-form-textarea {
+  display: block;
   width: 100%;
-  border: 3px solid #000;
-  padding: 0.6rem 0.75rem;
+  border: 2px solid #ddd;
+  padding: 0.7rem 0.85rem;
   font-size: 1rem;
   font-family: inherit;
-  background: #fff;
-  color: #000;
+  background: #fafafa;
+  color: #1a1a1a;
   border-radius: 0;
   outline: none;
-  box-shadow: inset 2px 2px 0 #eee;
-  transition: box-shadow 0.1s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-input[type="text"]:focus,
-textarea:focus {
-  box-shadow: 5px 5px 0 #000;
-  outline: none;
+.post-form-input:focus,
+.post-form-textarea:focus {
+  border-color: #1a1a1a;
+  box-shadow: 3px 3px 0 #e0e0e0;
+  background: #fff;
 }
 
-.title-input {
-  font-size: 1.25rem;
+.post-form-input--title {
+  font-size: 1.3rem;
   font-weight: 700;
 }
 
-textarea {
-  min-height: 16rem;
+.post-form-textarea {
+  min-height: 18rem;
   resize: vertical;
+  line-height: 1.7;
 }
 
-button[type="submit"] {
+.post-form-submit {
   align-self: flex-start;
-  background: #000;
+  background: #1a1a1a;
   color: #fff;
-  border: 3px solid #000;
-  padding: 0.6rem 1.5rem;
-  font-size: 1rem;
+  border: 2px solid #1a1a1a;
+  padding: 0.65rem 1.8rem;
+  font-family: inherit;
+  font-size: 0.85rem;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   cursor: pointer;
-  box-shadow: 4px 4px 0 #000;
+  transition: all 0.15s ease;
 }
 
-button[type="submit"]:hover {
-  background: #fff;
-  color: #000;
-  box-shadow: 2px 2px 0 #000;
-  transform: translate(2px, 2px);
+.post-form-submit:hover {
+  background: #c85000;
+  border-color: #c85000;
 }
 </style>

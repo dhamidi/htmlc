@@ -8,6 +8,9 @@
     <body>
       <header class="site-header">
         <a href="/" class="site-header-home"><slot name="header">Untitled</slot></a>
+        <nav class="site-nav">
+          <a href="/posts/new" class="site-nav-link">+ New Post</a>
+        </nav>
       </header>
       <main class="site-main">
         <slot>No content.</slot>
@@ -27,39 +30,65 @@
 }
 
 body {
-  background: #fff;
-  color: #000;
-  font-family: Georgia, "Times New Roman", serif;
+  background: #f8f7f4;
+  color: #1a1a1a;
+  font-family: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", "Courier New", monospace;
   line-height: 1.6;
+  min-height: 100vh;
+}
+
+a {
+  transition: all 0.15s ease;
 }
 
 .site-header {
-  border-bottom: 3px solid #000;
-  padding: 1.5rem 2rem;
-  font-family: "Arial Black", Arial, sans-serif;
+  background: #1a1a1a;
+  color: #fff;
+  padding: 1.25rem 2rem;
+  font-family: inherit;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .site-header-home {
-  color: inherit;
+  color: #fff;
   text-decoration: none;
+  font-size: 1.1rem;
 }
 
 .site-header-home:hover {
-  text-decoration: underline;
+  color: #ffd43b;
+}
+
+.site-nav-link {
+  color: #1a1a1a;
+  background: #ffd43b;
+  text-decoration: none;
+  font-size: 0.8rem;
+  font-weight: 900;
+  padding: 0.4rem 0.9rem;
+  letter-spacing: 0.04em;
+}
+
+.site-nav-link:hover {
+  background: #fff;
 }
 
 .site-main {
   max-width: 800px;
   margin: 0 auto;
-  padding: 3rem 2rem;
+  padding: 2.5rem 2rem 4rem;
 }
 
 .site-footer {
-  border-top: 3px solid #000;
-  padding: 1.5rem 2rem;
-  font-size: 0.875rem;
+  background: #1a1a1a;
+  color: #999;
+  padding: 1.25rem 2rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
 }
 </style>
