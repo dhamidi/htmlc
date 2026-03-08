@@ -88,6 +88,15 @@ func parseSlotDirective(attrName string) (slotName string, isSlotDirective bool)
 	return "", false
 }
 
+// isClientSideDirective reports whether an attribute key is a client-side
+// directive that should be stripped from server-side rendered output.
+func isClientSideDirective(key string) bool {
+	return key == "v-model" ||
+		key == "v-on" ||
+		strings.HasPrefix(key, "v-on:") ||
+		strings.HasPrefix(key, "@")
+}
+
 // Registry maps component names to their parsed components.
 // Keys may be PascalCase (e.g., "Card") or kebab-case (e.g., "my-card").
 // Registry is part of the low-level API; most callers should use Engine, which
@@ -612,6 +621,8 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 			vShowExpr = attr.Val
 		case "v-once":
 			// server-side: render normally; consume directive, don't emit
+		case "v-model":
+			// strip: no meaning in server-side rendering
 		case "v-if", "v-else-if", "v-else", "v-for":
 			// consumed by directives; not emitted as attributes
 		case "class":
@@ -619,6 +630,9 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		case "style":
 			staticStyle = attr.Val
 		default:
+			if isClientSideDirective(attr.Key) {
+				continue
+			}
 			if strings.HasPrefix(attr.Key, ":") {
 				dynKey := attr.Key[1:]
 				val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
@@ -923,7 +937,11 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		// Directives that have already been consumed or don't apply to components.
 		switch attr.Key {
 		case "v-if", "v-else-if", "v-else", "v-for",
-			"v-pre", "v-once", "v-show", "v-text", "v-html":
+			"v-pre", "v-once", "v-show", "v-text", "v-html",
+			"v-model":
+			continue
+		}
+		if isClientSideDirective(attr.Key) {
 			continue
 		}
 

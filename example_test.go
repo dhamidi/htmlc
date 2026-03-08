@@ -467,8 +467,8 @@ func ExampleRender_singleVariableSlotBinding() {
 }
 
 // ExampleRender_eventPassthrough shows that client-side directives such as
-// @click and v-model are preserved in the server-rendered output unchanged,
-// ready to be activated by the client-side framework.
+// @click and v-model are stripped from server-rendered output because there
+// is no client-side Vue runtime to process them.
 func ExampleRender_eventPassthrough() {
 	const src = `<template><button @click="handler">click</button><input v-model="name"></template>`
 	comp, err := htmlc.ParseFile("t.vue", src)
@@ -481,7 +481,7 @@ func ExampleRender_eventPassthrough() {
 	}
 	fmt.Println(out)
 	// Output:
-	// <button @click="handler">click</button><input v-model="name">
+	// <button>click</button><input>
 }
 
 // ExampleEngine_scopedStyles shows that a component with <style scoped> adds

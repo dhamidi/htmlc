@@ -554,30 +554,30 @@ func TestRender_VOnceRendersNormally(t *testing.T) {
 	}
 }
 
-// --- client-side directive pass-through tests ---
+// --- client-side directive stripping tests ---
 
 func TestRender_VModelPassthrough(t *testing.T) {
-	// v-model must be preserved as-is in the rendered output.
+	// v-model must be stripped from server-side rendered output.
 	scope := map[string]any{"name": "Alice"}
 	out := renderTemplate(t, `<input v-model="name">`, scope)
-	if !strings.Contains(out, `v-model="name"`) {
-		t.Errorf("got %q, want v-model=\"name\" preserved in output", out)
+	if strings.Contains(out, `v-model`) {
+		t.Errorf("got %q, want v-model stripped from output", out)
 	}
 }
 
 func TestRender_AtEventPassthrough(t *testing.T) {
-	// @click shorthand must be preserved as-is in the rendered output.
+	// @click shorthand must be stripped from server-side rendered output.
 	out := renderTemplate(t, `<button @click="handler">click</button>`, nil)
-	if !strings.Contains(out, `@click="handler"`) {
-		t.Errorf("got %q, want @click=\"handler\" preserved in output", out)
+	if strings.Contains(out, `@click`) {
+		t.Errorf("got %q, want @click stripped from output", out)
 	}
 }
 
 func TestRender_VOnEventPassthrough(t *testing.T) {
-	// v-on:click must be preserved as-is in the rendered output.
+	// v-on:click must be stripped from server-side rendered output.
 	out := renderTemplate(t, `<button v-on:click="handler">click</button>`, nil)
-	if !strings.Contains(out, `v-on:click="handler"`) {
-		t.Errorf("got %q, want v-on:click=\"handler\" preserved in output", out)
+	if strings.Contains(out, `v-on:click`) {
+		t.Errorf("got %q, want v-on:click stripped from output", out)
 	}
 }
 
@@ -1430,5 +1430,35 @@ func TestRender_DeeplyNestedSlots(t *testing.T) {
 	}
 	if !strings.Contains(out, "<em>hello</em>") {
 		t.Errorf("got %q, want <em>hello</em> from scoped slot in ComponentC", out)
+	}
+}
+
+func TestRender_VModelStripped(t *testing.T) {
+	out := renderTemplate(t, `<input v-model="name" type="text" />`, map[string]any{"name": "Alice"})
+	if strings.Contains(out, "v-model") {
+		t.Errorf("v-model should be stripped from output, got: %s", out)
+	}
+	if !strings.Contains(out, `type="text"`) {
+		t.Errorf("other attributes should be preserved, got: %s", out)
+	}
+}
+
+func TestRender_VOnStripped(t *testing.T) {
+	out := renderTemplate(t, `<button v-on:click="handleClick" id="btn">Click</button>`, map[string]any{})
+	if strings.Contains(out, "v-on") {
+		t.Errorf("v-on:click should be stripped from output, got: %s", out)
+	}
+	if !strings.Contains(out, `id="btn"`) {
+		t.Errorf("other attributes should be preserved, got: %s", out)
+	}
+}
+
+func TestRender_AtEventShorthandStripped(t *testing.T) {
+	out := renderTemplate(t, `<button @click="handleClick" @mouseover="onHover" class="btn">Go</button>`, map[string]any{})
+	if strings.Contains(out, "@click") || strings.Contains(out, "@mouseover") {
+		t.Errorf("@event shorthands should be stripped, got: %s", out)
+	}
+	if !strings.Contains(out, `class="btn"`) {
+		t.Errorf("class attribute should be preserved, got: %s", out)
 	}
 }
