@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/dhamidi/htmlc"
 )
@@ -115,6 +117,70 @@ var subcommandHelp = map[string]string{
 	"props":  helpProps,
 }
 
+// errSilent is returned when the error has already been written to stderr.
+var errSilent = errors.New("")
+
+// normalizeArgs moves flag tokens before positional tokens so that Go's
+// flag.FlagSet can parse interspersed flags like `render Foo -props val`.
+// Handles the special "-" value (stdin marker) for value-taking flags.
+func normalizeArgs(args []string) []string {
+	var flags, positional []string
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+		if arg == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+		if strings.HasPrefix(arg, "-") && len(arg) > 1 && arg != "-" {
+			if strings.Contains(arg, "=") {
+				// -flag=value form: keep as-is
+				flags = append(flags, arg)
+			} else if i+1 < len(args) && (!strings.HasPrefix(args[i+1], "-") || args[i+1] == "-") {
+				// -flag value form: take next token as value
+				flags = append(flags, arg, args[i+1])
+				i += 2
+				continue
+			} else {
+				flags = append(flags, arg)
+			}
+		} else {
+			positional = append(positional, arg)
+		}
+		i++
+	}
+	return append(flags, positional...)
+}
+
+// cmdErrorMsg formats an actionable error message for a subcommand.
+// First line: "htmlc <cmd>: <msg>"; hint lines follow verbatim.
+func cmdErrorMsg(cmd, msg string, hints ...string) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "htmlc %s: %s", cmd, msg)
+	for _, h := range hints {
+		sb.WriteString("\n")
+		sb.WriteString(h)
+	}
+	return sb.String()
+}
+
+// listComponents returns sorted component names (without .vue) from dir.
+// Returns nil if the directory cannot be read (best-effort).
+func listComponents(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".vue") {
+			names = append(names, strings.TrimSuffix(e.Name(), ".vue"))
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 func printHelp(w io.Writer) {
 	fmt.Fprint(w, helpTop)
 }
@@ -140,17 +206,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch subcmd {
 	case "render":
 		if err := runRender(rest, stdout, stderr); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
+			if err != errSilent {
+				fmt.Fprintln(stderr, err)
+			}
 			return 1
 		}
 	case "page":
 		if err := runPage(rest, stdout, stderr); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
+			if err != errSilent {
+				fmt.Fprintln(stderr, err)
+			}
 			return 1
 		}
 	case "props":
 		if err := runProps(rest, stdout, stderr); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
+			if err != errSilent {
+				fmt.Fprintln(stderr, err)
+			}
 			return 1
 		}
 	case "help":
@@ -176,7 +248,9 @@ func runHelp(args []string, stdout, stderr io.Writer) int {
 	return 1
 }
 
-func parseProps(propsFlag string) (map[string]any, error) {
+// parseProps parses the props flag value. stdin is used when propsFlag == "-".
+// Returns raw errors without wrapping so callers can format them contextually.
+func parseProps(propsFlag string, stdin io.Reader) (map[string]any, error) {
 	if propsFlag == "" {
 		return map[string]any{}, nil
 	}
@@ -184,9 +258,9 @@ func parseProps(propsFlag string) (map[string]any, error) {
 	var src []byte
 	if propsFlag == "-" {
 		var err error
-		src, err = io.ReadAll(os.Stdin)
+		src, err = io.ReadAll(stdin)
 		if err != nil {
-			return nil, fmt.Errorf("reading props from stdin: %w", err)
+			return nil, err
 		}
 	} else {
 		src = []byte(propsFlag)
@@ -194,12 +268,48 @@ func parseProps(propsFlag string) (map[string]any, error) {
 
 	var data map[string]any
 	if err := json.Unmarshal(src, &data); err != nil {
-		return nil, fmt.Errorf("parsing props JSON: %w", err)
+		return nil, err
 	}
 	return data, nil
 }
 
+// propsJSONError formats the props JSON error message for the given subcommand.
+func propsJSONError(cmd string, fromStdin bool, err error) string {
+	desc := "invalid JSON in -props flag"
+	if fromStdin {
+		desc = "invalid JSON read from stdin"
+	}
+	return cmdErrorMsg(cmd, desc,
+		`  Expected a JSON object, e.g. '{"title":"Hello","count":3}'`,
+		fmt.Sprintf("  Parse error: %v", err),
+	)
+}
+
+// componentNotFoundError formats the "component not found" error message.
+func componentNotFoundError(cmd, name, dir string) string {
+	components := listComponents(dir)
+	hints := []string{
+		fmt.Sprintf("  Components are loaded from: %s", dir),
+	}
+	if len(components) > 0 {
+		const maxShow = 10
+		shown := components
+		extra := 0
+		if len(components) > maxShow {
+			shown = components[:maxShow]
+			extra = len(components) - maxShow
+		}
+		hints = append(hints, fmt.Sprintf("  Available components: %s", strings.Join(shown, ", ")))
+		if extra > 0 {
+			hints = append(hints, fmt.Sprintf("  ... and %d more", extra))
+		}
+		hints = append(hints, "  (listed by scanning *.vue files in the component directory)")
+	}
+	return cmdErrorMsg(cmd, fmt.Sprintf("component %q not found", name), hints...)
+}
+
 func runRender(args []string, stdout, stderr io.Writer) error {
+	args = normalizeArgs(args)
 	fs := flag.NewFlagSet("render", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", ".", "directory containing .vue components")
@@ -212,24 +322,57 @@ func runRender(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return fmt.Errorf("render requires a component name")
+		fmt.Fprintln(stderr, cmdErrorMsg("render", "missing component name",
+			"",
+			"USAGE",
+			"  htmlc render [-dir <path>] [-props <json|->] <component>",
+			"",
+			"EXAMPLE",
+			"  htmlc render -dir ./templates MyComponent",
+		))
+		return errSilent
 	}
 	name := fs.Arg(0)
 
-	data, err := parseProps(*propsFlag)
+	data, err := parseProps(*propsFlag, os.Stdin)
 	if err != nil {
-		return err
+		fmt.Fprintln(stderr, propsJSONError("render", *propsFlag == "-", err))
+		return errSilent
+	}
+
+	if _, statErr := os.Stat(*dir); statErr != nil {
+		fmt.Fprintln(stderr, cmdErrorMsg("render", fmt.Sprintf("cannot load components from %q", *dir),
+			"  No such directory. Create the directory and add .vue component files.",
+			"",
+			"  EXAMPLE",
+			"    mkdir templates",
+			"    cp MyComponent.vue templates/",
+			fmt.Sprintf("    htmlc render -dir %s MyComponent", *dir),
+		))
+		return errSilent
 	}
 
 	engine, err := htmlc.New(htmlc.Options{ComponentDir: *dir})
 	if err != nil {
-		return fmt.Errorf("initializing engine: %w", err)
+		fmt.Fprintln(stderr, cmdErrorMsg("render", fmt.Sprintf("failed to initialise engine: %v", err),
+			"  Run 'htmlc help render' for usage.",
+		))
+		return errSilent
 	}
 
-	return engine.RenderFragment(stdout, name, data)
+	if err := engine.RenderFragment(stdout, name, data); err != nil {
+		if strings.Contains(err.Error(), name) {
+			fmt.Fprintln(stderr, componentNotFoundError("render", name, *dir))
+		} else {
+			fmt.Fprintln(stderr, cmdErrorMsg("render", err.Error()))
+		}
+		return errSilent
+	}
+	return nil
 }
 
 func runPage(args []string, stdout, stderr io.Writer) error {
+	args = normalizeArgs(args)
 	fs := flag.NewFlagSet("page", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", ".", "directory containing .vue components")
@@ -242,24 +385,57 @@ func runPage(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return fmt.Errorf("page requires a component name")
+		fmt.Fprintln(stderr, cmdErrorMsg("page", "missing component name",
+			"",
+			"USAGE",
+			"  htmlc page [-dir <path>] [-props <json|->] <component>",
+			"",
+			"EXAMPLE",
+			"  htmlc page -dir ./templates MyPage",
+		))
+		return errSilent
 	}
 	name := fs.Arg(0)
 
-	data, err := parseProps(*propsFlag)
+	data, err := parseProps(*propsFlag, os.Stdin)
 	if err != nil {
-		return err
+		fmt.Fprintln(stderr, propsJSONError("page", *propsFlag == "-", err))
+		return errSilent
+	}
+
+	if _, statErr := os.Stat(*dir); statErr != nil {
+		fmt.Fprintln(stderr, cmdErrorMsg("page", fmt.Sprintf("cannot load components from %q", *dir),
+			"  No such directory. Create the directory and add .vue component files.",
+			"",
+			"  EXAMPLE",
+			"    mkdir templates",
+			"    cp MyComponent.vue templates/",
+			fmt.Sprintf("    htmlc page -dir %s MyPage", *dir),
+		))
+		return errSilent
 	}
 
 	engine, err := htmlc.New(htmlc.Options{ComponentDir: *dir})
 	if err != nil {
-		return fmt.Errorf("initializing engine: %w", err)
+		fmt.Fprintln(stderr, cmdErrorMsg("page", fmt.Sprintf("failed to initialise engine: %v", err),
+			"  Run 'htmlc help page' for usage.",
+		))
+		return errSilent
 	}
 
-	return engine.RenderPage(stdout, name, data)
+	if err := engine.RenderPage(stdout, name, data); err != nil {
+		if strings.Contains(err.Error(), name) {
+			fmt.Fprintln(stderr, componentNotFoundError("page", name, *dir))
+		} else {
+			fmt.Fprintln(stderr, cmdErrorMsg("page", err.Error()))
+		}
+		return errSilent
+	}
+	return nil
 }
 
 func runProps(args []string, stdout, stderr io.Writer) error {
+	args = normalizeArgs(args)
 	fs := flag.NewFlagSet("props", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", ".", "directory containing .vue components")
@@ -278,7 +454,19 @@ func runProps(args []string, stdout, stderr io.Writer) error {
 	path := filepath.Join(*dir, name+".vue")
 	src, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("reading component file: %w", err)
+		hints := []string{
+			fmt.Sprintf("  Expected file: %s", path),
+			fmt.Sprintf("  Run 'htmlc props -dir <path> <name>' with the correct directory."),
+		}
+		if strings.Contains(name, "/") || strings.HasSuffix(name, ".vue") {
+			hints = append(hints,
+				"",
+				"  Tip: provide the component name without the path or .vue extension.",
+				"  For example, use 'Foo' instead of 'templates/Foo.vue'.",
+			)
+		}
+		fmt.Fprintln(stderr, cmdErrorMsg("props", fmt.Sprintf("component %q not found in %q", name, *dir), hints...))
+		return errSilent
 	}
 
 	component, err := htmlc.ParseFile(path, string(src))
