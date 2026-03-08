@@ -4,30 +4,48 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
-	"runtime"
 )
 
+// Config holds runtime configuration read from environment variables.
+type Config struct {
+	Port          string
+	AdminUsername string
+	AdminPassword string
+	SiteTitle     string
+	LogFile       string
+}
+
+func getEnv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
 func main() {
-	store := NewStore()
+	cfg := Config{
+		Port:          getEnv("PORT", "8080"),
+		AdminUsername: getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword: getEnv("ADMIN_PASSWORD", "password"),
+		SiteTitle:     getEnv("SITE_TITLE", "My Blog"),
+		LogFile:       getEnv("LOG_FILE", "blog.jsonl"),
+	}
 
-	// Locate the templates directory relative to this source file so the
-	// binary works regardless of the working directory it is run from.
-	_, file, _, _ := runtime.Caller(0)
-	templateDir := filepath.Join(filepath.Dir(file), "templates")
+	store, err := NewStore(cfg.LogFile)
+	if err != nil {
+		log.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
 
-	srv, err := NewServer(store, templateDir)
+	srv, err := NewServer(store, cfg)
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)
 	}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	addr := ":" + port
+	addr := ":" + cfg.Port
 	log.Printf("listening on http://localhost%s", addr)
-	if err := http.ListenAndServe(addr, srv.Routes()); err != nil {
+	log.Printf("admin: http://localhost%s/admin (user: %s)", addr, cfg.AdminUsername)
+	if err := http.ListenAndServe(addr, srv); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }

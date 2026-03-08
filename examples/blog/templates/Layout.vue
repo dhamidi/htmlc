@@ -3,20 +3,20 @@
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>My Blog</title>
+      <title>{{ siteTitle }}</title>
     </head>
     <body>
       <header class="site-header">
-        <a href="/" class="site-header-home"><slot name="header">Untitled</slot></a>
+        <a href="/" class="site-logo">{{ siteTitle }}</a>
         <nav class="site-nav">
-          <a href="/posts/new" class="site-nav-link">+ New Post</a>
+          <a href="/feed.atom" class="nav-link">Feed</a>
         </nav>
       </header>
       <main class="site-main">
         <slot>No content.</slot>
       </main>
       <footer class="site-footer">
-        <slot name="footer">© 2024 My Blog</slot>
+        &copy; {{ siteTitle }}
       </footer>
     </body>
   </html>
@@ -32,63 +32,71 @@
 body {
   background: #f8f7f4;
   color: #1a1a1a;
-  font-family: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", "Courier New", monospace;
-  line-height: 1.6;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.7;
   min-height: 100vh;
 }
 
 a {
-  transition: all 0.15s ease;
+  color: #b5451b;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
 }
 
 .site-header {
   background: #1a1a1a;
-  color: #fff;
-  padding: 1.25rem 2rem;
-  font-family: inherit;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: #f8f7f4;
+  padding: 1rem 2rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.site-header-home {
-  color: #fff;
+.site-logo {
+  color: #f8f7f4;
+  font-size: 1.2rem;
+  font-weight: bold;
   text-decoration: none;
-  font-size: 1.1rem;
+  font-family: Georgia, serif;
 }
 
-.site-header-home:hover {
+.site-logo:hover {
   color: #ffd43b;
-}
-
-.site-nav-link {
-  color: #1a1a1a;
-  background: #ffd43b;
   text-decoration: none;
-  font-size: 0.8rem;
-  font-weight: 900;
-  padding: 0.4rem 0.9rem;
-  letter-spacing: 0.04em;
 }
 
-.site-nav-link:hover {
-  background: #fff;
+.site-nav {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.nav-link {
+  color: #aaa;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  color: #ffd43b;
+  text-decoration: none;
 }
 
 .site-main {
-  max-width: 800px;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 2.5rem 2rem 4rem;
+  padding: 3rem 2rem 5rem;
 }
 
 .site-footer {
   background: #1a1a1a;
-  color: #999;
-  padding: 1.25rem 2rem;
+  color: #666;
+  padding: 1rem 2rem;
   font-size: 0.8rem;
-  letter-spacing: 0.03em;
+  font-family: "SF Mono", "Fira Code", monospace;
+  text-align: center;
 }
 </style>

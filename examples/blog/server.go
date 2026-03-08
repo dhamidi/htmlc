@@ -1,40 +1,76 @@
 package main
 
 import (
+	"crypto/rand"
+	"embed"
+	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/dhamidi/htmlc"
 )
 
+//go:embed templates
+var templateFS embed.FS
+
 // Server wires together a Store, an htmlc engine, and HTTP route handlers.
 type Server struct {
-	store  *Store
-	engine *htmlc.Engine
+	store    *Store
+	engine   *htmlc.Engine
+	cfg      Config
+	sessions sync.Map // token string -> username string
 }
 
-// NewServer creates a Server, loading .vue templates from templateDir.
-func NewServer(store *Store, templateDir string) (*Server, error) {
-	engine, err := htmlc.New(htmlc.Options{ComponentDir: templateDir, Reload: true})
+// NewServer creates a Server, loading .vue templates from the embedded FS.
+func NewServer(store *Store, cfg Config) (*Server, error) {
+	engine, err := htmlc.New(htmlc.Options{
+		ComponentDir: "templates",
+		FS:           templateFS,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("server: init engine: %w", err)
 	}
-	return &Server{store: store, engine: engine}, nil
+	return &Server{store: store, engine: engine, cfg: cfg}, nil
 }
 
-// Routes returns an http.Handler serving all blog routes.
-func (s *Server) Routes() http.Handler {
+// ServeHTTP implements http.Handler.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.routes().ServeHTTP(w, r)
+}
+
+// routes builds and returns the HTTP mux.
+func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.handleListPosts)
-	mux.HandleFunc("GET /posts/new", s.handleNewPostForm)
-	mux.HandleFunc("POST /posts/new", s.handleCreatePost)
-	mux.HandleFunc("GET /posts/{id}", s.handleGetPost)
-	mux.HandleFunc("GET /posts/{id}/edit", s.handleEditPostForm)
-	mux.HandleFunc("POST /posts/{id}/edit", s.handleUpdatePost)
+
+	// Public routes
+	mux.HandleFunc("GET /{$}", s.handleIndex)
+	mux.HandleFunc("GET /posts/{id}", s.handlePost)
+	mux.HandleFunc("GET /feed.atom", s.handleFeed)
+
+	// Admin auth
+	mux.HandleFunc("GET /admin/login", s.handleLoginForm)
+	mux.HandleFunc("POST /admin/login", s.handleLogin)
+	mux.HandleFunc("POST /admin/logout", s.handleLogout)
+
+	// Admin pages (protected)
+	mux.HandleFunc("GET /admin/{$}", s.requireAdmin(s.handleDashboard))
+	mux.HandleFunc("GET /admin/drafts", s.requireAdmin(s.handleDrafts))
+	mux.HandleFunc("GET /admin/posts/new", s.requireAdmin(s.handleNewPostForm))
+	mux.HandleFunc("POST /admin/posts/new", s.requireAdmin(s.handleCreatePost))
+	mux.HandleFunc("GET /admin/posts/{id}/edit", s.requireAdmin(s.handleEditPostForm))
+	mux.HandleFunc("POST /admin/posts/{id}/edit", s.requireAdmin(s.handleUpdatePost))
+	mux.HandleFunc("POST /admin/posts/{id}/publish", s.requireAdmin(s.handlePublishPost))
+	mux.HandleFunc("POST /admin/posts/{id}/unpublish", s.requireAdmin(s.handleUnpublishPost))
+	mux.HandleFunc("POST /admin/posts/{id}/delete", s.requireAdmin(s.handleDeletePost))
+
 	return mux
 }
 
+// renderPage renders a full HTML page component.
 func (s *Server) renderPage(w http.ResponseWriter, name string, data map[string]any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.engine.RenderPage(w, name, data); err != nil {
@@ -42,25 +78,221 @@ func (s *Server) renderPage(w http.ResponseWriter, name string, data map[string]
 	}
 }
 
-func (s *Server) handleListPosts(w http.ResponseWriter, r *http.Request) {
-	posts := s.store.List()
+// isAuthenticated returns true if the request carries a valid session cookie.
+func (s *Server) isAuthenticated(r *http.Request) bool {
+	c, err := r.Cookie("session")
+	if err != nil {
+		return false
+	}
+	_, ok := s.sessions.Load(c.Value)
+	return ok
+}
+
+// requireAdmin wraps a handler with admin authentication.
+func (s *Server) requireAdmin(next func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.isAuthenticated(r) {
+			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// generateToken creates a random 32-character hex session token.
+func generateToken() string {
+	b := make([]byte, 16)
+	rand.Read(b) //nolint:errcheck
+	return hex.EncodeToString(b)
+}
+
+// postToMap converts a Post to a map[string]any for template rendering.
+func postToMap(p *Post) map[string]any {
+	return map[string]any{
+		"ID":          p.ID,
+		"Title":       p.Title,
+		"Body":        p.Body,
+		"Published":   p.Published,
+		"CreatedAt":   p.CreatedAt.Format("2 Jan 2006"),
+		"PublishedAt": p.PublishedAt.Format("2 Jan 2006"),
+		"Impressions": p.Impressions,
+	}
+}
+
+// postsToSlice converts a slice of Posts to []any for template rendering.
+func postsToSlice(posts []*Post) []any {
 	items := make([]any, len(posts))
 	for i, p := range posts {
-		items[i] = map[string]any{
-			"ID":    p.ID,
-			"Title": p.Title,
-			"Body":  p.Body,
+		items[i] = postToMap(p)
+	}
+	return items
+}
+
+// ── Public handlers ──────────────────────────────────────────────────────────
+
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	posts := s.store.ListPublished()
+	s.renderPage(w, "IndexPage", map[string]any{
+		"siteTitle": s.cfg.SiteTitle,
+		"posts":     postsToSlice(posts),
+	})
+}
+
+func (s *Server) handlePost(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	post, ok := s.store.Get(id)
+	if !ok || !post.Published {
+		http.NotFound(w, r)
+		return
+	}
+	s.store.RecordImpression(id)
+	s.renderPage(w, "PostPage", map[string]any{
+		"siteTitle": s.cfg.SiteTitle,
+		"post":      postToMap(post),
+	})
+}
+
+// ── Atom feed ────────────────────────────────────────────────────────────────
+
+type atomFeed struct {
+	XMLName xml.Name    `xml:"feed"`
+	NS      string      `xml:"xmlns,attr"`
+	Title   string      `xml:"title"`
+	Link    atomLink    `xml:"link"`
+	Updated string      `xml:"updated"`
+	Entries []atomEntry `xml:"entry"`
+}
+
+type atomLink struct {
+	Href string `xml:"href,attr"`
+	Rel  string `xml:"rel,attr,omitempty"`
+}
+
+type atomEntry struct {
+	Title   string   `xml:"title"`
+	Link    atomLink `xml:"link"`
+	ID      string   `xml:"id"`
+	Updated string   `xml:"updated"`
+	Content string   `xml:"content"`
+}
+
+func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
+	posts := s.store.ListPublished()
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	base := scheme + "://" + r.Host
+
+	feed := atomFeed{
+		NS:      "http://www.w3.org/2005/Atom",
+		Title:   s.cfg.SiteTitle,
+		Link:    atomLink{Href: base + "/feed.atom", Rel: "self"},
+		Updated: time.Now().UTC().Format(time.RFC3339),
+	}
+	for _, p := range posts {
+		feed.Entries = append(feed.Entries, atomEntry{
+			Title:   p.Title,
+			Link:    atomLink{Href: fmt.Sprintf("%s/posts/%d", base, p.ID)},
+			ID:      fmt.Sprintf("%s/posts/%d", base, p.ID),
+			Updated: p.PublishedAt.UTC().Format(time.RFC3339),
+			Content: p.Body,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/atom+xml; charset=utf-8")
+	fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>`)
+	xml.NewEncoder(w).Encode(feed) //nolint:errcheck
+}
+
+// ── Admin auth handlers ───────────────────────────────────────────────────────
+
+func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
+	if s.isAuthenticated(r) {
+		http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+		return
+	}
+	s.renderPage(w, "LoginPage", map[string]any{
+		"siteTitle": s.cfg.SiteTitle,
+		"error":     "",
+	})
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+	if username != s.cfg.AdminUsername || password != s.cfg.AdminPassword {
+		s.renderPage(w, "LoginPage", map[string]any{
+			"siteTitle": s.cfg.SiteTitle,
+			"error":     "Invalid username or password.",
+		})
+		return
+	}
+	token := generateToken()
+	s.sessions.Store(token, username)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie("session"); err == nil {
+		s.sessions.Delete(c.Value)
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:    "session",
+		Value:   "",
+		Path:    "/",
+		MaxAge:  -1,
+		HttpOnly: true,
+	})
+	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+}
+
+// ── Admin page handlers ───────────────────────────────────────────────────────
+
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	posts := s.store.ListAll()
+	s.renderPage(w, "DashboardPage", map[string]any{
+		"siteTitle": s.cfg.SiteTitle,
+		"posts":     postsToSlice(posts),
+	})
+}
+
+func (s *Server) handleDrafts(w http.ResponseWriter, r *http.Request) {
+	all := s.store.ListAll()
+	var drafts []*Post
+	for _, p := range all {
+		if !p.Published {
+			drafts = append(drafts, p)
 		}
 	}
-	s.renderPage(w, "PostListPage", map[string]any{"posts": items})
+	s.renderPage(w, "DraftsPage", map[string]any{
+		"siteTitle": s.cfg.SiteTitle,
+		"posts":     postsToSlice(drafts),
+	})
 }
 
 func (s *Server) handleNewPostForm(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, "PostFormPage", map[string]any{
+		"siteTitle":   s.cfg.SiteTitle,
 		"pageTitle":   "New Post",
-		"action":      "/posts/new",
-		"submitLabel": "Create",
-		"post":        map[string]any{"Title": "", "Body": ""},
+		"action":      "/admin/posts/new",
+		"submitLabel": "Create Draft",
+		"post":        map[string]any{"Title": "", "Body": "", "Published": false},
 	})
 }
 
@@ -70,23 +302,7 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.Create(r.FormValue("title"), r.FormValue("body"))
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func (s *Server) handleGetPost(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(r.PathValue("id"))
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	post, ok := s.store.Get(id)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	s.renderPage(w, "PostDetailPage", map[string]any{
-		"post": map[string]any{"ID": post.ID, "Title": post.Title, "Body": post.Body},
-	})
+	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
 }
 
 func (s *Server) handleEditPostForm(w http.ResponseWriter, r *http.Request) {
@@ -101,10 +317,11 @@ func (s *Server) handleEditPostForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderPage(w, "PostFormPage", map[string]any{
+		"siteTitle":   s.cfg.SiteTitle,
 		"pageTitle":   "Edit Post",
-		"action":      fmt.Sprintf("/posts/%d/edit", post.ID),
-		"submitLabel": "Update",
-		"post":        map[string]any{"Title": post.Title, "Body": post.Body},
+		"action":      fmt.Sprintf("/admin/posts/%d/edit", post.ID),
+		"submitLabel": "Save Changes",
+		"post":        postToMap(post),
 	})
 }
 
@@ -118,10 +335,48 @@ func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	_, ok := s.store.Update(id, r.FormValue("title"), r.FormValue("body"))
-	if !ok {
+	if !s.store.Update(id, r.FormValue("title"), r.FormValue("body")) {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+}
+
+func (s *Server) handlePublishPost(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.store.Publish(id) {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+}
+
+func (s *Server) handleUnpublishPost(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.store.Unpublish(id) {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+}
+
+func (s *Server) handleDeletePost(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.store.Delete(id) {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
 }
