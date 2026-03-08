@@ -27,7 +27,7 @@ Key characteristics:
 - **Static output** — every render call produces a fixed HTML string.
 - **Scoped styles** — `<style scoped>` is supported; the engine rewrites selectors and injects scope attributes automatically.
 - **Component composition** — components can nest other components from the same registry.
-- **No reactivity** — `v-model`, `@event`, and client-side directives are passed through as-is for your JavaScript layer to handle.
+- **No reactivity** — `v-model`, `@event`, and other client-side directives are stripped from the output; they have no meaning in a server-side renderer.
 
 ---
 
@@ -97,15 +97,15 @@ The engine ships with no pre-registered built-in functions. Use `expr.RegisterBu
 | `v-for` | Yes | See [v-for syntax](#v-for-syntax) below. |
 | `v-bind` / `:attr` | Yes | Dynamic attribute binding. See [v-bind notes](#v-bind-notes) below. |
 | `v-pre` | Yes | Skips all interpolation and directive processing for the element and all its descendants. The `v-pre` attribute itself is stripped from the output. |
+| `v-slot` / `#name` | Yes | Used on `<template>` elements (or directly on a component tag) to target named or scoped slots. Shorthand: `#name`. See [Slots](#slots) under §4. |
 | `v-once` | No-op | Accepted and stripped; server-side rendering always renders once, so this directive has no effect. |
-| `v-on` / `@event` | Passthrough | Preserved in the output as-is for client-side JavaScript. Not evaluated by the engine. |
-| `v-model` | Passthrough | Preserved in the output as-is. Not evaluated by the engine. |
 
 ### Not supported
 
 | Directive | Status |
 |---|---|
-| `v-slot` | Yes | Used on `<template>` elements to target named or scoped slots. Shorthand: `#name`. See [Slots](#slots) under §4. |
+| `v-on` / `@event` | Stripped. Client-side event handlers have no meaning in server-side rendering. |
+| `v-model` | Stripped. Two-way data binding has no meaning in server-side rendering. |
 | `v-cloak` | Not relevant for server-side rendering. |
 | `v-memo` | Not implemented. |
 
