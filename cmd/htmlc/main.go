@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -93,15 +94,19 @@ EXAMPLES
 const helpProps = `props — list the props expected by a component
 
 SYNOPSIS
-  htmlc props [-dir <path>] <component>
+  htmlc props [-dir <path>] [-format <fmt>] <component>
 
 DESCRIPTION
   Parses the named .vue component and prints the name of each declared prop
   on its own line, sorted alphabetically. This is useful for discovering what
   data a component expects before rendering it.
 
+  The argument may be a component name (looked up in -dir) or a path ending
+  in .vue or containing a path separator, which is opened directly.
+
 FLAGS
-  -dir string   Directory containing .vue component files. (default ".")
+  -dir string      Directory containing .vue component files. (default ".")
+  -format string   Output format: text, json, env (default "text")
 
 EXAMPLES
   # List props for a component in the current directory
@@ -109,6 +114,15 @@ EXAMPLES
 
   # List props for a component in a specific directory
   htmlc props -dir ./templates Card
+
+  # List props as JSON
+  htmlc props -dir ./templates Card -format json
+
+  # List props suitable for shell env export
+  htmlc props -dir ./templates Card -format env
+
+  # Use a direct file path
+  htmlc props ./templates/PostCard.vue
 `
 
 var subcommandHelp = map[string]string{
@@ -434,11 +448,34 @@ func runPage(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+// camelToScreamingSnake converts camelCase to SCREAMING_SNAKE_CASE.
+// E.g.: showDate → SHOW_DATE, postTitle → POST_TITLE.
+var camelBoundary = regexp.MustCompile(`([a-z])([A-Z])`)
+
+func camelToScreamingSnake(s string) string {
+	s = camelBoundary.ReplaceAllString(s, "${1}_${2}")
+	return strings.ToUpper(s)
+}
+
+// isTerminal reports whether w is a character device (TTY).
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	stat, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
 func runProps(args []string, stdout, stderr io.Writer) error {
 	args = normalizeArgs(args)
 	fs := flag.NewFlagSet("props", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", ".", "directory containing .vue components")
+	format := fs.String("format", "text", "output format: text, json, env")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Fprint(stdout, helpProps)
@@ -449,23 +486,45 @@ func runProps(args []string, stdout, stderr io.Writer) error {
 	if fs.NArg() < 1 {
 		return fmt.Errorf("props requires a component name")
 	}
+
+	switch *format {
+	case "text", "json", "env":
+	default:
+		fmt.Fprintln(stderr, cmdErrorMsg("props", fmt.Sprintf("unknown format %q", *format),
+			"  Supported formats: text, json, env",
+		))
+		return errSilent
+	}
+
 	name := fs.Arg(0)
 
-	path := filepath.Join(*dir, name+".vue")
+	// Detect path-style argument (direct file path).
+	var path, componentName string
+	isPathStyle := strings.HasSuffix(name, ".vue") || strings.ContainsRune(name, os.PathSeparator) || strings.Contains(name, "/")
+	if isPathStyle {
+		path = name
+		base := filepath.Base(name)
+		componentName = strings.TrimSuffix(base, ".vue")
+	} else {
+		path = filepath.Join(*dir, name+".vue")
+		componentName = name
+	}
+
 	src, err := os.ReadFile(path)
 	if err != nil {
-		hints := []string{
-			fmt.Sprintf("  Expected file: %s", path),
-			fmt.Sprintf("  Run 'htmlc props -dir <path> <name>' with the correct directory."),
-		}
-		if strings.Contains(name, "/") || strings.HasSuffix(name, ".vue") {
-			hints = append(hints,
+		if isPathStyle {
+			fmt.Fprintln(stderr, cmdErrorMsg("props", fmt.Sprintf("file %q not found", name),
 				"",
 				"  Tip: provide the component name without the path or .vue extension.",
-				"  For example, use 'Foo' instead of 'templates/Foo.vue'.",
-			)
+				fmt.Sprintf("  For example, use %q instead of %q.", componentName, name),
+			))
+		} else {
+			hints := []string{
+				fmt.Sprintf("  Expected file: %s", path),
+				"  Run 'htmlc props -dir <path> <name>' with the correct directory.",
+			}
+			fmt.Fprintln(stderr, cmdErrorMsg("props", fmt.Sprintf("component %q not found in %q", name, *dir), hints...))
 		}
-		fmt.Fprintln(stderr, cmdErrorMsg("props", fmt.Sprintf("component %q not found in %q", name, *dir), hints...))
 		return errSilent
 	}
 
@@ -475,14 +534,52 @@ func runProps(args []string, stdout, stderr io.Writer) error {
 	}
 
 	props := component.Props()
-	names := make([]string, 0, len(props))
-	for _, p := range props {
-		names = append(names, p.Name)
-	}
-	sort.Strings(names)
+	sort.Slice(props, func(i, j int) bool { return props[i].Name < props[j].Name })
 
-	for _, n := range names {
-		fmt.Fprintln(stdout, n)
+	switch *format {
+	case "json":
+		type propJSON struct {
+			Name string `json:"name"`
+			Expr string `json:"expr"`
+		}
+		type outputJSON struct {
+			Component string     `json:"component"`
+			Props     []propJSON `json:"props"`
+		}
+		out := outputJSON{Component: componentName, Props: []propJSON{}}
+		for _, p := range props {
+			expr := ""
+			if len(p.Expressions) > 0 {
+				expr = p.Expressions[0]
+			}
+			out.Props = append(out.Props, propJSON{Name: p.Name, Expr: expr})
+		}
+		data, _ := json.MarshalIndent(out, "", "  ")
+		fmt.Fprintf(stdout, "%s\n", data)
+
+	case "env":
+		type envEntry struct {
+			envName string
+		}
+		entries := make([]envEntry, len(props))
+		for i, p := range props {
+			entries[i] = envEntry{envName: camelToScreamingSnake(p.Name)}
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].envName < entries[j].envName })
+		for _, e := range entries {
+			fmt.Fprintf(stdout, "%s=\n", e.envName)
+		}
+
+	default: // text
+		for _, p := range props {
+			fmt.Fprintln(stdout, p.Name)
+		}
+		if isTerminal(stdout) {
+			line := strings.Repeat("─", 5)
+			fmt.Fprintln(stdout, line)
+			fmt.Fprintf(stdout, "%d props\n", len(props))
+		}
 	}
+
 	return nil
 }
