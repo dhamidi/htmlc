@@ -72,16 +72,18 @@ const (
 	TokenQQ         // ??
 
 	// Punctuation
-	TokenLParen     // (
-	TokenRParen     // )
-	TokenLBracket   // [
-	TokenRBracket   // ]
-	TokenLBrace     // {
-	TokenRBrace     // }
-	TokenDot        // .
-	TokenComma      // ,
-	TokenColon      // :
-	TokenQuestion   // ?
+	// Punctuation
+	TokenLParen          // (
+	TokenRParen          // )
+	TokenLBracket        // [
+	TokenRBracket        // ]
+	TokenLBrace          // {
+	TokenRBrace          // }
+	TokenDot             // .
+	TokenComma           // ,
+	TokenColon           // :
+	TokenQuestion        // ?
+	TokenOptionalChain   // ?.
 )
 
 var tokenTypeNames = map[TokenType]string{
@@ -125,16 +127,17 @@ var tokenTypeNames = map[TokenType]string{
 	TokenAmpAmp:     "&&",
 	TokenPipePipe:   "||",
 	TokenQQ:         "??",
-	TokenLParen:     "(",
-	TokenRParen:     ")",
-	TokenLBracket:   "[",
-	TokenRBracket:   "]",
-	TokenLBrace:     "{",
-	TokenRBrace:     "}",
-	TokenDot:        ".",
-	TokenComma:      ",",
-	TokenColon:      ":",
-	TokenQuestion:   "?",
+	TokenLParen:        "(",
+	TokenRParen:        ")",
+	TokenLBracket:      "[",
+	TokenRBracket:      "]",
+	TokenLBrace:        "{",
+	TokenRBrace:        "}",
+	TokenDot:           ".",
+	TokenComma:         ",",
+	TokenColon:         ":",
+	TokenQuestion:      "?",
+	TokenOptionalChain: "?.",
 }
 
 func (t TokenType) String() string {
@@ -508,6 +511,12 @@ func (l *Lexer) lexSymbol() Token {
 		if l.peek() == '?' {
 			l.advance()
 			return l.emit(TokenQQ, start, "??")
+		}
+		// ?. is the optional chaining operator when not followed by a digit
+		// (to avoid ambiguity with ternary: a?.5 means a ? .5 : ...).
+		if l.peek() == '.' && (l.pos+1 >= len(l.src) || !isDigit(l.src[l.pos+1])) {
+			l.advance() // consume '.'
+			return l.emit(TokenOptionalChain, start, "?.")
 		}
 		return l.emit(TokenQuestion, start, "?")
 	default:

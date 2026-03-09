@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -8,7 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/net/html"
 )
 
 // Options holds configuration for creating a new Engine.
@@ -55,11 +59,17 @@ type engineEntry struct {
 // New; call RenderPage or RenderFragment to produce HTML. ServeComponent wraps
 // a component as a net/http handler so it can be mounted directly in an
 // http.Handler-based server.
+//
+// Engine is safe for concurrent use. All render methods may be called from
+// multiple goroutines simultaneously.
 type Engine struct {
 	opts               Options
+	mu                 sync.RWMutex // guards entries
 	entries            map[string]*engineEntry
 	missingPropHandler MissingPropFunc
 	directives         DirectiveRegistry
+	funcs              map[string]any // per-engine functions, injected into every render scope
+	dataMiddleware     []func(*http.Request, map[string]any) map[string]any
 }
 
 // WithMissingPropHandler sets the function called when any component rendered
@@ -80,6 +90,31 @@ func (e *Engine) RegisterDirective(name string, dir Directive) {
 		e.directives = make(DirectiveRegistry)
 	}
 	e.directives[name] = dir
+}
+
+// RegisterFunc adds a per-engine function available in all template expressions
+// rendered by this engine. The function can be called from templates as name().
+// Engine-level functions act as lower-priority builtins: the render data scope
+// takes precedence over them, which in turn takes precedence over the global
+// expr.RegisterBuiltin table.
+//
+// RegisterFunc returns the Engine so calls can be chained.
+func (e *Engine) RegisterFunc(name string, fn func(...any) (any, error)) *Engine {
+	if e.funcs == nil {
+		e.funcs = make(map[string]any)
+	}
+	e.funcs[name] = fn
+	return e
+}
+
+// WithDataMiddleware adds a function that is called on every HTTP-triggered
+// render to augment the data map. Middleware functions are called in
+// registration order; later middleware can overwrite keys set by earlier ones.
+//
+// WithDataMiddleware returns the Engine so calls can be chained.
+func (e *Engine) WithDataMiddleware(fn func(*http.Request, map[string]any) map[string]any) *Engine {
+	e.dataMiddleware = append(e.dataMiddleware, fn)
+	return e
 }
 
 // New creates an Engine configured by opts. If opts.ComponentDir is set the
@@ -114,7 +149,7 @@ func (e *Engine) discover(dir string) error {
 				return nil
 			}
 			name := strings.TrimSuffix(base, ext)
-			return e.registerPath(name, path)
+			return e.registerPathLocked(name, path)
 		})
 	}
 	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -130,12 +165,13 @@ func (e *Engine) discover(dir string) error {
 			return nil
 		}
 		name := strings.TrimSuffix(base, ext)
-		return e.registerPath(name, path)
+		return e.registerPathLocked(name, path)
 	})
 }
 
-// registerPath reads and parses the .vue file at path, then stores it under name.
-func (e *Engine) registerPath(name, path string) error {
+// registerPathLocked reads and parses the .vue file at path, then stores it
+// under name. The caller must hold e.mu for writing.
+func (e *Engine) registerPathLocked(name, path string) error {
 	var (
 		data []byte
 		err  error
@@ -172,6 +208,14 @@ func (e *Engine) registerPath(name, path string) error {
 	return nil
 }
 
+// registerPath reads and parses the .vue file at path, stores it under name,
+// and is safe for concurrent use.
+func (e *Engine) registerPath(name, path string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.registerPathLocked(name, path)
+}
+
 // Register manually adds a component from path to the engine's registry under
 // name, without requiring a directory scan. This is useful when components are
 // generated programmatically or loaded from locations outside ComponentDir.
@@ -180,11 +224,14 @@ func (e *Engine) Register(name, path string) error {
 }
 
 // maybeReload re-parses any entry whose file mtime has advanced, when Reload
-// is enabled.
+// is enabled. It is safe for concurrent use.
 func (e *Engine) maybeReload() error {
 	if !e.opts.Reload {
 		return nil
 	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	// Snapshot names to avoid modifying the map while iterating it.
 	names := make([]string, 0, len(e.entries))
 	for name := range e.entries {
@@ -203,7 +250,7 @@ func (e *Engine) maybeReload() error {
 				continue
 			}
 			if info.ModTime().After(entry.modTime) {
-				if rerr := e.registerPath(name, entry.path); rerr != nil {
+				if rerr := e.registerPathLocked(name, entry.path); rerr != nil {
 					return rerr
 				}
 			}
@@ -213,7 +260,7 @@ func (e *Engine) maybeReload() error {
 				continue
 			}
 			if info.ModTime().After(entry.modTime) {
-				if rerr := e.registerPath(name, entry.path); rerr != nil {
+				if rerr := e.registerPathLocked(name, entry.path); rerr != nil {
 					return rerr
 				}
 			}
@@ -222,8 +269,9 @@ func (e *Engine) maybeReload() error {
 	return nil
 }
 
-// buildRegistry returns a Registry snapshot of all current entries.
-func (e *Engine) buildRegistry() Registry {
+// buildRegistryLocked returns a Registry snapshot of all current entries.
+// The caller must hold at least e.mu.RLock().
+func (e *Engine) buildRegistryLocked() Registry {
 	reg := make(Registry, len(e.entries))
 	for name, entry := range e.entries {
 		reg[name] = entry.comp
@@ -231,25 +279,198 @@ func (e *Engine) buildRegistry() Registry {
 	return reg
 }
 
+// Components returns the names of all registered components in sorted order.
+// Lowercase aliases added automatically by the engine are excluded.
+func (e *Engine) Components() []string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	seen := make(map[*engineEntry]bool, len(e.entries))
+	names := make([]string, 0, len(e.entries))
+	for name, entry := range e.entries {
+		if seen[entry] {
+			continue
+		}
+		seen[entry] = true
+		names = append(names, name)
+	}
+	return names
+}
+
+// Has reports whether name is a registered component.
+func (e *Engine) Has(name string) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	_, ok := e.entries[name]
+	return ok
+}
+
+// ValidateAll checks every registered component for unresolvable child
+// component references and returns a slice of ValidationError (one per
+// problem). An empty slice means all components are valid.
+//
+// ValidateAll is intended to be called once at application startup to surface
+// missing-component problems early ("fail fast").
+func (e *Engine) ValidateAll() []ValidationError {
+	e.mu.RLock()
+	reg := e.buildRegistryLocked()
+	// Build a deduplicated list of component names (skip auto-lowercase aliases).
+	seen := make(map[*engineEntry]bool, len(e.entries))
+	type namedEntry struct {
+		name  string
+		entry *engineEntry
+	}
+	var entries []namedEntry
+	for name, entry := range e.entries {
+		if seen[entry] {
+			continue
+		}
+		seen[entry] = true
+		entries = append(entries, namedEntry{name, entry})
+	}
+	e.mu.RUnlock()
+
+	var errs []ValidationError
+	for _, ne := range entries {
+		refs := collectComponentRefs(ne.entry.comp)
+		for _, ref := range refs {
+			if resolveInRegistry(reg, ref) == nil {
+				errs = append(errs, ValidationError{
+					Component: ne.name,
+					Message:   fmt.Sprintf("references unknown component %q", ref),
+				})
+			}
+		}
+	}
+	return errs
+}
+
+// collectComponentRefs walks a component's template and returns all tag names
+// that look like component references (PascalCase or kebab-case with hyphen).
+func collectComponentRefs(comp *Component) []string {
+	if comp == nil || comp.Template == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	return walkTemplateForRefs(comp.Template, seen)
+}
+
+// walkTemplateForRefs recursively collects component-like tag names from the
+// HTML node tree. A tag is considered a component reference if it is
+// PascalCase (first letter uppercase) or kebab-case (contains a hyphen).
+func walkTemplateForRefs(n *html.Node, seen map[string]bool) []string {
+	var refs []string
+	if n.Type == html.ElementNode {
+		name := n.Data
+		if isComponentLikeName(name) && !seen[name] {
+			seen[name] = true
+			refs = append(refs, name)
+		}
+	}
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		refs = append(refs, walkTemplateForRefs(child, seen)...)
+	}
+	return refs
+}
+
+// isComponentLikeName reports whether name looks like a component reference:
+// either PascalCase (starts with uppercase) or kebab-case (contains a hyphen).
+func isComponentLikeName(name string) bool {
+	if len(name) == 0 {
+		return false
+	}
+	if name[0] >= 'A' && name[0] <= 'Z' {
+		return true
+	}
+	return strings.Contains(name, "-")
+}
+
+// resolveInRegistry tries to find a component by name using the same resolution
+// logic as the renderer (exact, capitalized, kebab-to-pascal, case-insensitive).
+func resolveInRegistry(reg Registry, name string) *Component {
+	if c, ok := reg[name]; ok {
+		return c
+	}
+	if len(name) > 0 {
+		cap := strings.ToUpper(name[:1]) + name[1:]
+		if cap != name {
+			if c, ok := reg[cap]; ok {
+				return c
+			}
+		}
+	}
+	if strings.Contains(name, "-") {
+		pascal := kebabToPascal(name)
+		if c, ok := reg[pascal]; ok {
+			return c
+		}
+	}
+	lower := strings.ToLower(name)
+	for k, c := range reg {
+		if strings.ToLower(k) == lower {
+			return c
+		}
+	}
+	return nil
+}
+
+// applyEngineScope merges the engine's registered functions into the render
+// scope. Engine functions have lower priority than user-provided data: keys
+// already present in scope are not overwritten.
+func (e *Engine) applyEngineScope(data map[string]any) map[string]any {
+	if len(e.funcs) == 0 {
+		return data
+	}
+	merged := make(map[string]any, len(data)+len(e.funcs))
+	for k, v := range e.funcs {
+		merged[k] = v
+	}
+	// data overrides engine funcs
+	for k, v := range data {
+		merged[k] = v
+	}
+	return merged
+}
+
+// applyDataMiddleware applies registered middleware functions in order,
+// augmenting the data map for an HTTP-triggered render.
+func (e *Engine) applyDataMiddleware(r *http.Request, data map[string]any) map[string]any {
+	for _, mw := range e.dataMiddleware {
+		data = mw(r, data)
+	}
+	return data
+}
+
 // renderComponent renders the named component with the given data scope,
 // writing HTML to w and returning the collected styles.
-func (e *Engine) renderComponent(w io.Writer, name string, data map[string]any) (*StyleCollector, error) {
+func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, data map[string]any) (*StyleCollector, error) {
 	if err := e.maybeReload(); err != nil {
 		return nil, err
 	}
+
+	e.mu.RLock()
 	entry, ok := e.entries[name]
-	if !ok {
-		return nil, fmt.Errorf("engine: unknown component %q", name)
+	var reg Registry
+	if ok {
+		reg = e.buildRegistryLocked()
 	}
+	e.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("engine: unknown component %q: %w", name, ErrComponentNotFound)
+	}
+
+	scope := e.applyEngineScope(data)
+
 	sc := &StyleCollector{}
 	renderer := NewRenderer(entry.comp).
 		WithStyles(sc).
-		WithComponents(e.buildRegistry()).
-		WithDirectives(e.directives)
+		WithComponents(reg).
+		WithDirectives(e.directives).
+		WithContext(ctx)
 	if e.missingPropHandler != nil {
 		renderer = renderer.WithMissingPropHandler(e.missingPropHandler)
 	}
-	if err := renderer.Render(w, data); err != nil {
+	if err := renderer.Render(w, scope); err != nil {
 		return nil, err
 	}
 	return sc, nil
@@ -282,8 +503,15 @@ func styleBlock(sc *StyleCollector) string {
 // For partial HTML — such as HTMX responses or turbo-frame updates — use
 // RenderFragment instead, which prepends styles without searching for </head>.
 func (e *Engine) RenderPage(w io.Writer, name string, data map[string]any) error {
+	return e.RenderPageContext(context.Background(), w, name, data)
+}
+
+// RenderPageContext is like RenderPage but accepts a context.Context. The
+// render is aborted and ctx.Err() is returned if the context is cancelled or
+// its deadline is exceeded during rendering.
+func (e *Engine) RenderPageContext(ctx context.Context, w io.Writer, name string, data map[string]any) error {
 	var buf strings.Builder
-	sc, err := e.renderComponent(&buf, name, data)
+	sc, err := e.renderComponent(ctx, &buf, name, data)
 	if err != nil {
 		return err
 	}
@@ -320,8 +548,15 @@ func (e *Engine) RenderPage(w io.Writer, name string, data map[string]any) error
 // For full HTML documents that include a <head> section, use RenderPage
 // instead so that styles are injected in the document head.
 func (e *Engine) RenderFragment(w io.Writer, name string, data map[string]any) error {
+	return e.RenderFragmentContext(context.Background(), w, name, data)
+}
+
+// RenderFragmentContext is like RenderFragment but accepts a context.Context.
+// The render is aborted and ctx.Err() is returned if the context is cancelled
+// or its deadline is exceeded during rendering.
+func (e *Engine) RenderFragmentContext(ctx context.Context, w io.Writer, name string, data map[string]any) error {
 	var buf strings.Builder
-	sc, err := e.renderComponent(&buf, name, data)
+	sc, err := e.renderComponent(ctx, &buf, name, data)
 	if err != nil {
 		return err
 	}
@@ -361,16 +596,72 @@ func (e *Engine) RenderFragmentString(name string, data map[string]any) (string,
 // and writes it with content-type "text/html; charset=utf-8". The data
 // function is called on every request to obtain the data map passed to the
 // template; it may be nil (in which case no data is provided).
+//
+// Data middleware registered via WithDataMiddleware is applied after the data
+// function, allowing common data (e.g. the current user or CSRF token) to be
+// injected globally.
 func (e *Engine) ServeComponent(name string, data func(*http.Request) map[string]any) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var scope map[string]any
 		if data != nil {
 			scope = data(r)
 		}
+		if scope == nil {
+			scope = make(map[string]any)
+		}
+		scope = e.applyDataMiddleware(r, scope)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := e.RenderFragment(w, name, scope); err != nil {
+		if err := e.RenderFragmentContext(r.Context(), w, name, scope); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+	}
+}
+
+// ServePageComponent returns an http.HandlerFunc that renders name as a full
+// HTML page (using RenderPage, which injects styles into </head>) and writes
+// it with content-type "text/html; charset=utf-8".
+//
+// The data function is called on every request to obtain the data map and the
+// HTTP status code to send. If the data function is nil, a 200 OK response
+// with no template data is used. A status code of 0 is treated as 200.
+//
+// Data middleware registered via WithDataMiddleware is applied after the data
+// function.
+func (e *Engine) ServePageComponent(name string, data func(*http.Request) (map[string]any, int)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var scope map[string]any
+		statusCode := http.StatusOK
+		if data != nil {
+			scope, statusCode = data(r)
+			if statusCode == 0 {
+				statusCode = http.StatusOK
+			}
+		}
+		if scope == nil {
+			scope = make(map[string]any)
+		}
+		scope = e.applyDataMiddleware(r, scope)
+
+		// Buffer output so we can set the status code before writing the body.
+		var buf strings.Builder
+		if err := e.RenderPageContext(r.Context(), &buf, name, scope); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(statusCode)
+		io.WriteString(w, buf.String())
+	}
+}
+
+// Mount registers a set of component routes on mux. The routes map keys are
+// patterns accepted by http.ServeMux (e.g. "GET /{$}", "GET /about"), and
+// values are component names. Each component is served as a full HTML page via
+// ServePageComponent with no data function (use WithDataMiddleware to inject
+// common data, or register routes manually for per-route data).
+func (e *Engine) Mount(mux *http.ServeMux, routes map[string]string) {
+	for pattern, name := range routes {
+		mux.HandleFunc(pattern, e.ServePageComponent(name, nil))
 	}
 }

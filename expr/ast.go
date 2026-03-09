@@ -102,6 +102,17 @@ type MemberExpr struct {
 
 func (n *MemberExpr) nodeType() string { return "MemberExpr" }
 
+// OptionalMemberExpr represents optional chaining member access: obj?.prop or
+// obj?.[expr]. If the object is null or undefined the expression evaluates to
+// undefined instead of returning an error.
+type OptionalMemberExpr struct {
+	Object   Node
+	Property Node
+	Computed bool // true for obj?.[expr], false for obj?.prop
+}
+
+func (n *OptionalMemberExpr) nodeType() string { return "OptionalMemberExpr" }
+
 // --- Function call ---
 
 // CallExpr represents a function call expression: callee(args...).

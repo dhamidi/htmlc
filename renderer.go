@@ -2,6 +2,8 @@ package htmlc
 
 import (
 	stdhtml "html"
+	htmltemplate "html/template"
+	"context"
 	"fmt"
 	"io"
 	"math"
@@ -126,6 +128,7 @@ type Renderer struct {
 	missingPropHandler MissingPropFunc
 	slotDefs           map[string]*SlotDefinition
 	directives         DirectiveRegistry
+	ctx                context.Context // optional; nil means no cancellation
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -162,6 +165,14 @@ func (r *Renderer) WithMissingPropHandler(fn MissingPropFunc) *Renderer {
 // not built-in directives. Returns the Renderer for chaining.
 func (r *Renderer) WithDirectives(dr DirectiveRegistry) *Renderer {
 	r.directives = dr
+	return r
+}
+
+// WithContext attaches a context.Context to the renderer. The render is
+// aborted and ctx.Err() is returned if the context is cancelled or its
+// deadline is exceeded. Returns the Renderer for chaining.
+func (r *Renderer) WithContext(ctx context.Context) *Renderer {
+	r.ctx = ctx
 	return r
 }
 
@@ -312,6 +323,8 @@ func (r *Renderer) renderNode(w io.Writer, n *html.Node, scope map[string]any) e
 
 // interpolate processes mustache expressions within text and writes the result to w.
 // Literal segments are HTML-escaped; {{ expr }} segments are evaluated and escaped.
+// If a value is of type html/template.HTML it is emitted verbatim (already safe),
+// matching the behaviour of v-html for pre-escaped content.
 func (r *Renderer) interpolate(w io.Writer, text string, scope map[string]any) error {
 	lastEnd := 0
 
@@ -325,7 +338,12 @@ func (r *Renderer) interpolate(w io.Writer, text string, scope map[string]any) e
 		if err != nil {
 			return fmt.Errorf("interpolation %q: %w", exprSrc, err)
 		}
-		io.WriteString(w, stdhtml.EscapeString(valueToString(val)))
+		// html/template.HTML values are already safe — emit verbatim.
+		if safe, ok := val.(htmltemplate.HTML); ok {
+			io.WriteString(w, string(safe))
+		} else {
+			io.WriteString(w, stdhtml.EscapeString(valueToString(val)))
+		}
 
 		lastEnd = loc[1]
 	}
@@ -370,9 +388,26 @@ func nextSignificantSibling(n *html.Node) *html.Node {
 	return nil
 }
 
+// checkContext returns ctx.Err() if the context has been cancelled, nil
+// otherwise. It is a no-op when no context is set.
+func (r *Renderer) checkContext() error {
+	if r.ctx == nil {
+		return nil
+	}
+	select {
+	case <-r.ctx.Done():
+		return r.ctx.Err()
+	default:
+		return nil
+	}
+}
+
 // renderChildren iterates the children of parent and renders them, handling
 // v-if/v-else-if/v-else chains and v-for directives.
 func (r *Renderer) renderChildren(w io.Writer, parent *html.Node, scope map[string]any) error {
+	if err := r.checkContext(); err != nil {
+		return err
+	}
 	child := parent.FirstChild
 	for child != nil {
 		if child.Type == html.ElementNode {
@@ -1170,6 +1205,8 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		registry:           r.registry,
 		missingPropHandler: r.missingPropHandler,
 		slotDefs:           slotDefs,
+		directives:         r.directives,
+		ctx:                r.ctx,
 	}
 
 	if err := childRenderer.Render(w, childScope); err != nil {
@@ -1341,6 +1378,7 @@ func camelToKebab(s string) string {
 }
 
 // valueToString converts an evaluated expression value to its string representation.
+// Values that implement fmt.Stringer are converted via their String() method.
 func valueToString(v any) string {
 	switch val := v.(type) {
 	case string:
@@ -1369,6 +1407,10 @@ func valueToString(v any) string {
 	default:
 		if _, ok := v.(expr.UndefinedValue); ok {
 			return "undefined"
+		}
+		// Honor fmt.Stringer: call String() for types that implement it.
+		if s, ok := v.(fmt.Stringer); ok {
+			return s.String()
 		}
 		return fmt.Sprintf("%v", v)
 	}

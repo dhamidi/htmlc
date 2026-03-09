@@ -211,7 +211,7 @@ func (p *parser) parseUnary() (Node, error) {
 }
 
 // parsePostfix parses left-hand-side postfix operations: dot member access,
-// computed member access ([]), and function calls.
+// computed member access ([]), optional chaining (?.), and function calls.
 func (p *parser) parsePostfix() (Node, error) {
 	expr, err := p.parsePrimary()
 	if err != nil {
@@ -240,6 +240,34 @@ func (p *parser) parsePostfix() (Node, error) {
 				return nil, err
 			}
 			expr = &MemberExpr{Object: expr, Property: prop, Computed: true}
+		case TokenOptionalChain:
+			p.advance() // consume '?.'
+			// After '?.' expect either an identifier or '[' for computed access.
+			switch p.peek().Type {
+			case TokenIdent:
+				tok, err := p.expect(TokenIdent)
+				if err != nil {
+					return nil, err
+				}
+				expr = &OptionalMemberExpr{
+					Object:   expr,
+					Property: &Identifier{Name: tok.Value},
+					Computed: false,
+				}
+			case TokenLBracket:
+				p.advance() // consume '['
+				prop, err := p.parseExpr()
+				if err != nil {
+					return nil, err
+				}
+				if _, err = p.expect(TokenRBracket); err != nil {
+					return nil, err
+				}
+				expr = &OptionalMemberExpr{Object: expr, Property: prop, Computed: true}
+			default:
+				tok := p.peek()
+				return nil, fmt.Errorf("%d:%d: expected identifier or '[' after '?.'", tok.Pos.Line, tok.Pos.Col)
+			}
 		case TokenLParen:
 			p.advance() // consume '('
 			args, err := p.parseArgList()

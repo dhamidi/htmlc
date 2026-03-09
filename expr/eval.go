@@ -64,6 +64,8 @@ func evalNode(node Node, scope map[string]any) (any, error) {
 		return evalTernary(n, scope)
 	case *MemberExpr:
 		return evalMember(n, scope)
+	case *OptionalMemberExpr:
+		return evalOptionalMember(n, scope)
 	case *CallExpr:
 		return evalCall(n, scope)
 	case *ArrayLit:
@@ -285,6 +287,29 @@ func evalMember(n *MemberExpr, scope map[string]any) (any, error) {
 	obj, err := evalNode(n.Object, scope)
 	if err != nil {
 		return nil, err
+	}
+	var key any
+	if n.Computed {
+		key, err = evalNode(n.Property, scope)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		key = n.Property.(*Identifier).Name
+	}
+	return accessMember(obj, key)
+}
+
+// evalOptionalMember handles optional chaining (obj?.prop, obj?.[expr]).
+// If obj is null or undefined, the expression evaluates to Undefined rather
+// than returning an error.
+func evalOptionalMember(n *OptionalMemberExpr, scope map[string]any) (any, error) {
+	obj, err := evalNode(n.Object, scope)
+	if err != nil {
+		return nil, err
+	}
+	if isNullish(obj) {
+		return Undefined, nil
 	}
 	var key any
 	if n.Computed {
