@@ -33,6 +33,260 @@
 //                       components rendered in one request so they can be
 //                       emitted as a single <style> block at the end.
 //
+// # Template directives
+//
+// Every directive below is processed server-side. Client-only directives
+// (@click, v-model) are stripped from the output because there is no
+// JavaScript runtime.
+//
+//	{{ expr }}
+//	    Mustache text interpolation; the expression result is HTML-escaped.
+//	    Example: <p>{{ user.name }}</p>
+//
+//	v-text="expr"
+//	    Sets element text content; HTML-escaped; replaces any child nodes.
+//	    Example: <p v-text="msg"></p>
+//
+//	v-html="expr"
+//	    Sets element inner HTML; the value is NOT HTML-escaped.
+//	    Example: <div v-html="rawHTML"></div>
+//
+//	v-if / v-else-if / v-else
+//	    Conditional rendering; only the first truthy branch is emitted.
+//	    Example: <span v-if="score >= 90">A</span>
+//	             <span v-else-if="score >= 70">B</span>
+//	             <span v-else>C</span>
+//
+//	v-for="item in items"
+//	    Iterate over a slice or array. Use (item, i) in items for zero-based
+//	    index access.
+//	    Example: <li v-for="(item, i) in items">{{ i }}: {{ item }}</li>
+//
+//	v-for="n in N"
+//	    Integer range: n iterates 1 … N (inclusive).
+//	    Example: <span v-for="n in 3">{{ n }}</span>
+//
+//	v-for="(val, key) in obj"
+//	    Iterate map entries; val is the value, key is the string key.
+//	    Example: <dt v-for="(val, key) in obj">{{ key }}: {{ val }}</dt>
+//
+//	:attr="expr"
+//	    Dynamic attribute binding. Boolean attributes are omitted when the
+//	    expression is falsy, present without a value when truthy.
+//	    Example: <a :href="url">link</a>
+//
+//	:class="{ key: bool }"
+//	    Object-syntax class binding: keys whose values are truthy are
+//	    included; merged with any static class attribute.
+//	    Example: <div class="base" :class="{ active: isActive }">…</div>
+//
+//	:class="[...]"
+//	    Array-syntax class binding: non-empty string elements are included.
+//	    Example: <div :class="['btn', flag ? 'primary' : '']">…</div>
+//
+//	:style="{ camelKey: val }"
+//	    Inline style binding; camelCase keys are converted to kebab-case.
+//	    Example: <p :style="{ fontSize: '14px', color: 'red' }">…</p>
+//
+//	v-show="expr"
+//	    Adds style="display:none" when the expression is falsy; the element
+//	    is always present in the output.
+//	    Example: <p v-show="visible">content</p>
+//
+//	v-pre
+//	    Skips all interpolation and directive processing for the subtree;
+//	    mustache syntax is emitted literally.
+//	    Example: <code v-pre>{{ raw }}</code>
+//
+//	@click, v-model
+//	    Client-side event and model directives; stripped on server render.
+//	    Example: <button @click="handler">click</button>
+//
+// # Component composition
+//
+// Components can include other components in their templates. A child
+// component name must start with an uppercase letter to distinguish it from
+// HTML elements.
+//
+// ## Registering components
+//
+// There are two ways to make components available for composition:
+//
+// 1. Automatic discovery via ComponentDir: every .vue file in the directory
+// tree is registered under its basename (without the .vue extension).
+//
+//	engine, err := htmlc.New(htmlc.Options{ComponentDir: "templates/"})
+//
+// 2. Manual registration via Engine.Register or by constructing a Registry
+// directly and passing it to NewRenderer.WithComponents.
+//
+//	engine.Register("Card", cardComponent)
+//
+//	// Low-level API:
+//	htmlc.NewRenderer(page).WithComponents(htmlc.Registry{"Card": card})
+//
+// ## Default slot
+//
+// A child component declares <slot /> as a placeholder. The parent places
+// inner HTML inside the component tag and it is injected at the slot site.
+//
+// Card.vue:
+//
+//	<template><div class="card"><slot /></div></template>
+//
+// Page.vue:
+//
+//	<template><Card><p>inner</p></Card></template>
+//
+// Renders to: <div class="card"><p>inner</p></div>
+//
+// ## Named slots
+//
+// A child can declare multiple slots by name using <slot name="…">. The
+// parent fills each slot with a <template #name> element. Unmatched content
+// goes to the default slot.
+//
+// Layout.vue:
+//
+//	<template>
+//	  <div class="layout">
+//	    <slot name="header"></slot>
+//	    <main><slot></slot></main>
+//	    <slot name="footer"></slot>
+//	  </div>
+//	</template>
+//
+// Page.vue:
+//
+//	<template>
+//	  <Layout>
+//	    <template #header><h1>Title</h1></template>
+//	    <p>Content</p>
+//	    <template #footer><em>Footer</em></template>
+//	  </Layout>
+//	</template>
+//
+// ## Scoped slots
+//
+// The child passes data up to the parent via slot props. The parent
+// destructures the props with v-slot="{ item, index }" or binds the whole
+// map with v-slot="props".
+//
+// List.vue:
+//
+//	<template>
+//	  <ul>
+//	    <li v-for="(item, i) in items">
+//	      <slot :item="item" :index="i"></slot>
+//	    </li>
+//	  </ul>
+//	</template>
+//
+// Page.vue (destructuring):
+//
+//	<template>
+//	  <List :items="items" v-slot="{ item, index }">
+//	    <span>{{ index }}: {{ item }}</span>
+//	  </List>
+//	</template>
+//
+// Page.vue (whole map bound to a variable):
+//
+//	<template>
+//	  <Child v-slot="props"><p>{{ props.user.name }}</p></Child>
+//	</template>
+//
+// ## Slot fallback content
+//
+// Children placed inside a <slot> element in the child component are rendered
+// when the parent provides no content for that slot.
+//
+// Card.vue:
+//
+//	<template>
+//	  <div class="card"><slot><p>No content provided</p></slot></div>
+//	</template>
+//
+// Page.vue (no slot content supplied):
+//
+//	<template><Card></Card></template>
+//
+// Renders to: <div class="card"><p>No content provided</p></div>
+//
+// # Scoped styles
+//
+// Adding <style scoped> to a .vue file generates a unique data-v-XXXXXXXX
+// attribute (derived from the file path) that is stamped on every element
+// rendered by that component. The CSS is rewritten by ScopeCSS so every
+// selector targets only elements bearing that attribute.
+//
+// When using Engine, styles are collected automatically:
+//   - RenderPage injects a <style> block immediately before </head>.
+//   - RenderFragment prepends the <style> block to the output.
+//
+// When using the low-level API, manage styles manually:
+//
+//	sc := &htmlc.StyleCollector{}
+//	out, err := htmlc.NewRenderer(comp).WithStyles(sc).RenderString(nil)
+//	items := sc.All() // []*htmlc.StyleItem; each has a CSS field
+//
+// # Missing prop handling
+//
+// By default, a prop name that appears in the template but is absent from the
+// scope map causes a render error. Supply a handler to override this behaviour:
+//
+//	// Engine-wide:
+//	engine.WithMissingPropHandler(htmlc.SubstituteMissingProp)
+//
+//	// Per-render with the low-level API:
+//	out, err := htmlc.NewRenderer(comp).
+//	    WithMissingPropHandler(htmlc.SubstituteMissingProp).
+//	    RenderString(nil)
+//
+// SubstituteMissingProp is the built-in handler; it emits
+// "MISSING PROP: <name>" in place of the missing value. It is useful during
+// development to surface missing data without aborting the render.
+//
+// # Embedded filesystems
+//
+// Components can be loaded from an embedded filesystem using go:embed:
+//
+//	//go:embed templates
+//	var templateFS embed.FS
+//
+//	engine, err := htmlc.New(htmlc.Options{
+//	    FS:           templateFS,
+//	    ComponentDir: "templates",
+//	})
+//
+// Note: Engine.Reload only works when the fs.FS also implements fs.StatFS.
+// The standard os.DirFS satisfies this; embed.FS does not, so Reload is a
+// no-op for embedded filesystems.
+//
+// # Low-level API
+//
+// Use ParseFile, NewRenderer, WithComponents, WithStyles, and WithDirectives
+// directly when you need request-scoped control over component registration,
+// style collection, or custom directives — for example, in tests or one-off
+// renders outside of a long-lived Engine.
+//
+//	// Parse two components from strings.
+//	card, _ := htmlc.ParseFile("Card.vue", `<template><div class="card"><slot /></div></template>`)
+//	page, _ := htmlc.ParseFile("Page.vue", `<template><Card><p>inner</p></Card></template>`)
+//
+//	// Collect scoped styles while rendering.
+//	sc := &htmlc.StyleCollector{}
+//	out, err := htmlc.NewRenderer(page).
+//	    WithComponents(htmlc.Registry{"Card": card}).
+//	    WithStyles(sc).
+//	    RenderString(nil)
+//	if err != nil { /* handle */ }
+//
+//	// Retrieve scoped CSS generated during the render.
+//	for _, item := range sc.All() {
+//	    fmt.Println(item.CSS)
+//	}
+//
 // # Custom directives
 //
 // htmlc supports a custom directive system inspired by Vue's custom directives
@@ -61,7 +315,9 @@
 // host element's tag with a registered component name supplied by the
 // directive's expression, enabling dynamic component dispatch.
 //
-// # Typical use
+// # Tutorial
+//
+// The fastest path to a working server is Engine + RenderPage:
 //
 //	engine, err := htmlc.New(htmlc.Options{ComponentDir: "templates/"})
 //	if err != nil { /* handle */ }
@@ -71,5 +327,19 @@
 //	    if err := engine.RenderPage(w, "Page", map[string]any{"title": "Home"}); err != nil {
 //	        http.Error(w, err.Error(), http.StatusInternalServerError)
 //	    }
+//	})
+//
+// Use RenderPage when the component template is a full HTML document
+// (html/head/body); it injects collected <style> blocks before </head>.
+// Use RenderFragment (or RenderFragmentString) for partial HTML snippets —
+// for example, components rendered inside an existing layout or delivered
+// over HTMX.
+//
+// For development, enable hot-reload so changes to .vue files are picked up
+// without restarting the server:
+//
+//	engine, err := htmlc.New(htmlc.Options{
+//	    ComponentDir: "templates/",
+//	    Reload:       true,
 //	})
 package htmlc

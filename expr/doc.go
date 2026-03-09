@@ -1,6 +1,77 @@
 /*
 Package expr is the expression evaluator for htmlc templates.
 
+# Tutorial
+
+The three most common entry points for Go callers are Eval, Compile, and
+CollectIdentifiers.
+
+## Eval — one-shot expression evaluation
+
+Eval parses and evaluates an expression in a single call. Use it when the
+expression string changes at runtime or is only evaluated once.
+
+	result, err := expr.Eval("price * qty + 1", map[string]any{
+	    "price": float64(10),
+	    "qty":   float64(3),
+	})
+	// result == float64(31)
+
+## Compile + Eval — pre-compile for repeated evaluation
+
+Compile parses the expression once and returns an *Expr that can be re-evaluated
+against many different scopes without re-parsing.
+
+	e, err := expr.Compile("user.name + ' (' + user.role + ')'")
+	if err != nil { // syntax error
+	}
+
+	// Re-use the compiled expression across many scopes:
+	for _, user := range users {
+	    val, err := e.Eval(map[string]any{"user": user})
+	    _ = val
+	}
+
+## CollectIdentifiers — static analysis
+
+CollectIdentifiers returns the sorted, deduplicated list of top-level
+identifiers referenced by an expression. It does not evaluate the expression.
+
+	names, err := expr.CollectIdentifiers("user.name + extra")
+	// names == []string{"extra", "user"}
+
+Used by Component.Props() (in the parent htmlc package) to discover which
+scope keys a template depends on.
+
+## RegisterBuiltin — custom functions
+
+RegisterBuiltin adds a function to the global built-in table so it is
+available by name in every expression. Call it once at program startup.
+
+	expr.RegisterBuiltin("upper", func(args ...any) (any, error) {
+	    if len(args) != 1 {
+	        return nil, fmt.Errorf("upper: want 1 arg")
+	    }
+	    s, _ := args[0].(string)
+	    return strings.ToUpper(s), nil
+	})
+	// Now usable in any expression: upper(name)
+
+Note: RegisterBuiltin modifies global state; it is not safe to call
+concurrently with expression evaluation.
+
+## IsTruthy — truthiness outside templates
+
+IsTruthy reports whether a Go value is truthy by the same rules used for
+v-if, v-show, and boolean operators inside templates.
+
+	expr.IsTruthy(0)              // false
+	expr.IsTruthy("")             // false
+	expr.IsTruthy(expr.Undefined) // false
+	expr.IsTruthy(false)          // false
+	expr.IsTruthy(1)              // true
+	expr.IsTruthy("hello")        // true
+
 # Expression Language Reference
 
 This document describes the syntax and semantics of the expr expression
