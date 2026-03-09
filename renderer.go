@@ -700,6 +700,34 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		}
 	}
 
+	// --- dynamic <component :is="..."> ---
+	if working.Data == "component" {
+		isExpr, isFound := "", false
+		var keptAttrs []html.Attribute
+		for _, attr := range working.Attr {
+			if attr.Key == ":is" || attr.Key == "v-bind:is" {
+				isExpr = attr.Val
+				isFound = true
+			} else {
+				keptAttrs = append(keptAttrs, attr)
+			}
+		}
+		if !isFound {
+			return fmt.Errorf("<component>: :is binding is required")
+		}
+		val, err := expr.Eval(strings.TrimSpace(isExpr), scope)
+		if err != nil {
+			return fmt.Errorf("<component> :is %q: %w", isExpr, err)
+		}
+		compName, ok := val.(string)
+		if !ok || compName == "" {
+			return fmt.Errorf("<component> :is: expected non-empty string, got %T", val)
+		}
+		working.Data = compName
+		working.Attr = keptAttrs
+		// Fall through to resolveComponent / native element logic below.
+	}
+
 	// Component: resolve the tag name against the registry.
 	if comp := r.resolveComponent(working.Data); comp != nil {
 		return r.renderComponentElement(w, working, scope, comp)

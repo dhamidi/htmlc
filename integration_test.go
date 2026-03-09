@@ -378,3 +378,60 @@ func TestIntegration_CamelCasePropViaSlot(t *testing.T) {
 		t.Errorf("camelCase prop via slot: want <span>hello</span> in output:\n%s", out)
 	}
 }
+
+func TestIntegration_DynamicComponent_BasicResolution(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Banner.vue"),
+		`<template><section class="banner"><slot></slot></section></template>`)
+	writeVue(t, filepath.Join(dir, "Page.vue"),
+		`<template><component :is="widgetType">hello</component></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Page", map[string]any{"widgetType": "Banner"})
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, `class="banner"`) {
+		t.Errorf("dynamic component: want Banner output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "hello") {
+		t.Errorf("dynamic component: want slot content 'hello', got:\n%s", out)
+	}
+}
+
+func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Widget.vue"),
+		`<template><p>version one</p></template>`)
+	writeVue(t, filepath.Join(dir, "Page.vue"),
+		`<template><component :is="'Widget'"></component></template>`)
+
+	e, err := New(Options{ComponentDir: dir, Reload: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Page", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString (v1): %v", err)
+	}
+	if !strings.Contains(out, "version one") {
+		t.Errorf("reload: want 'version one' in initial output:\n%s", out)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	writeVue(t, filepath.Join(dir, "Widget.vue"),
+		`<template><p>version two</p></template>`)
+
+	out, err = e.RenderFragmentString("Page", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString (v2): %v", err)
+	}
+	if !strings.Contains(out, "version two") {
+		t.Errorf("reload: want 'version two' after reload, got:\n%s", out)
+	}
+}

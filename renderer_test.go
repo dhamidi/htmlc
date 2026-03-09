@@ -1462,3 +1462,195 @@ func TestRender_AtEventShorthandStripped(t *testing.T) {
 		t.Errorf("class attribute should be preserved, got: %s", out)
 	}
 }
+
+// --- TestRender_DynamicComponent_* ---
+
+func TestRender_DynamicComponent_BasicLiteralComponent(t *testing.T) {
+	card := mustParseComponent(t, "card.vue", `<article>card</article>`)
+	host := mustParseComponent(t, "host.vue", `<component :is="'Card'"></component>`)
+	out, err := NewRenderer(host).WithComponents(Registry{"Card": card}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<article>card</article>") {
+		t.Errorf("got %q, want <article>card</article>", out)
+	}
+	if strings.Contains(out, "<component") {
+		t.Errorf("got %q, literal <component> tag should not appear in output", out)
+	}
+}
+
+func TestRender_DynamicComponent_BasicScopeVariable(t *testing.T) {
+	banner := mustParseComponent(t, "banner.vue", `<section>banner</section>`)
+	host := mustParseComponent(t, "host.vue", `<component :is="view"></component>`)
+	out, err := NewRenderer(host).WithComponents(Registry{"Banner": banner}).RenderString(map[string]any{"view": "Banner"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<section>banner</section>") {
+		t.Errorf("got %q, want <section>banner</section>", out)
+	}
+}
+
+func TestRender_DynamicComponent_NativeHTMLElement(t *testing.T) {
+	host := mustParseComponent(t, "host.vue", `<component :is="'div'" class="box">text</component>`)
+	out, err := NewRenderer(host).WithComponents(Registry{}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, `<div class="box">text</div>`) {
+		t.Errorf("got %q, want <div class=\"box\">text</div>", out)
+	}
+}
+
+func TestRender_DynamicComponent_NativeVoidElement(t *testing.T) {
+	host := mustParseComponent(t, "host.vue", `<component :is="'input'" type="text"></component>`)
+	out, err := NewRenderer(host).WithComponents(Registry{}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, `<input type="text">`) {
+		t.Errorf("got %q, want <input type=\"text\">", out)
+	}
+	if strings.Contains(out, "</input>") {
+		t.Errorf("got %q, void element should not have closing tag", out)
+	}
+}
+
+func TestRender_DynamicComponent_PropsForwarding(t *testing.T) {
+	card := mustParseComponent(t, "card.vue", `<div>{{ title }}</div>`)
+	host := mustParseComponent(t, "host.vue", `<component :is="'Card'" :title="label"></component>`)
+	out, err := NewRenderer(host).WithComponents(Registry{"Card": card}).RenderString(map[string]any{"label": "Hello"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "Hello") {
+		t.Errorf("got %q, want 'Hello' in output", out)
+	}
+}
+
+func TestRender_DynamicComponent_DefaultSlot(t *testing.T) {
+	card := mustParseComponent(t, "card.vue", `<div><slot /></div>`)
+	host := mustParseComponent(t, "host.vue", `<component :is="'Card'">slot content</component>`)
+	out, err := NewRenderer(host).WithComponents(Registry{"Card": card}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "slot content") {
+		t.Errorf("got %q, want 'slot content' in output", out)
+	}
+}
+
+func TestRender_DynamicComponent_NamedSlots(t *testing.T) {
+	layout := mustParseComponent(t, "layout.vue", `<div><slot name="header" /></div>`)
+	host := mustParseComponent(t, "host.vue", `<component :is="'Layout'"><template #header>header text</template></component>`)
+	out, err := NewRenderer(host).WithComponents(Registry{"Layout": layout}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "header text") {
+		t.Errorf("got %q, want 'header text' in output", out)
+	}
+}
+
+func TestRender_DynamicComponent_InsideVFor(t *testing.T) {
+	compA := mustParseComponent(t, "a.vue", `<span>A</span>`)
+	compB := mustParseComponent(t, "b.vue", `<span>B</span>`)
+	host := mustParseComponent(t, "host.vue", `<div v-for="item in items"><component :is="item.type"></component></div>`)
+	reg := Registry{"A": compA, "B": compB}
+	out, err := NewRenderer(host).WithComponents(reg).RenderString(map[string]any{
+		"items": []any{
+			map[string]any{"type": "A"},
+			map[string]any{"type": "B"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<span>A</span>") {
+		t.Errorf("got %q, want <span>A</span>", out)
+	}
+	if !strings.Contains(out, "<span>B</span>") {
+		t.Errorf("got %q, want <span>B</span>", out)
+	}
+}
+
+func TestRender_DynamicComponent_WithVIf_True(t *testing.T) {
+	card := mustParseComponent(t, "card.vue", `<article>card</article>`)
+	host := mustParseComponent(t, "host.vue", `<component :is="'Card'" v-if="show"></component>`)
+	out, err := NewRenderer(host).WithComponents(Registry{"Card": card}).RenderString(map[string]any{"show": true})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<article>card</article>") {
+		t.Errorf("got %q, want card rendered", out)
+	}
+}
+
+func TestRender_DynamicComponent_WithVIf_False(t *testing.T) {
+	card := mustParseComponent(t, "card.vue", `<article>card</article>`)
+	host := mustParseComponent(t, "host.vue", `<component :is="'Card'" v-if="show"></component>`)
+	out, err := NewRenderer(host).WithComponents(Registry{"Card": card}).RenderString(map[string]any{"show": false})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(out, "<article>") {
+		t.Errorf("got %q, want no card output when v-if is false", out)
+	}
+}
+
+func TestRender_DynamicComponent_VBindIs(t *testing.T) {
+	card := mustParseComponent(t, "card.vue", `<article>card</article>`)
+	host := mustParseComponent(t, "host.vue", `<component v-bind:is="'Card'"></component>`)
+	out, err := NewRenderer(host).WithComponents(Registry{"Card": card}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<article>card</article>") {
+		t.Errorf("got %q, want <article>card</article>", out)
+	}
+}
+
+func TestRender_DynamicComponent_MissingIs(t *testing.T) {
+	host := mustParseComponent(t, "host.vue", `<component class="x"></component>`)
+	_, err := NewRenderer(host).WithComponents(Registry{}).RenderString(nil)
+	if err == nil {
+		t.Fatal("expected error for missing :is, got nil")
+	}
+	if !strings.Contains(err.Error(), "<component>") || !strings.Contains(err.Error(), ":is") {
+		t.Errorf("error %q should mention <component> and :is", err.Error())
+	}
+}
+
+func TestRender_DynamicComponent_NonStringIs(t *testing.T) {
+	host := mustParseComponent(t, "host.vue", `<component :is="42"></component>`)
+	_, err := NewRenderer(host).WithComponents(Registry{}).RenderString(nil)
+	if err == nil {
+		t.Fatal("expected error for non-string :is, got nil")
+	}
+	if !strings.Contains(err.Error(), "<component>") {
+		t.Errorf("error %q should mention <component>", err.Error())
+	}
+}
+
+func TestRender_DynamicComponent_EmptyStringIs(t *testing.T) {
+	host := mustParseComponent(t, "host.vue", `<component :is="empty"></component>`)
+	_, err := NewRenderer(host).WithComponents(Registry{}).RenderString(map[string]any{"empty": ""})
+	if err == nil {
+		t.Fatal("expected error for empty string :is, got nil")
+	}
+	if !strings.Contains(err.Error(), "<component>") {
+		t.Errorf("error %q should mention <component>", err.Error())
+	}
+}
+
+func TestRender_DynamicComponent_UnknownComponentName(t *testing.T) {
+	host := mustParseComponent(t, "host.vue", `<component :is="'no-such-comp'"></component>`)
+	_, err := NewRenderer(host).WithComponents(Registry{}).RenderString(nil)
+	if err == nil {
+		t.Fatal("expected error for unknown component, got nil")
+	}
+	if !strings.Contains(err.Error(), "no-such-comp") {
+		t.Errorf("error %q should contain the component name", err.Error())
+	}
+}
