@@ -698,6 +698,37 @@ func TestRender_ComponentSlotWithExpression(t *testing.T) {
 	}
 }
 
+func TestRender_ComponentSlotVIfVElse(t *testing.T) {
+	// v-if/v-else inside slot content must evaluate correctly: only one branch renders.
+	layout := mustParseComponent(t, "layout.vue", `<div><slot /></div>`)
+	page := mustParseComponent(t, "page.vue", `<Layout><p v-if="items.length === 0">empty</p><ul v-else><li v-for="x in items">{{ x }}</li></ul></Layout>`)
+	reg := Registry{"Layout": layout}
+
+	// When items is empty: "empty" renders, list does not.
+	outEmpty, err := NewRenderer(page).WithComponents(reg).RenderString(map[string]any{"items": []any{}})
+	if err != nil {
+		t.Fatalf("Render (empty): %v", err)
+	}
+	if !strings.Contains(outEmpty, "empty") {
+		t.Errorf("empty case: got %q, want 'empty'", outEmpty)
+	}
+	if strings.Contains(outEmpty, "<ul") {
+		t.Errorf("empty case: got %q, unexpected <ul>", outEmpty)
+	}
+
+	// When items is non-empty: list renders, "empty" does not.
+	outFull, err := NewRenderer(page).WithComponents(reg).RenderString(map[string]any{"items": []any{"a", "b"}})
+	if err != nil {
+		t.Fatalf("Render (full): %v", err)
+	}
+	if strings.Contains(outFull, "empty") {
+		t.Errorf("full case: got %q, unexpected 'empty'", outFull)
+	}
+	if !strings.Contains(outFull, "<ul") {
+		t.Errorf("full case: got %q, want <ul>", outFull)
+	}
+}
+
 func TestRender_ComponentPascalCaseMultiWord(t *testing.T) {
 	// <PostCard> is lowercased by the HTML parser to "postcard".
 	// resolveComponent must find the "PostCard" registry entry via case-insensitive lookup.

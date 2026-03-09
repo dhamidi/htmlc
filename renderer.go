@@ -709,10 +709,39 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 			// No binding: render with parent scope only; slot props discarded.
 			}
 
-			for _, node := range def.Nodes {
+			nodes := def.Nodes
+			for i := 0; i < len(nodes); {
+				node := nodes[i]
+				if node.Type == html.ElementNode {
+					if vforExpr, ok := attrValue(node, "v-for"); ok {
+						if err := r.renderVFor(w, node, vforExpr, renderScope); err != nil {
+							return err
+						}
+						i++
+						continue
+					}
+					switch conditionalDirective(node) {
+					case "v-if":
+						lastInChain, err := r.renderConditionalChain(w, node, renderScope)
+						if err != nil {
+							return err
+						}
+						// Advance past all nodes consumed by the chain.
+						for i < len(nodes) && nodes[i] != lastInChain {
+							i++
+						}
+						i++
+						continue
+					case "v-else-if":
+						return fmt.Errorf("v-else-if without preceding v-if or v-else-if")
+					case "v-else":
+						return fmt.Errorf("v-else without preceding v-if or v-else-if")
+					}
+				}
 				if err := r.renderNode(w, node, renderScope); err != nil {
 					return err
 				}
+				i++
 			}
 			return nil
 		}
