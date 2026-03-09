@@ -125,6 +125,7 @@ type Renderer struct {
 	registry           Registry
 	missingPropHandler MissingPropFunc
 	slotDefs           map[string]*SlotDefinition
+	directives         DirectiveRegistry
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -153,6 +154,14 @@ func (r *Renderer) WithComponents(reg Registry) *Renderer {
 // chaining.
 func (r *Renderer) WithMissingPropHandler(fn MissingPropFunc) *Renderer {
 	r.missingPropHandler = fn
+	return r
+}
+
+// WithDirectives attaches a custom directive registry. Directives registered
+// here are invoked when the renderer encounters v-<name> attributes that are
+// not built-in directives. Returns the Renderer for chaining.
+func (r *Renderer) WithDirectives(dr DirectiveRegistry) *Renderer {
+	r.directives = dr
 	return r
 }
 
@@ -509,6 +518,92 @@ func (r *Renderer) renderRaw(w io.Writer, n *html.Node) {
 	}
 }
 
+// shallowCloneNode returns a new *html.Node with the same Type, Data, and a
+// copy of Attr. It does NOT copy parent/child/sibling pointers; the clone is
+// used as a mutable scratch buffer by directive Created hooks and is never
+// inserted into the document tree.
+func shallowCloneNode(n *html.Node) *html.Node {
+	clone := &html.Node{
+		Type:      n.Type,
+		DataAtom:  n.DataAtom,
+		Data:      n.Data,
+		Namespace: n.Namespace,
+		Attr:      make([]html.Attribute, len(n.Attr)),
+	}
+	copy(clone.Attr, n.Attr)
+	return clone
+}
+
+// invokedDirective records a directive that was applied during Created hooks
+// so its Mounted hook can be called after the element's closing tag.
+type invokedDirective struct {
+	dir     Directive
+	binding DirectiveBinding
+	name    string
+}
+
+// applyCreatedHooks scans node.Attr for custom directive keys, evaluates their
+// expressions, calls Created on each matching Directive, and removes the
+// directive attribute from node.Attr afterwards. Returns the list of invoked
+// directives so their Mounted hooks can be called later.
+func (r *Renderer) applyCreatedHooks(node *html.Node, scope map[string]any) ([]invokedDirective, error) {
+	builtinNames := map[string]bool{
+		"text": true, "html": true, "show": true, "once": true, "model": true,
+		"if": true, "else-if": true, "else": true, "for": true, "pre": true,
+		"slot": true, "bind": true, "on": true,
+	}
+
+	// pendingDir holds a matched custom directive waiting to be Called.
+	type pendingDir struct {
+		dir     Directive
+		binding DirectiveBinding
+		name    string
+	}
+
+	// First pass: separate kept (non-custom-directive) attrs from pending hooks.
+	var kept []html.Attribute
+	var pending []pendingDir
+	for _, attr := range node.Attr {
+		name, arg, mods := parseDirectiveKey(attr.Key)
+		if name == "" || builtinNames[name] {
+			kept = append(kept, attr)
+			continue
+		}
+		dir, ok := r.directives[name]
+		if !ok {
+			// Unknown custom directive — pass through as a regular attribute.
+			kept = append(kept, attr)
+			continue
+		}
+		val, _ := expr.Eval(strings.TrimSpace(attr.Val), scope) // best-effort; nil on error
+		pending = append(pending, pendingDir{
+			dir: dir,
+			binding: DirectiveBinding{
+				Value:     val,
+				RawExpr:   attr.Val,
+				Arg:       arg,
+				Modifiers: mods,
+			},
+			name: name,
+		})
+	}
+
+	// Set node.Attr to kept attrs before calling hooks so that hook mutations
+	// (appending to node.Attr) are not overwritten afterwards.
+	node.Attr = kept
+
+	// Second pass: call Created hooks.
+	var invoked []invokedDirective
+	ctx := DirectiveContext{Registry: r.registry}
+	for _, pd := range pending {
+		if err := pd.dir.Created(node, pd.binding, ctx); err != nil {
+			return nil, fmt.Errorf("directive v-%s Created: %w", pd.name, err)
+		}
+		invoked = append(invoked, invokedDirective{dir: pd.dir, binding: pd.binding, name: pd.name})
+	}
+	return invoked, nil
+}
+
 // renderElement writes the HTML element n into w, processing directives and
 // dynamic attribute bindings (:attr / v-bind:attr).
 func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any) error {
@@ -590,13 +685,28 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		return r.renderChildren(w, n, scope)
 	}
 
+	// --- custom directive Created hooks ---
+	// Clone the node so hooks can mutate tag and attrs without touching the
+	// shared parsed template AST. Link the original children so that
+	// renderComponentElement can traverse them for slot definitions.
+	working := shallowCloneNode(n)
+	working.FirstChild = n.FirstChild
+	var invoked []invokedDirective
+	if len(r.directives) > 0 {
+		var err error
+		invoked, err = r.applyCreatedHooks(working, scope)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Component: resolve the tag name against the registry.
-	if comp := r.resolveComponent(n.Data); comp != nil {
-		return r.renderComponentElement(w, n, scope, comp)
+	if comp := r.resolveComponent(working.Data); comp != nil {
+		return r.renderComponentElement(w, working, scope, comp)
 	}
 	// Unknown component-like tag (kebab-case with hyphen, not in registry).
-	if r.registry != nil && isComponentLike(n.Data) {
-		return fmt.Errorf("unknown component: %q", n.Data)
+	if r.registry != nil && isComponentLike(working.Data) {
+		return fmt.Errorf("unknown component: %q", working.Data)
 	}
 
 	var vTextExpr, vHTMLExpr, vShowExpr string
@@ -611,7 +721,7 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 	var dynClassParts []string
 	var dynStyleParts []string
 
-	for _, attr := range n.Attr {
+	for _, attr := range working.Attr {
 		switch attr.Key {
 		case "v-text":
 			vTextExpr = attr.Val
@@ -705,7 +815,7 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 
 	// Open tag.
 	w.Write([]byte{'<'})
-	io.WriteString(w, n.Data)
+	io.WriteString(w, working.Data)
 
 	// Static non-class/style attrs.
 	for _, attr := range staticAttrs {
@@ -747,8 +857,15 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		io.WriteString(w, ScopeID(r.component.Path))
 	}
 
-	if isVoidElement(n.Data) {
+	if isVoidElement(working.Data) {
 		w.Write([]byte{'>'})
+		// Mounted hooks (void element has no children, but Mounted still fires).
+		ctx := DirectiveContext{Registry: r.registry}
+		for _, inv := range invoked {
+			if err := inv.dir.Mounted(w, working, inv.binding, ctx); err != nil {
+				return fmt.Errorf("directive v-%s Mounted: %w", inv.name, err)
+			}
+		}
 		return nil
 	}
 	w.Write([]byte{'>'})
@@ -777,8 +894,16 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 
 	// Close tag.
 	io.WriteString(w, "</")
-	io.WriteString(w, n.Data)
+	io.WriteString(w, working.Data)
 	w.Write([]byte{'>'})
+
+	// Mounted hooks: called after the closing tag has been written.
+	ctx := DirectiveContext{Registry: r.registry}
+	for _, inv := range invoked {
+		if err := inv.dir.Mounted(w, working, inv.binding, ctx); err != nil {
+			return fmt.Errorf("directive v-%s Mounted: %w", inv.name, err)
+		}
+	}
 	return nil
 }
 

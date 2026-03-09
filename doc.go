@@ -33,6 +33,34 @@
 //                       components rendered in one request so they can be
 //                       emitted as a single <style> block at the end.
 //
+// # Custom directives
+//
+// htmlc supports a custom directive system inspired by Vue's custom directives
+// (https://vuejs.org/guide/reusability/custom-directives). Types that implement
+// the Directive interface can be registered under a v-name attribute and are
+// invoked during server-side rendering.
+//
+// Only the Created and Mounted hooks are supported because htmlc renders
+// server-side only — there are no DOM updates or browser events.
+//
+//   - Created  – called before the element is rendered; may mutate the
+//                element's tag (node.Data) and attributes (node.Attr).
+//   - Mounted  – called after the element's closing tag has been written;
+//                may write additional HTML to the output writer.
+//
+// Register directives via Options.Directives or Engine.RegisterDirective:
+//
+//	engine, err := htmlc.New(htmlc.Options{
+//	    ComponentDir: "templates/",
+//	    Directives: htmlc.DirectiveRegistry{
+//	        "switch": &htmlc.VSwitch{},
+//	    },
+//	})
+//
+// The built-in VSwitch directive is the canonical example: it replaces the
+// host element's tag with a registered component name supplied by the
+// directive's expression, enabling dynamic component dispatch.
+//
 // # Typical use
 //
 //	engine, err := htmlc.New(htmlc.Options{ComponentDir: "templates/"})

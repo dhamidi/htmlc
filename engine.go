@@ -36,6 +36,11 @@ type Options struct {
 	//
 	// When FS is nil, the OS filesystem is used (default behaviour).
 	FS fs.FS
+	// Directives registers custom directives available to all components rendered
+	// by this engine. Keys are directive names without the "v-" prefix
+	// (e.g. "switch" handles v-switch). Built-in directives (v-if, v-for, etc.)
+	// cannot be overridden.
+	Directives DirectiveRegistry
 }
 
 // engineEntry holds a parsed component together with its source path and the
@@ -54,6 +59,7 @@ type Engine struct {
 	opts               Options
 	entries            map[string]*engineEntry
 	missingPropHandler MissingPropFunc
+	directives         DirectiveRegistry
 }
 
 // WithMissingPropHandler sets the function called when any component rendered
@@ -63,12 +69,26 @@ func (e *Engine) WithMissingPropHandler(fn MissingPropFunc) *Engine {
 	return e
 }
 
+// RegisterDirective adds a custom directive to the engine under the given name
+// (without the "v-" prefix). It replaces any previously registered directive
+// with the same name. Panics if dir is nil.
+func (e *Engine) RegisterDirective(name string, dir Directive) {
+	if dir == nil {
+		panic("htmlc: RegisterDirective: dir must not be nil")
+	}
+	if e.directives == nil {
+		e.directives = make(DirectiveRegistry)
+	}
+	e.directives[name] = dir
+}
+
 // New creates an Engine configured by opts. If opts.ComponentDir is set the
 // directory is walked recursively and all *.vue files are registered.
 func New(opts Options) (*Engine, error) {
 	e := &Engine{
-		opts:    opts,
-		entries: make(map[string]*engineEntry),
+		opts:       opts,
+		entries:    make(map[string]*engineEntry),
+		directives: opts.Directives,
 	}
 	if opts.ComponentDir != "" {
 		if err := e.discover(opts.ComponentDir); err != nil {
@@ -224,7 +244,8 @@ func (e *Engine) renderComponent(w io.Writer, name string, data map[string]any) 
 	sc := &StyleCollector{}
 	renderer := NewRenderer(entry.comp).
 		WithStyles(sc).
-		WithComponents(e.buildRegistry())
+		WithComponents(e.buildRegistry()).
+		WithDirectives(e.directives)
 	if e.missingPropHandler != nil {
 		renderer = renderer.WithMissingPropHandler(e.missingPropHandler)
 	}
