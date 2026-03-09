@@ -317,6 +317,30 @@ The engine rewrites CSS selectors with a `data-v-*` scope attribute (e.g. `.butt
 
 Components can freely use other components registered in the same engine.
 
+#### Dynamic components
+
+Use `<component :is="expr">` to render a component whose name is determined at runtime. The expression must evaluate to a non-empty string that names a registered component or a native HTML element:
+
+```html
+<!-- resolve from a variable -->
+<component :is="activeView" />
+
+<!-- inline string literal -->
+<component :is="'Card'" :title="pageTitle">
+  <p>slot content</p>
+</component>
+
+<!-- switch between components in a loop -->
+<div v-for="item in items">
+  <component :is="item.type" :data="item" />
+</div>
+```
+
+- All attributes other than `:is` (or `v-bind:is`) are forwarded to the resolved component as props.
+- Slot content (default and named) works exactly as with a statically-named component.
+- If the resolved name is a known HTML element (e.g. `"div"`, `"input"`), the tag is rendered as-is rather than looked up in the component registry.
+- `:is` is required; omitting it or supplying a non-string value is a render error.
+
 ### Not supported
 
 | Feature | Status |
@@ -325,7 +349,6 @@ Components can freely use other components registered in the same engine.
 | Computed properties, watchers, lifecycle hooks | Not applicable (no runtime). |
 | `$emit` / custom events | Not implemented. |
 | `provide` / `inject` | Not implemented. |
-| Dynamic components (`<component :is="...">`) | Not implemented. |
 | Async components | Not applicable. |
 | `defineProps` / `defineEmits` / `withDefaults` | Not applicable. |
 | Teleport, Suspense, KeepAlive | Not applicable. |
