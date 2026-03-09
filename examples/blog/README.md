@@ -18,7 +18,6 @@ A full-featured blog application demonstrating [htmlc](../../README.md) in a rea
 | `server.go` | HTTP routes and handlers; uses htmlc to render Vue-style templates |
 | `store.go` | Event-sourced post store backed by a JSONL log file |
 | `templates/` | htmlc components (`.vue` files) for every page |
-| `verify_parse/main.go` | Standalone tool to verify template parsing |
 
 ## Environment Variables
 
