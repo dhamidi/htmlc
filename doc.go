@@ -67,9 +67,9 @@
 //	if err != nil { /* handle */ }
 //
 //	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-//	    html, err := engine.RenderPage("Page", map[string]any{"title": "Home"})
-//	    if err != nil { /* handle */ }
 //	    w.Header().Set("Content-Type", "text/html; charset=utf-8")
-//	    fmt.Fprint(w, html)
+//	    if err := engine.RenderPage(w, "Page", map[string]any{"title": "Home"}); err != nil {
+//	        http.Error(w, err.Error(), http.StatusInternalServerError)
+//	    }
 //	})
 package htmlc
