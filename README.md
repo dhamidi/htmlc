@@ -16,6 +16,7 @@ A server-side Go template engine that uses Vue.js Single File Component (`.vue`)
 6. [Go API Quick Reference](#go-api-quick-reference)
 7. [Expression Language Reference](#expression-language-reference)
 8. [Debug Mode](#debug-mode)
+9. [Custom Directives](#custom-directives)
 
 ---
 
@@ -55,9 +56,10 @@ Multiple interpolations in a single text node are supported.
 | Comparison | `===`, `!==`, `>`, `<`, `>=`, `<=`, `==`, `!=` |
 | Logical | `&&`, `\|\|`, `!` |
 | Nullish coalescing | `??` |
+| Optional chaining | `obj?.key`, `arr?.[i]` |
 | Ternary | `condition ? then : else` |
 | Member access | `obj.key`, `arr[i]`, `arr.length` |
-| Function calls | `fn(args)` (via `expr.RegisterBuiltin`) |
+| Function calls | `fn(args)` (via `expr.RegisterBuiltin` or `engine.RegisterFunc`) |
 | Array literals | `[a, b, c]` |
 | Object literals | `{ key: value }` |
 
@@ -78,7 +80,6 @@ The engine ships with no pre-registered built-in functions. Use `expr.RegisterBu
 - Filters (`{{ value | filterName }}`) — Vue 2 syntax, not implemented.
 - JavaScript function definitions, arrow functions (`=>`), `new`, `delete`.
 - Template literals (backtick strings).
-- Optional chaining (`?.`).
 - Assignment operators (`=`, `+=`, etc.) and increment/decrement (`++`, `--`).
 
 ---
@@ -524,6 +525,86 @@ Hot-reload (`Reload: true`) is supported when the FS implements `fs.StatFS`
 (which `embed.FS` does not — embedded files have no mtime). When the FS does
 not implement `fs.StatFS`, reload checks are silently skipped.
 
+### Context-aware rendering
+
+Pass a `context.Context` to propagate cancellation and deadlines through the render pipeline:
+
+```go
+ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+defer cancel()
+
+err = engine.RenderPageContext(ctx, w, "Page", data)
+err = engine.RenderFragmentContext(ctx, w, "Card", data)
+```
+
+`ServeComponent` and `ServePageComponent` automatically forward `r.Context()`.
+
+### Register per-engine template functions
+
+`RegisterFunc` makes a Go function callable from any template expression rendered by this engine. Engine-level functions act as lower-priority builtins — the render data scope overrides them:
+
+```go
+engine.RegisterFunc("formatDate", func(args ...any) (any, error) {
+    t, _ := args[0].(time.Time)
+    return t.Format("2 Jan 2006"), nil
+})
+```
+
+```html
+<span>{{ formatDate(post.CreatedAt) }}</span>
+```
+
+### Serve a full-page component as an HTTP handler
+
+`ServePageComponent` is like `ServeComponent` but renders a full HTML page and lets the data function return an HTTP status code:
+
+```go
+http.Handle("/post", engine.ServePageComponent("PostPage", func(r *http.Request) (map[string]any, int) {
+    post, err := db.GetPost(r.URL.Query().Get("slug"))
+    if err != nil {
+        return nil, http.StatusNotFound
+    }
+    return map[string]any{"post": post}, http.StatusOK
+}))
+```
+
+### Mount multiple routes at once
+
+`Mount` registers a set of component routes on an `http.ServeMux` in one call. Each component is served as a full HTML page. Use `WithDataMiddleware` to inject common data (auth, CSRF, etc.) shared across all routes:
+
+```go
+engine.Mount(mux, map[string]string{
+    "GET /{$}":    "HomePage",
+    "GET /about":  "AboutPage",
+    "GET /posts":  "PostsPage",
+})
+```
+
+### Inject data for all HTTP routes
+
+`WithDataMiddleware` adds a function that enriches the data map on every HTTP-triggered render. Multiple middleware functions are applied in registration order:
+
+```go
+engine.WithDataMiddleware(func(r *http.Request, data map[string]any) map[string]any {
+    data["currentUser"] = sessionUser(r)
+    data["csrfToken"]   = csrf.Token(r)
+    return data
+})
+```
+
+### Validate components at startup
+
+`ValidateAll` checks every registered component for unresolvable child component references and returns a slice of errors. Call it once at startup to surface missing-component problems before the first request:
+
+```go
+if errs := engine.ValidateAll(); len(errs) > 0 {
+    for _, e := range errs {
+        log.Printf("component error: %v", e)
+    }
+    os.Exit(1)
+}
+```
+
 ---
 
 ## 7. Expression Language Reference
@@ -543,7 +624,14 @@ Expressions are JavaScript-compatible in syntax and truthiness rules but are eva
 | 2 | `\|\|`, `??` | `a \|\| 'default'`, `val ?? 'n/a'` |
 | 1 (lowest) | `? :` (ternary) | `ok ? 'yes' : 'no'` |
 
-Member access (`obj.key`, `arr[i]`) and function calls (`fn(args)`) have the highest binding and are parsed as primary expressions.
+Member access (`obj.key`, `arr[i]`), optional chaining (`obj?.key`, `arr?.[i]`), and function calls (`fn(args)`) have the highest binding and are parsed as primary expressions.
+
+**Optional chaining** short-circuits to `undefined` when the left-hand side is `null` or `undefined`, preventing runtime errors from missing nested data:
+
+```html
+{{ user?.address?.city ?? "Unknown" }}
+{{ items?.[0]?.name }}
+```
 
 ### Truthiness (JavaScript-compatible)
 
@@ -636,3 +724,57 @@ Document
     Element[p] v-if="post.Draft" attrs=[]
       Text: "Draft"
 ```
+
+---
+
+## 9. Custom Directives
+
+The engine supports user-defined directives that extend the template language. A custom directive is any Go type that implements the `Directive` interface:
+
+```go
+type Directive interface {
+    // Created is called before the element is rendered.
+    // Mutate node.Attr or node.Data to affect what is emitted.
+    Created(node *html.Node, binding DirectiveBinding, ctx DirectiveContext) error
+
+    // Mounted is called after the element's closing tag has been written.
+    // Bytes written to w appear immediately after the element.
+    Mounted(w io.Writer, node *html.Node, binding DirectiveBinding, ctx DirectiveContext) error
+}
+```
+
+Register a directive on the engine with `RegisterDirective` (no `v-` prefix):
+
+```go
+engine.RegisterDirective("my-dir", &MyDirective{})
+```
+
+Then use it in templates as `v-my-dir`:
+
+```html
+<div v-my-dir="someExpr" class="wrapper">content</div>
+```
+
+The `DirectiveBinding` passed to both hooks contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `Value` | `any` | Evaluated directive expression |
+| `RawExpr` | `string` | Un-evaluated expression string |
+| `Arg` | `string` | Argument after `:` (e.g. `"href"` in `v-my-dir:href`) |
+| `Modifiers` | `map[string]bool` | Dot-separated modifiers (e.g. `{"prevent": true}`) |
+
+### Built-in: VSwitch
+
+`VSwitch` is a built-in custom directive that replaces the host element with a registered component determined at runtime by the directive expression — similar to `<component :is="...">` but using a directive syntax:
+
+```go
+engine.RegisterDirective("switch", &htmlc.VSwitch{})
+```
+
+```html
+<!-- item.type evaluates to e.g. "CardWidget" — that component is rendered -->
+<div v-switch="item.type" :title="item.title" />
+```
+
+All attributes other than `v-switch` are forwarded to the resolved component as props. An error is returned if the component name does not exist in the registry.
