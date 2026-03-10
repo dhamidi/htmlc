@@ -212,6 +212,155 @@ func TestParseFile_TemplateContentExtracted(t *testing.T) {
 	}
 }
 
+// ---------- normalizeSelfClosingComponents tests ----------
+
+func TestNormalizeSelfClosingComponents_BasicPascalCase(t *testing.T) {
+	input := `<PostImage src="/hero.jpg" alt="Hero" />`
+	got, count := normalizeSelfClosingComponents(input)
+	want := `<PostImage src="/hero.jpg" alt="Hero"></PostImage>`
+	if got != want {
+		t.Errorf("normalize = %q, want %q", got, want)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_NoAttributesPascalCase(t *testing.T) {
+	input := `<MyComponent />`
+	got, count := normalizeSelfClosingComponents(input)
+	want := `<MyComponent></MyComponent>`
+	if got != want {
+		t.Errorf("normalize = %q, want %q", got, want)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_LowercaseTagNotAffected(t *testing.T) {
+	input := `<img src="/foo.jpg" />`
+	got, count := normalizeSelfClosingComponents(input)
+	if got != input {
+		t.Errorf("normalize changed lowercase tag: got %q, want %q", got, input)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 for lowercase tag", count)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_AttributeContainingSlashGT(t *testing.T) {
+	// Attribute value contains "/>"; the normalization must not corrupt it.
+	input := `<PostImage :title="'a/>'" />`
+	got, count := normalizeSelfClosingComponents(input)
+	// The attribute value should be preserved verbatim.
+	if !strings.Contains(got, `'a/>'`) {
+		t.Errorf("normalize corrupted attribute containing '/>': got %q", got)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+	// Should end with </PostImage>
+	if !strings.HasSuffix(strings.TrimSpace(got), "</PostImage>") {
+		t.Errorf("normalize output should end with </PostImage>, got %q", got)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_IdempotentOnExplicitTags(t *testing.T) {
+	input := `<PostImage src="/hero.jpg"></PostImage>`
+	got, count := normalizeSelfClosingComponents(input)
+	if got != input {
+		t.Errorf("normalize changed explicit tag: got %q, want %q", got, input)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 for explicit tag", count)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_MidTemplateSiblingNotSwallowed(t *testing.T) {
+	// Verify that after normalization the subsequent <p> is a sibling, not a child.
+	src := `<template><PostImage src="/hero.jpg" /><p>Caption</p></template>`
+	c, err := ParseFile("test.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	// Walk template and find both PostImage (lowercased by HTML parser as
+	// "postimage") and p at the same level.
+	var postImageNode, pNode *html.Node
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "postimage": // HTML parser lowercases tag names
+				postImageNode = n
+			case "p":
+				pNode = n
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(c.Template)
+
+	if postImageNode == nil {
+		t.Fatal("PostImage node not found in template tree")
+	}
+	if pNode == nil {
+		t.Fatal("<p> node not found in template tree")
+	}
+	// <p> must NOT be a child of PostImage.
+	for child := postImageNode.FirstChild; child != nil; child = child.NextSibling {
+		if child == pNode {
+			t.Error("<p> should be a sibling of PostImage, not a child")
+		}
+	}
+	// <p> should be a sibling of PostImage (same parent).
+	if pNode.Parent != postImageNode.Parent {
+		t.Errorf("<p> parent differs from PostImage parent; <p> was swallowed as child")
+	}
+}
+
+func TestNormalizeSelfClosingComponents_WarningsPopulated(t *testing.T) {
+	src := `<template><PostImage src="/hero.jpg" /></template>`
+	c, err := ParseFile("mycomp.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if len(c.Warnings) == 0 {
+		t.Fatal("expected Warnings to be populated when self-closing normalization occurs")
+	}
+	w := c.Warnings[0]
+	if !strings.Contains(w, "mycomp.vue") {
+		t.Errorf("warning should mention the file path, got %q", w)
+	}
+	if !strings.Contains(w, "auto-corrected") {
+		t.Errorf("warning should mention 'auto-corrected', got %q", w)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_NoWarningsWhenNonePresent(t *testing.T) {
+	src := `<template><PostImage src="/hero.jpg"></PostImage></template>`
+	c, err := ParseFile("mycomp.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if len(c.Warnings) != 0 {
+		t.Errorf("expected no Warnings for explicit open/close tags, got %v", c.Warnings)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_MultipleTagsCountCorrect(t *testing.T) {
+	input := `<Foo /><Bar x="1" /><baz />`
+	_, count := normalizeSelfClosingComponents(input)
+	// Only Foo and Bar are PascalCase; baz is lowercase and should not match.
+	if count != 2 {
+		t.Errorf("count = %d, want 2 (only PascalCase tags)", count)
+	}
+}
+
+// ---------- end normalizeSelfClosingComponents tests ----------
+
 // propNames returns a sorted slice of prop names from a []PropInfo.
 func propNames(props []PropInfo) []string {
 	names := make([]string, len(props))

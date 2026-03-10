@@ -331,6 +331,12 @@ func (e *Engine) ValidateAll() []ValidationError {
 
 	var errs []ValidationError
 	for _, ne := range entries {
+		for _, w := range ne.entry.comp.Warnings {
+			errs = append(errs, ValidationError{
+				Component: ne.name,
+				Message:   w,
+			})
+		}
 		refs := collectComponentRefs(ne.entry.comp)
 		for _, ref := range refs {
 			if resolveInRegistry(reg, ref) == nil {

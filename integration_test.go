@@ -403,6 +403,71 @@ func TestIntegration_DynamicComponent_BasicResolution(t *testing.T) {
 	}
 }
 
+// TestIntegration_SelfClosingComponentTag verifies that a self-closing custom
+// component tag (<PostImage ... />) renders identically to the explicit
+// open/close form (<PostImage ...></PostImage>).
+func TestIntegration_SelfClosingComponentTag(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "PostImage.vue"),
+		`<template><img :src="src" :alt="alt" /></template>`)
+	// Caller using self-closing form.
+	writeVue(t, filepath.Join(dir, "PageSelfClose.vue"),
+		`<template><PostImage src="/hero.jpg" alt="Hero" /><p>Caption here</p></template>`)
+	// Caller using explicit open/close form.
+	writeVue(t, filepath.Join(dir, "PageExplicit.vue"),
+		`<template><PostImage src="/hero.jpg" alt="Hero"></PostImage><p>Caption here</p></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	selfCloseOut, err := e.RenderFragmentString("PageSelfClose", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString (self-close): %v", err)
+	}
+	explicitOut, err := e.RenderFragmentString("PageExplicit", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString (explicit): %v", err)
+	}
+
+	if selfCloseOut != explicitOut {
+		t.Errorf("self-close and explicit forms produce different output:\nself-close: %s\nexplicit:   %s", selfCloseOut, explicitOut)
+	}
+
+	// The <p>Caption here</p> must be a sibling, not swallowed as a child of PostImage.
+	if !strings.Contains(selfCloseOut, "<p>Caption here</p>") {
+		t.Errorf("self-close: <p>Caption here</p> was swallowed; output:\n%s", selfCloseOut)
+	}
+}
+
+// TestIntegration_SelfClosingComponentWarning verifies that parsing a .vue file
+// with a self-closing custom component tag sets Component.Warnings, and that
+// ValidateAll surfaces those warnings as ValidationError entries.
+func TestIntegration_SelfClosingComponentWarning(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Icon.vue"),
+		`<template><span class="icon"></span></template>`)
+	writeVue(t, filepath.Join(dir, "Page.vue"),
+		`<template><Icon /></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	errs := e.ValidateAll()
+	found := false
+	for _, ve := range errs {
+		if ve.Component == "Page" && strings.Contains(ve.Message, "auto-corrected") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("ValidateAll: expected a warning for self-closing component in Page, got: %v", errs)
+	}
+}
+
 func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
 	dir := t.TempDir()
 	writeVue(t, filepath.Join(dir, "Widget.vue"),

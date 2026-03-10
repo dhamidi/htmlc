@@ -23,6 +23,9 @@ type Component struct {
 	Scoped bool
 	// Path is the source file path passed to ParseFile.
 	Path string
+	// Warnings holds non-fatal issues found during parsing, such as self-closing
+	// custom component tags that were automatically rewritten.
+	Warnings []string
 }
 
 // ParseFile parses a .vue Single File Component from src and returns a Component.
@@ -40,7 +43,9 @@ func ParseFile(path, src string) (*Component, error) {
 		return nil, fmt.Errorf("%s: missing <template> section", path)
 	}
 
-	templateRoot, err := parseTemplateHTML(tmplContent)
+	normalized, count := normalizeSelfClosingComponents(tmplContent)
+
+	templateRoot, err := parseTemplateHTML(normalized)
 	if err != nil {
 		return nil, fmt.Errorf("%s: parsing template: %w", path, err)
 	}
@@ -51,6 +56,11 @@ func ParseFile(path, src string) (*Component, error) {
 		Style:    sections["style"],
 		Scoped:   sections["style:scoped"] == "true",
 		Path:     path,
+	}
+	if count > 0 {
+		c.Warnings = append(c.Warnings, fmt.Sprintf(
+			"%s: %d self-closing custom component tag(s) were auto-corrected; "+
+				"prefer explicit open/close tags", path, count))
 	}
 	return c, nil
 }
@@ -81,6 +91,11 @@ func extractSections(src string) (map[string]string, error) {
 			break
 		}
 
+		// Save raw bytes before calling z.Token(), which may modify the
+		// tokenizer's internal buffer and change what z.Raw() returns.
+		// Using the raw bytes for inner section content preserves the
+		// original casing of tag names (the HTML tokenizer lowercases Data).
+		raw := string(z.Raw())
 		tok := z.Token()
 
 		switch tt {
@@ -116,8 +131,9 @@ func extractSections(src string) (map[string]string, error) {
 				if tagName == current.tag {
 					current.depth++
 				}
-				// Append the raw token text to the section buffer.
-				current.buf.WriteString(tok.String())
+				// Append the raw token text to the section buffer, preserving
+				// the original casing of tag names and attribute names.
+				current.buf.WriteString(raw)
 			}
 
 		case html.EndTagToken:
@@ -136,7 +152,7 @@ func extractSections(src string) (map[string]string, error) {
 				}
 			}
 			if current != nil {
-				current.buf.WriteString(tok.String())
+				current.buf.WriteString(raw)
 			}
 
 		case html.TextToken:
@@ -145,7 +161,7 @@ func extractSections(src string) (map[string]string, error) {
 			}
 		case html.CommentToken, html.DoctypeToken:
 			if current != nil {
-				current.buf.WriteString(tok.String())
+				current.buf.WriteString(raw)
 			}
 
 		}
@@ -276,6 +292,25 @@ func parseVForVars(s string) []string {
 		return result
 	}
 	return []string{s}
+}
+
+// selfClosingComponentRe matches self-closing tags whose name starts with an
+// uppercase ASCII letter (PascalCase custom components). Attribute values
+// containing quoted strings (including ones with /> inside) are handled by the
+// alternation in the attribute capture group.
+var selfClosingComponentRe = regexp.MustCompile(
+	`<([A-Z][a-zA-Z0-9]*)((?:[^"'>]|"[^"]*"|'[^']*')*?)\s*/>`,
+)
+
+// normalizeSelfClosingComponents rewrites <Name ... /> as <Name ...></Name>
+// for any tag whose name begins with an uppercase letter, so that the HTML5
+// parser does not silently ignore the self-closing syntax. It returns the
+// rewritten source and the number of replacements made.
+func normalizeSelfClosingComponents(src string) (string, int) {
+	matches := selfClosingComponentRe.FindAllString(src, -1)
+	count := len(matches)
+	result := selfClosingComponentRe.ReplaceAllString(src, "<$1$2></$1>")
+	return result, count
 }
 
 // parseTemplateHTML parses the raw HTML string from a <template> section into
