@@ -176,6 +176,30 @@ func (r *Renderer) WithContext(ctx context.Context) *Renderer {
 	return r
 }
 
+// locateExpr searches the component's source for the first occurrence of expr
+// and returns a SourceLocation pointing to it. Returns nil when the source is
+// unavailable or the expression cannot be found.
+//
+// This is Option A (lightweight, approximate) from the design notes. Option B
+// (precise per-node positions built during parseTemplateHTML using the
+// tokenizer's byte offsets) is left as a future improvement.
+func (r *Renderer) locateExpr(exprStr string) *SourceLocation {
+	if r.component == nil || r.component.Source == "" {
+		return nil
+	}
+	idx := strings.Index(r.component.Source, exprStr)
+	if idx < 0 {
+		return nil
+	}
+	ln, col := lineCol(r.component.Source, idx)
+	return &SourceLocation{
+		File:    r.component.Path,
+		Line:    ln,
+		Column:  col,
+		Snippet: snippet(r.component.Source, ln),
+	}
+}
+
 // validateProps checks scope against the component's expected props. If a prop
 // is missing and a handler is set, the handler's returned value is injected
 // into a copy of the scope. If no handler is set, an error is returned.
@@ -336,7 +360,12 @@ func (r *Renderer) interpolate(w io.Writer, text string, scope map[string]any) e
 		exprSrc := strings.TrimSpace(text[loc[2]:loc[3]])
 		val, err := expr.Eval(exprSrc, scope)
 		if err != nil {
-			return fmt.Errorf("interpolation %q: %w", exprSrc, err)
+			return &RenderError{
+				Component: r.component.Path,
+				Expr:      exprSrc,
+				Wrapped:   err,
+				Location:  r.locateExpr(exprSrc),
+			}
 		}
 		// html/template.HTML values are already safe — emit verbatim.
 		if safe, ok := val.(htmltemplate.HTML); ok {

@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1683,5 +1684,54 @@ func TestRender_DynamicComponent_UnknownComponentName(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no-such-comp") {
 		t.Errorf("error %q should contain the component name", err.Error())
+	}
+}
+
+// --- location-aware render error tests ---
+
+func TestRender_InterpolationError_IsRenderError(t *testing.T) {
+	// A template with a member-access expression on a nil value should produce
+	// a *RenderError wrapping the underlying expression error.
+	// post is provided as nil in scope so validateProps passes, but post.Title
+	// fails during interpolation (cannot access property of null).
+	src := "<template>\n  <div class=\"card\">\n    {{ post.Title }}\n  </div>\n</template>"
+	c, err := ParseFile("Card.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	_, renderErr := RenderString(c, map[string]any{"post": nil})
+	if renderErr == nil {
+		t.Fatal("expected render error, got nil")
+	}
+	var re *RenderError
+	if !errors.As(renderErr, &re) {
+		t.Fatalf("expected *RenderError, got %T: %v", renderErr, renderErr)
+	}
+	if re.Expr == "" {
+		t.Error("RenderError.Expr should be set for an interpolation error")
+	}
+}
+
+func TestRender_InterpolationError_IncludesPathAndLine(t *testing.T) {
+	// When the source is available and the expression is found, the error
+	// message should include the file path and a line number.
+	// post is nil in scope so validateProps passes but post.Title fails.
+	src := "<template>\n  <div class=\"card\">\n    {{ post.Title }}\n  </div>\n</template>"
+	c, err := ParseFile("Card.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	_, renderErr := RenderString(c, map[string]any{"post": nil})
+	if renderErr == nil {
+		t.Fatal("expected render error, got nil")
+	}
+	msg := renderErr.Error()
+	// Should contain the file path.
+	if !strings.Contains(msg, "Card.vue") {
+		t.Errorf("error %q should contain file path Card.vue", msg)
+	}
+	// Should contain a line number (the expression is on line 3).
+	if !strings.Contains(msg, ":3:") {
+		t.Errorf("error %q should contain ':3:' for line 3", msg)
 	}
 }

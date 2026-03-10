@@ -342,7 +342,7 @@ func (e *Engine) ValidateAll() []ValidationError {
 			if resolveInRegistry(reg, ref) == nil {
 				errs = append(errs, ValidationError{
 					Component: ne.name,
-					Message:   fmt.Sprintf("references unknown component %q", ref),
+					Message:   fmt.Sprintf("%s: unknown component %q referenced", ne.entry.path, ref),
 				})
 			}
 		}

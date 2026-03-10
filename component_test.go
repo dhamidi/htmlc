@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -565,5 +566,49 @@ func TestProps_VSlotWithBoundProp(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("props = %v, want 'users' to be included", names)
+	}
+}
+
+// ---------- ParseError location tests ----------
+
+func TestParseFile_UnclosedTemplate_HasNonZeroLine(t *testing.T) {
+	// An unclosed <template> section should produce a *ParseError.
+	// With the lightweight location logic the error may not have a precise
+	// line, but it should still return a *ParseError.
+	_, err := ParseFile("bad.vue", unclosedTemplate)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *ParseError, got %T: %v", err, err)
+	}
+	if pe.Path != "bad.vue" {
+		t.Errorf("ParseError.Path = %q, want %q", pe.Path, "bad.vue")
+	}
+}
+
+func TestParseFile_MissingTemplate_IsParseError(t *testing.T) {
+	src := `<script>/* nothing */</script>`
+	_, err := ParseFile("notmpl.vue", src)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *ParseError, got %T: %v", err, err)
+	}
+}
+
+func TestParseFile_SourceField_Populated(t *testing.T) {
+	c, err := ParseFile("test.vue", fullSFC)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	if c.Source == "" {
+		t.Error("Component.Source should be populated after successful parse")
+	}
+	if !strings.Contains(c.Source, "<template>") {
+		t.Errorf("Component.Source should contain the original source, got: %q", c.Source)
 	}
 }

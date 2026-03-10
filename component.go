@@ -23,9 +23,51 @@ type Component struct {
 	Scoped bool
 	// Path is the source file path passed to ParseFile.
 	Path string
+	// Source is the raw source text of the file, stored for location-aware error reporting.
+	Source string
 	// Warnings holds non-fatal issues found during parsing, such as self-closing
 	// custom component tags that were automatically rewritten.
 	Warnings []string
+}
+
+// lineCol returns the 1-based line and column for byteOffset within src.
+func lineCol(src string, byteOffset int) (line, col int) {
+	line = 1
+	col = 1
+	for i, ch := range src {
+		if i >= byteOffset {
+			break
+		}
+		if ch == '\n' {
+			line++
+			col = 1
+		} else {
+			col++
+		}
+	}
+	return
+}
+
+// snippet returns a 3-line context string centred on the given 1-based line.
+func snippet(src string, line int) string {
+	lines := strings.Split(src, "\n")
+	start := line - 2
+	if start < 0 {
+		start = 0
+	}
+	end := line + 1
+	if end > len(lines) {
+		end = len(lines)
+	}
+	var b strings.Builder
+	for i := start; i < end; i++ {
+		marker := "  "
+		if i+1 == line {
+			marker = "> "
+		}
+		fmt.Fprintf(&b, "%s%3d | %s\n", marker, i+1, lines[i])
+	}
+	return b.String()
 }
 
 // ParseFile parses a .vue Single File Component from src and returns a Component.
@@ -35,19 +77,23 @@ type Component struct {
 func ParseFile(path, src string) (*Component, error) {
 	sections, err := extractSections(src)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		// Attempt to locate the error in the source for a better message.
+		msg := err.Error()
+		return nil, &ParseError{Path: path, Msg: msg}
 	}
 
 	tmplContent, ok := sections["template"]
 	if !ok {
-		return nil, fmt.Errorf("%s: missing <template> section", path)
+		return nil, &ParseError{Path: path, Msg: "missing <template> section"}
 	}
 
 	normalized, count := normalizeSelfClosingComponents(tmplContent)
 
 	templateRoot, err := parseTemplateHTML(normalized)
 	if err != nil {
-		return nil, fmt.Errorf("%s: parsing template: %w", path, err)
+		// Find the template section start in src to compute a line number.
+		loc := locateInSource(path, src, "template", err.Error())
+		return nil, &ParseError{Path: path, Msg: "parsing template: " + err.Error(), Location: loc}
 	}
 
 	c := &Component{
@@ -56,6 +102,7 @@ func ParseFile(path, src string) (*Component, error) {
 		Style:    sections["style"],
 		Scoped:   sections["style:scoped"] == "true",
 		Path:     path,
+		Source:   src,
 	}
 	if count > 0 {
 		c.Warnings = append(c.Warnings, fmt.Sprintf(
@@ -63,6 +110,31 @@ func ParseFile(path, src string) (*Component, error) {
 				"prefer explicit open/close tags", path, count))
 	}
 	return c, nil
+}
+
+// locateInSource tries to find the <template> section start offset in src and
+// returns a SourceLocation pointing into it. errMsg is ignored for now; the
+// location points to the opening <template> tag line as the best approximation
+// when the HTML parser does not expose byte offsets.
+func locateInSource(path, src, _ /*section*/, _ /*errMsg*/ string) *SourceLocation {
+	idx := strings.Index(src, "<template")
+	if idx < 0 {
+		return nil
+	}
+	// Advance past "<template" and any attributes to the first ">".
+	closeIdx := strings.Index(src[idx:], ">")
+	if closeIdx < 0 {
+		return nil
+	}
+	// Point to the line just after the opening tag.
+	contentStart := idx + closeIdx + 1
+	ln, col := lineCol(src, contentStart)
+	return &SourceLocation{
+		File:    path,
+		Line:    ln,
+		Column:  col,
+		Snippet: snippet(src, ln),
+	}
 }
 
 // sectionInfo tracks state while collecting a top-level section.

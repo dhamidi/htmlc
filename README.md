@@ -423,6 +423,49 @@ for _, p := range comp.Props() {
 }
 ```
 
+### Inspect parse and render errors
+
+Parse and render failures carry structured location information when the
+source position can be determined. Use `errors.As` to inspect them:
+
+```go
+import "errors"
+
+_, err := htmlc.ParseFile("Card.vue", src)
+var pe *htmlc.ParseError
+if errors.As(err, &pe) {
+    fmt.Println(pe.Path)             // "Card.vue"
+    if pe.Location != nil {
+        fmt.Println(pe.Location.Line)    // 1-based line number
+        fmt.Println(pe.Location.Snippet) // 3-line source context
+    }
+}
+
+err = engine.RenderFragment(w, "Card", data)
+var re *htmlc.RenderError
+if errors.As(err, &re) {
+    fmt.Println(re.Component)        // component path
+    fmt.Println(re.Expr)             // expression that failed, e.g. "post.Title"
+    if re.Location != nil {
+        fmt.Println(re.Location.Line)    // approximate line number
+        fmt.Println(re.Location.Snippet) // 3-line source context
+    }
+}
+```
+
+When location information is available, `err.Error()` prints a compiler-style
+message with file, line, and a source snippet:
+
+```
+Card.vue:14:5: render Card.vue: expr "post.Title": cannot access property "Title" of null
+  13 |   <div class="card">
+> 14 |     {{ post.Title }}
+  15 |   </div>
+```
+
+When position cannot be determined, the traditional `htmlc: ...` format is used
+as a fallback so existing error-checking code continues to work.
+
 ### Configure missing prop behavior
 
 By default, a missing prop causes a render error. Use `WithMissingPropHandler` to substitute a value instead:
