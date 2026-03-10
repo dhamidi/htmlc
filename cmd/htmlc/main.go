@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/dhamidi/htmlc"
+	"golang.org/x/net/html"
 )
 
 const helpTop = `htmlc — server-side Vue.js component renderer
@@ -24,6 +25,7 @@ SUBCOMMANDS
   render   Render a component as an HTML fragment (stdout)
   page     Render a component as a full HTML page (stdout)
   props    List the props expected by a component
+  ast      Print the template AST of a component (stdout)
   help     Show help for a subcommand
 
 EXAMPLES
@@ -36,13 +38,16 @@ EXAMPLES
   # List props for a component
   htmlc props -dir ./templates PostCard
 
+  # Print the template AST of a component
+  htmlc ast -dir ./templates PostPage
+
 Run 'htmlc help <subcommand>' for detailed flags and examples.
 `
 
 const helpRender = `render — render a .vue component as an HTML fragment
 
 SYNOPSIS
-  htmlc render [-dir <path>] [-props <json|->] <component>
+  htmlc render [-dir <path>] [-props <json|->] [-debug] <component>
 
 DESCRIPTION
   Renders the named .vue component and writes the resulting HTML fragment to
@@ -52,6 +57,9 @@ DESCRIPTION
 FLAGS
   -dir string   Directory containing .vue component files. (default ".")
   -props string Props as a JSON object, or "-" to read JSON from stdin.
+  -debug        Enable debug render mode: annotate output with HTML comments
+                describing component boundaries, expression values, slot
+                contents, and skipped nodes. For development use only.
 
 EXAMPLES
   # Render Button with no props
@@ -62,12 +70,15 @@ EXAMPLES
 
   # Render PostCard with props piped from another command
   echo '{"post":{"title":"Intro"}}' | htmlc render PostCard -props -
+
+  # Render with debug annotations
+  htmlc render -debug -dir ./templates Card -props '{"title":"Hello"}'
 `
 
 const helpPage = `page — render a .vue component as a full HTML page
 
 SYNOPSIS
-  htmlc page [-dir <path>] [-props <json|->] <component>
+  htmlc page [-dir <path>] [-props <json|->] [-debug] <component>
 
 DESCRIPTION
   Renders the named .vue component and writes a complete HTML document to
@@ -79,6 +90,9 @@ DESCRIPTION
 FLAGS
   -dir string   Directory containing .vue component files. (default ".")
   -props string Props as a JSON object, or "-" to read JSON from stdin.
+  -debug        Enable debug render mode: annotate output with HTML comments
+                describing component boundaries, expression values, slot
+                contents, and skipped nodes. For development use only.
 
 EXAMPLES
   # Render HomePage as a full HTML page
@@ -89,6 +103,30 @@ EXAMPLES
 
   # Render with props piped from stdin
   echo '{"slug":"intro"}' | htmlc page -dir ./templates PostPage -props -
+
+  # Render with debug annotations
+  htmlc page -debug -dir ./templates PostPage -props '{"slug":"intro"}'
+`
+
+const helpAst = `ast — print the template AST of a .vue component
+
+SYNOPSIS
+  htmlc ast [-dir <path>] <component>
+
+DESCRIPTION
+  Parses the named .vue component and pretty-prints its template AST as
+  indented pseudo-XML to stdout. This is useful for understanding how the
+  parser sees the template without executing the render pipeline.
+
+FLAGS
+  -dir string   Directory containing .vue component files. (default ".")
+
+EXAMPLES
+  # Print the AST of PostPage
+  htmlc ast -dir ./templates PostPage
+
+  # Print the AST from the current directory
+  htmlc ast Card
 `
 
 const helpProps = `props — list the props expected by a component
@@ -129,6 +167,7 @@ var subcommandHelp = map[string]string{
 	"render": helpRender,
 	"page":   helpPage,
 	"props":  helpProps,
+	"ast":    helpAst,
 }
 
 // errSilent is returned when the error has already been written to stderr.
@@ -239,6 +278,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}
 			return 1
 		}
+	case "ast":
+		if err := runAst(rest, stdout, stderr); err != nil {
+			if err != errSilent {
+				fmt.Fprintln(stderr, err)
+			}
+			return 1
+		}
 	case "help":
 		return runHelp(rest, stdout, stderr)
 	default:
@@ -328,6 +374,7 @@ func runRender(args []string, stdout, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", ".", "directory containing .vue components")
 	propsFlag := fs.String("props", "", "props as JSON object string, or - to read from stdin")
+	debugFlag := fs.Bool("debug", false, "enable debug render mode (annotates output with HTML comments)")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Fprint(stdout, helpRender)
@@ -339,7 +386,7 @@ func runRender(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stderr, cmdErrorMsg("render", "missing component name",
 			"",
 			"USAGE",
-			"  htmlc render [-dir <path>] [-props <json|->] <component>",
+			"  htmlc render [-dir <path>] [-props <json|->] [-debug] <component>",
 			"",
 			"EXAMPLE",
 			"  htmlc render -dir ./templates MyComponent",
@@ -366,7 +413,7 @@ func runRender(args []string, stdout, stderr io.Writer) error {
 		return errSilent
 	}
 
-	engine, err := htmlc.New(htmlc.Options{ComponentDir: *dir})
+	engine, err := htmlc.New(htmlc.Options{ComponentDir: *dir, Debug: *debugFlag})
 	if err != nil {
 		fmt.Fprintln(stderr, cmdErrorMsg("render", fmt.Sprintf("failed to initialise engine: %v", err),
 			"  Run 'htmlc help render' for usage.",
@@ -391,6 +438,7 @@ func runPage(args []string, stdout, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", ".", "directory containing .vue components")
 	propsFlag := fs.String("props", "", "props as JSON object string, or - to read from stdin")
+	debugFlag := fs.Bool("debug", false, "enable debug render mode (annotates output with HTML comments)")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Fprint(stdout, helpPage)
@@ -402,7 +450,7 @@ func runPage(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stderr, cmdErrorMsg("page", "missing component name",
 			"",
 			"USAGE",
-			"  htmlc page [-dir <path>] [-props <json|->] <component>",
+			"  htmlc page [-dir <path>] [-props <json|->] [-debug] <component>",
 			"",
 			"EXAMPLE",
 			"  htmlc page -dir ./templates MyPage",
@@ -429,7 +477,7 @@ func runPage(args []string, stdout, stderr io.Writer) error {
 		return errSilent
 	}
 
-	engine, err := htmlc.New(htmlc.Options{ComponentDir: *dir})
+	engine, err := htmlc.New(htmlc.Options{ComponentDir: *dir, Debug: *debugFlag})
 	if err != nil {
 		fmt.Fprintln(stderr, cmdErrorMsg("page", fmt.Sprintf("failed to initialise engine: %v", err),
 			"  Run 'htmlc help page' for usage.",
@@ -581,5 +629,110 @@ func runProps(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
+	return nil
+}
+
+// printASTNode recursively prints a node from a parsed template AST as
+// indented pseudo-XML to w. The depth parameter controls indentation level.
+func printASTNode(w io.Writer, n *html.Node, depth int) {
+	indent := strings.Repeat("  ", depth)
+	switch n.Type {
+	case html.DocumentNode:
+		fmt.Fprintln(w, "Document")
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			printASTNode(w, child, depth+1)
+		}
+	case html.ElementNode:
+		var attrs []string
+		var directives []string
+		for _, attr := range n.Attr {
+			if strings.HasPrefix(attr.Key, "v-") || strings.HasPrefix(attr.Key, ":") || strings.HasPrefix(attr.Key, "@") || strings.HasPrefix(attr.Key, "#") {
+				if attr.Val != "" {
+					directives = append(directives, fmt.Sprintf("%s=%q", attr.Key, attr.Val))
+				} else {
+					directives = append(directives, attr.Key)
+				}
+			} else {
+				attrs = append(attrs, fmt.Sprintf("%s=%q", attr.Key, attr.Val))
+			}
+		}
+		line := fmt.Sprintf("%sElement[%s]", indent, n.Data)
+		if len(directives) > 0 {
+			line += " " + strings.Join(directives, " ")
+		}
+		line += fmt.Sprintf(" attrs=%v", attrs)
+		fmt.Fprintln(w, line)
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			printASTNode(w, child, depth+1)
+		}
+	case html.TextNode:
+		text := strings.TrimSpace(n.Data)
+		if text != "" {
+			fmt.Fprintf(w, "%sText: %q\n", indent, text)
+		}
+	case html.CommentNode:
+		fmt.Fprintf(w, "%sComment: %q\n", indent, strings.TrimSpace(n.Data))
+	case html.DoctypeNode:
+		fmt.Fprintf(w, "%sDoctype: %s\n", indent, n.Data)
+	}
+}
+
+func runAst(args []string, stdout, stderr io.Writer) error {
+	args = normalizeArgs(args)
+	fset := flag.NewFlagSet("ast", flag.ContinueOnError)
+	fset.SetOutput(stderr)
+	dir := fset.String("dir", ".", "directory containing .vue components")
+	if err := fset.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			fmt.Fprint(stdout, helpAst)
+			return nil
+		}
+		return err
+	}
+	if fset.NArg() < 1 {
+		fmt.Fprintln(stderr, cmdErrorMsg("ast", "missing component name",
+			"",
+			"USAGE",
+			"  htmlc ast [-dir <path>] <component>",
+			"",
+			"EXAMPLE",
+			"  htmlc ast -dir ./templates MyComponent",
+		))
+		return errSilent
+	}
+	name := fset.Arg(0)
+
+	// Detect path-style argument (direct file path).
+	var path string
+	isPathStyle := strings.HasSuffix(name, ".vue") || strings.ContainsRune(name, os.PathSeparator) || strings.Contains(name, "/")
+	if isPathStyle {
+		path = name
+	} else {
+		path = filepath.Join(*dir, name+".vue")
+	}
+
+	src, err := os.ReadFile(path)
+	if err != nil {
+		if isPathStyle {
+			fmt.Fprintln(stderr, cmdErrorMsg("ast", fmt.Sprintf("file %q not found", name)))
+		} else {
+			fmt.Fprintln(stderr, cmdErrorMsg("ast", fmt.Sprintf("component %q not found in %q", name, *dir),
+				fmt.Sprintf("  Expected file: %s", path),
+			))
+		}
+		return errSilent
+	}
+
+	component, err := htmlc.ParseFile(path, string(src))
+	if err != nil {
+		return fmt.Errorf("parsing component: %w", err)
+	}
+
+	if component.Template == nil {
+		fmt.Fprintln(stderr, cmdErrorMsg("ast", "component has no template"))
+		return errSilent
+	}
+
+	printASTNode(stdout, component.Template, 0)
 	return nil
 }

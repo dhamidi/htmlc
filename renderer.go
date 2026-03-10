@@ -129,6 +129,8 @@ type Renderer struct {
 	slotDefs           map[string]*SlotDefinition
 	directives         DirectiveRegistry
 	ctx                context.Context // optional; nil means no cancellation
+	debug              bool
+	debugW             *debugWriter
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -173,6 +175,15 @@ func (r *Renderer) WithDirectives(dr DirectiveRegistry) *Renderer {
 // deadline is exceeded. Returns the Renderer for chaining.
 func (r *Renderer) WithContext(ctx context.Context) *Renderer {
 	r.ctx = ctx
+	return r
+}
+
+// withDebug enables debug render mode on this renderer. dw must wrap the same
+// io.Writer that will be passed to Render so that debug comments are
+// interleaved with HTML output in the correct order.
+func (r *Renderer) withDebug(dw *debugWriter) *Renderer {
+	r.debug = true
+	r.debugW = dw
 	return r
 }
 
@@ -368,6 +379,9 @@ func (r *Renderer) interpolate(w io.Writer, text string, scope map[string]any) e
 			}
 		}
 		// html/template.HTML values are already safe — emit verbatim.
+		if r.debug {
+			r.debugW.exprValue(exprSrc, val)
+		}
 		if safe, ok := val.(htmltemplate.HTML); ok {
 			io.WriteString(w, string(safe))
 		} else {
@@ -515,6 +529,9 @@ func (r *Renderer) renderConditionalChain(w io.Writer, vIfNode *html.Node, scope
 			truthy = expr.IsTruthy(val)
 		}
 		if !truthy {
+			if r.debug && !b.isElse {
+				r.debugW.vifSkipped(b.expr, false)
+			}
 			continue
 		}
 		// Render the branch. <template> renders only its children.
@@ -692,6 +709,9 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 			slotName = nameAttr
 		}
 		if def, ok := r.slotDefs[slotName]; ok {
+			if r.debug {
+				r.debugW.slotStart(slotName, len(def.Nodes))
+			}
 			// Collect slot props from the <slot> element's attributes (child's scope).
 			slotProps := make(map[string]any)
 			for _, attr := range n.Attr {
@@ -771,6 +791,9 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 					return err
 				}
 				i++
+			}
+			if r.debug {
+				r.debugW.slotEnd(slotName)
 			}
 			return nil
 		}
@@ -1172,6 +1195,10 @@ func collectSlotDefs(n *html.Node, parentScope map[string]any) map[string]*SlotD
 // from the element's attributes, slot definitions are collected from the
 // children, and then the child component's template is rendered with those props.
 func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[string]any, comp *Component) error {
+	if r.debug {
+		r.debugW.componentStart(n.Data, comp.Path)
+		defer r.debugW.componentEnd(n.Data)
+	}
 	childScope := make(map[string]any)
 
 	// Look for a v-slot / # directive on the component tag itself.
@@ -1265,6 +1292,8 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		slotDefs:           slotDefs,
 		directives:         r.directives,
 		ctx:                r.ctx,
+		debug:              r.debug,
+		debugW:             r.debugW,
 	}
 
 	if err := childRenderer.Render(w, childScope); err != nil {

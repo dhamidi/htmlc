@@ -45,6 +45,11 @@ type Options struct {
 	// (e.g. "switch" handles v-switch). Built-in directives (v-if, v-for, etc.)
 	// cannot be overridden.
 	Directives DirectiveRegistry
+	// Debug enables debug render mode. When true, the rendered HTML is
+	// annotated with HTML comments describing component boundaries, expression
+	// values, conditional branch outcomes, and slot contents.
+	// Intended for development use only; never enable in production.
+	Debug bool
 }
 
 // engineEntry holds a parsed component together with its source path and the
@@ -475,6 +480,11 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 		WithContext(ctx)
 	if e.missingPropHandler != nil {
 		renderer = renderer.WithMissingPropHandler(e.missingPropHandler)
+	}
+	if e.opts.Debug {
+		dw := newDebugWriter(w)
+		renderer = renderer.withDebug(dw)
+		w = dw
 	}
 	if err := renderer.Render(w, scope); err != nil {
 		return nil, err

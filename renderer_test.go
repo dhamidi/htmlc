@@ -1735,3 +1735,120 @@ func TestRender_InterpolationError_IncludesPathAndLine(t *testing.T) {
 		t.Errorf("error %q should contain ':3:' for line 3", msg)
 	}
 }
+
+// renderTemplateDebug is a helper that parses a template and renders it in debug mode.
+func renderTemplateDebug(t *testing.T, tmpl string, scope map[string]any) string {
+	t.Helper()
+	src := "<template>" + tmpl + "</template>"
+	c, err := ParseFile("test.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	var sb strings.Builder
+	dw := newDebugWriter(&sb)
+	r := NewRenderer(c).withDebug(dw)
+	if err := r.Render(dw, scope); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	return sb.String()
+}
+
+func TestDebug_ComponentBoundaryComments(t *testing.T) {
+	// When Debug is true, component boundaries are wrapped with HTML comments.
+	childSrc := "<template><span>child</span></template>"
+	child, err := ParseFile("Child.vue", childSrc)
+	if err != nil {
+		t.Fatalf("ParseFile child: %v", err)
+	}
+
+	parentSrc := "<template><Child /></template>"
+	parent, err := ParseFile("Parent.vue", parentSrc)
+	if err != nil {
+		t.Fatalf("ParseFile parent: %v", err)
+	}
+
+	reg := Registry{"Child": child}
+	var sb strings.Builder
+	dw := newDebugWriter(&sb)
+	r := NewRenderer(parent).WithComponents(reg).withDebug(dw)
+	if err := r.Render(dw, map[string]any{}); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	out := sb.String()
+	// Note: the HTML parser lowercases tag names, so "Child" becomes "child" in n.Data.
+	if !strings.Contains(out, "<!-- [htmlc:debug] component=child") {
+		t.Errorf("output missing component start comment, got:\n%s", out)
+	}
+	if !strings.Contains(out, "<!-- [htmlc:debug] /component=child -->") {
+		t.Errorf("output missing component end comment, got:\n%s", out)
+	}
+}
+
+func TestDebug_NoCommentsWhenDisabled(t *testing.T) {
+	// When Debug is false (default), no debug comments appear in the output.
+	childSrc := "<template><span>child</span></template>"
+	child, err := ParseFile("Child.vue", childSrc)
+	if err != nil {
+		t.Fatalf("ParseFile child: %v", err)
+	}
+
+	parentSrc := "<template><Child /></template>"
+	parent, err := ParseFile("Parent.vue", parentSrc)
+	if err != nil {
+		t.Fatalf("ParseFile parent: %v", err)
+	}
+
+	reg := Registry{"Child": child}
+	out, err := NewRenderer(parent).WithComponents(reg).RenderString(map[string]any{})
+	if err != nil {
+		t.Fatalf("RenderString: %v", err)
+	}
+
+	if strings.Contains(out, "[htmlc:debug]") {
+		t.Errorf("output should not contain debug comments when debug is disabled, got:\n%s", out)
+	}
+}
+
+func TestDebug_VIfSkippedComment(t *testing.T) {
+	// When Debug is true and a v-if evaluates to false, a skipped-node comment is emitted.
+	scope := map[string]any{"show": false}
+	out := renderTemplateDebug(t, `<p v-if="show">visible</p>`, scope)
+	if !strings.Contains(out, `<!-- [htmlc:debug] v-if="show"`) {
+		t.Errorf("output missing v-if skipped comment, got:\n%s", out)
+	}
+	if !strings.Contains(out, "node skipped") {
+		t.Errorf("output missing 'node skipped' in v-if comment, got:\n%s", out)
+	}
+	// The element itself should NOT be rendered.
+	if strings.Contains(out, "<p>") {
+		t.Errorf("skipped element should not appear in output, got:\n%s", out)
+	}
+}
+
+func TestDebug_VIfSkippedComment_NotEmittedWhenTrue(t *testing.T) {
+	// When Debug is true and v-if evaluates to true, no skipped comment is emitted.
+	scope := map[string]any{"show": true}
+	out := renderTemplateDebug(t, `<p v-if="show">visible</p>`, scope)
+	if strings.Contains(out, "node skipped") {
+		t.Errorf("should not emit skipped comment for true v-if, got:\n%s", out)
+	}
+}
+
+func TestDebug_ExpressionValueComment(t *testing.T) {
+	// When Debug is true, expression interpolation emits an expr/value comment.
+	scope := map[string]any{"title": "Hello World"}
+	out := renderTemplateDebug(t, `<h1>{{ title }}</h1>`, scope)
+	if !strings.Contains(out, `<!-- [htmlc:debug] expr="title" value=Hello World -->`) {
+		t.Errorf("output missing expr value comment, got:\n%s", out)
+	}
+}
+
+func TestDebug_ExpressionComment_NotEmittedWhenDisabled(t *testing.T) {
+	// When Debug is false, no expression comment appears.
+	scope := map[string]any{"title": "Hello World"}
+	out := renderTemplate(t, `<h1>{{ title }}</h1>`, scope)
+	if strings.Contains(out, "[htmlc:debug]") {
+		t.Errorf("output should not contain debug comments when debug is disabled, got:\n%s", out)
+	}
+}

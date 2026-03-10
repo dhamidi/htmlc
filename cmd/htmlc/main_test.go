@@ -522,3 +522,79 @@ func TestCamelToScreamingSnake(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderDebugFlag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Card.vue")
+	os.WriteFile(path, []byte(`<template><div>{{ title }}</div></template>`), 0644)
+
+	var stdout bytes.Buffer
+	code := run([]string{"render", "-debug", "-dir", dir, "-props", `{"title":"Hello"}`, "Card"}, &stdout, io.Discard)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[htmlc:debug]") {
+		t.Errorf("--debug flag: output should contain debug comments, got:\n%s", out)
+	}
+}
+
+func TestPageDebugFlag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "MyPage.vue")
+	os.WriteFile(path, []byte(`<template><div>{{ title }}</div></template>`), 0644)
+
+	var stdout bytes.Buffer
+	code := run([]string{"page", "-debug", "-dir", dir, "-props", `{"title":"Hello"}`, "MyPage"}, &stdout, io.Discard)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[htmlc:debug]") {
+		t.Errorf("--debug flag: output should contain debug comments, got:\n%s", out)
+	}
+}
+
+func TestAstSubcommand(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "PostPage.vue")
+	os.WriteFile(path, []byte(`<template><article><h1>{{ title }}</h1></article></template>`), 0644)
+
+	var stdout bytes.Buffer
+	code := run([]string{"ast", "-dir", dir, "PostPage"}, &stdout, io.Discard)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Element[article]") {
+		t.Errorf("ast output should contain Element[article], got:\n%s", out)
+	}
+	if !strings.Contains(out, "Element[h1]") {
+		t.Errorf("ast output should contain Element[h1], got:\n%s", out)
+	}
+}
+
+func TestAstSubcommand_MissingComponent(t *testing.T) {
+	dir := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"ast", "-dir", dir, "NonExistent"}, &stdout, &stderr)
+	if code == 0 {
+		t.Error("expected non-zero exit code for missing component")
+	}
+	if !strings.Contains(stderr.String(), "NonExistent") {
+		t.Errorf("stderr should mention the missing component, got:\n%s", stderr.String())
+	}
+}
+
+func TestHelpAst(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"help", "ast"}, &stdout, &stderr)
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "ast") {
+		t.Errorf("stdout missing 'ast', got: %q", out)
+	}
+}

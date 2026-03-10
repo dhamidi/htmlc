@@ -15,6 +15,7 @@ A server-side Go template engine that uses Vue.js Single File Component (`.vue`)
 5. [Special Attributes](#special-attributes)
 6. [Go API Quick Reference](#go-api-quick-reference)
 7. [Expression Language Reference](#expression-language-reference)
+8. [Debug Mode](#debug-mode)
 
 ---
 
@@ -555,4 +556,73 @@ Everything else is truthy, including empty arrays and empty objects.
 {{ tags.length }}
 {{ price * 1.2 }}
 {{ active ? "active" : "" }}
+```
+
+---
+
+## 8. Debug Mode
+
+Debug mode annotates rendered HTML with structured HTML comments that describe component boundaries, expression values, conditional branch outcomes, and slot contents. The annotated output is valid HTML that renders identically in a browser but carries diagnostic information visible in DevTools or via `curl | grep -i debug`.
+
+**Debug output is intended for development only. Never enable it in production.**
+
+### Enabling via Go API
+
+```go
+engine, err := htmlc.New(htmlc.Options{
+    ComponentDir: "templates/",
+    Debug:        true,
+})
+```
+
+### Enabling via CLI
+
+```
+htmlc render --debug -dir ./templates Card -props '{"title":"Hello"}'
+htmlc page --debug -dir ./templates PostPage -props '{"slug":"intro"}'
+```
+
+### Example annotated output
+
+```html
+<!-- [htmlc:debug] component=PostPage file=templates/PostPage.vue -->
+<article>
+  <!-- [htmlc:debug] expr="post.Title" value=Hello World -->
+  <h1>Hello World</h1>
+  <!-- [htmlc:debug] v-if="post.Draft" → false: node skipped -->
+  <!-- [htmlc:debug] slot=default nodes=2 -->
+  <p>Body content here</p>
+  <!-- [htmlc:debug] /slot=default -->
+</article>
+<!-- [htmlc:debug] /component=PostPage -->
+```
+
+### What the comments describe
+
+| Comment pattern | Meaning |
+|---|---|
+| `component=Name file=path` | Start of a child component render |
+| `/component=Name` | End of a child component render |
+| `expr="..." value=...` | Expression evaluated during text interpolation |
+| `v-if="..." → false: node skipped` | Conditional node that was not rendered |
+| `slot=name nodes=N` | Start of slot content being rendered |
+| `/slot=name` | End of slot content |
+
+### AST inspection
+
+The `htmlc ast` subcommand parses a `.vue` file and prints its template AST as indented pseudo-XML, without executing the render pipeline:
+
+```
+htmlc ast -dir ./templates PostPage
+```
+
+Example output:
+
+```
+Document
+  Element[article] attrs=[]
+    Element[h1] attrs=[]
+      Text: "{{ post.Title }}"
+    Element[p] v-if="post.Draft" attrs=[]
+      Text: "Draft"
 ```
