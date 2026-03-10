@@ -25,6 +25,10 @@ type SlotDefinition struct {
 	ParentScope map[string]any
 	BindingVar  string
 	Bindings    []string
+	// Component is the component that authored this slot content.
+	// It is used to stamp the correct scope attribute on slot elements.
+	// May be nil when the parent has no component context (rare).
+	Component *Component
 }
 
 // identRe matches a valid JS/Vue identifier: starts with letter, _ or $,
@@ -792,12 +796,15 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 			// No binding: render with parent scope only; slot props discarded.
 			}
 
+			// slotRenderer uses the authoring component for correct scope attribute stamping.
+			slotRenderer := r.rendererWithComponent(def.Component)
+
 			nodes := def.Nodes
 			for i := 0; i < len(nodes); {
 				node := nodes[i]
 				if node.Type == html.ElementNode {
 					if vforExpr, ok := attrValue(node, "v-for"); ok {
-						if err := r.renderVFor(w, node, vforExpr, renderScope); err != nil {
+						if err := slotRenderer.renderVFor(w, node, vforExpr, renderScope); err != nil {
 							return err
 						}
 						i++
@@ -805,7 +812,7 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 					}
 					switch conditionalDirective(node) {
 					case "v-if":
-						lastInChain, err := r.renderConditionalChain(w, node, renderScope)
+						lastInChain, err := slotRenderer.renderConditionalChain(w, node, renderScope)
 						if err != nil {
 							return err
 						}
@@ -821,7 +828,7 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 						return fmt.Errorf("v-else without preceding v-if or v-else-if")
 					}
 				}
-				if err := r.renderNode(w, node, renderScope); err != nil {
+				if err := slotRenderer.renderNode(w, node, renderScope); err != nil {
 					return err
 				}
 				i++
@@ -1172,7 +1179,9 @@ func (r *Renderer) resolveComponent(tagName string) *Component {
 // elements become named slot definitions; all other children form the
 // "default" slot definition. parentScope is shallow-cloned into each
 // SlotDefinition so that slot content is rendered with the caller's bindings.
-func collectSlotDefs(n *html.Node, parentScope map[string]any) map[string]*SlotDefinition {
+// parentComp is the component that authored the slot content and is stored in
+// each SlotDefinition for correct scope attribute stamping.
+func collectSlotDefs(n *html.Node, parentScope map[string]any, parentComp *Component) map[string]*SlotDefinition {
 	defs := make(map[string]*SlotDefinition)
 	var defaultNodes []*html.Node
 
@@ -1208,6 +1217,7 @@ func collectSlotDefs(n *html.Node, parentScope map[string]any) map[string]*SlotD
 					ParentScope: cloneScope(),
 					BindingVar:  bindingVar,
 					Bindings:    bindings,
+					Component:   parentComp,
 				}
 				continue
 			}
@@ -1219,6 +1229,7 @@ func collectSlotDefs(n *html.Node, parentScope map[string]any) map[string]*SlotD
 		defs["default"] = &SlotDefinition{
 			Nodes:       defaultNodes,
 			ParentScope: cloneScope(),
+			Component:   parentComp,
 		}
 	}
 
@@ -1310,11 +1321,12 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 				ParentScope: parentScope,
 				BindingVar:  bindingVar,
 				Bindings:    bindings,
+				Component:   r.component,
 			},
 		}
 	} else {
 		// Collect slot definitions from children.
-		slotDefs = collectSlotDefs(n, scope)
+		slotDefs = collectSlotDefs(n, scope, r.component)
 	}
 
 	// Apply engine funcs as lower-priority values (explicit props win over funcs).
@@ -1347,6 +1359,17 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		return fmt.Errorf("component %q: %w", n.Data, err)
 	}
 	return nil
+}
+
+// rendererWithComponent returns a shallow copy of r with component replaced.
+// All other fields (registry, styleCollector, directives, …) are shared.
+// Passing nil leaves the component unchanged (no-op).
+func (r *Renderer) rendererWithComponent(comp *Component) *Renderer {
+	copy := *r
+	if comp != nil {
+		copy.component = comp
+	}
+	return &copy
 }
 
 // renderVFor renders n repeatedly for each element in the v-for collection.
