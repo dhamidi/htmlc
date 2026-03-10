@@ -469,13 +469,23 @@ as a fallback so existing error-checking code continues to work.
 
 ### Configure missing prop behavior
 
-By default, a missing prop causes a render error. Use `WithMissingPropHandler` to substitute a value instead:
+By default, when a prop is missing from the render scope, the engine renders a
+visible `[missing: propName]` placeholder in its place so the page still loads
+and you can immediately see which prop is absent.
+
+To restore strict error behaviour (rendering aborts with an error), use the
+built-in `ErrorOnMissingProp` handler:
 
 ```go
-engine.WithMissingPropHandler(htmlc.SubstituteMissingProp)
-// or provide your own:
+engine.WithMissingPropHandler(htmlc.ErrorOnMissingProp)
+```
+
+To silence missing props entirely or substitute a custom value:
+
+```go
+// silently substitute an empty string
 engine.WithMissingPropHandler(func(name string) (any, error) {
-    return "", nil  // silently substitute empty string
+    return "", nil
 })
 ```
 
