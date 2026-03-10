@@ -500,3 +500,94 @@ func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
 		t.Errorf("reload: want 'version two' after reload, got:\n%s", out)
 	}
 }
+
+// TestIntegration_FontFaceQuotesPreserved verifies that a component with a
+// global <style> block containing an @font-face rule emits quoted string values
+// byte-for-byte in the rendered output, with no HTML-escaping or quote removal.
+func TestIntegration_FontFaceQuotesPreserved(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Fonts.vue"),
+		`<template><p>hello</p></template>
+<style>
+@font-face {
+  font-family: "My Font";
+  src: url("font.woff2") format("woff2");
+}
+p { font-family: "My Font"; }
+</style>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Fonts", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+
+	for _, want := range []string{`"My Font"`, `"font.woff2"`, `format("woff2")`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("font-face: want %q in output:\n%s", want, out)
+		}
+	}
+}
+
+// TestIntegration_ScopedFontFaceQuotesPreserved verifies that a scoped
+// <style> block with @font-face emits quoted values verbatim. @-rules are
+// passed through without selector rewriting, so the output must be identical.
+func TestIntegration_ScopedFontFaceQuotesPreserved(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "ScopedFonts.vue"),
+		`<template><p>hello</p></template>
+<style scoped>
+@font-face {
+  font-family: "My Font";
+  src: url("font.woff2") format("woff2");
+}
+p { font-family: "My Font"; }
+</style>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("ScopedFonts", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+
+	for _, want := range []string{`"My Font"`, `"font.woff2"`, `format("woff2")`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("scoped font-face: want %q in output:\n%s", want, out)
+		}
+	}
+}
+
+// TestIntegration_CSSContentSpecialCharsPreserved verifies that &, <, and >
+// characters inside CSS content property values pass through the pipeline
+// without HTML-entity encoding or other modification.
+func TestIntegration_CSSContentSpecialCharsPreserved(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Icons.vue"),
+		`<template><span class="arrow"></span></template>
+<style>
+.arrow::before { content: "a > b & c < d"; }
+</style>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Icons", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+
+	want := `"a > b & c < d"`
+	if !strings.Contains(out, want) {
+		t.Errorf("CSS special chars: want %q in output:\n%s", want, out)
+	}
+}

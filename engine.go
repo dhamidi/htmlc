@@ -492,6 +492,9 @@ func styleBlock(sc *StyleCollector) string {
 	var sb strings.Builder
 	sb.WriteString("<style>")
 	for _, item := range items {
+		// CSS is written verbatim — intentionally not HTML-escaped.
+		// html.EscapeString must never be applied here: it would corrupt
+		// quoted string values, & characters, and other valid CSS syntax.
 		sb.WriteString(item.CSS)
 	}
 	sb.WriteString("</style>")

@@ -313,6 +313,8 @@ Given a tag name, the engine tries these strategies in order:
 
 The engine rewrites CSS selectors with a `data-v-*` scope attribute (e.g. `.button[data-v-abc123]`) and adds that attribute to every HTML element rendered by the component.
 
+CSS content is extracted verbatim from `<style>` blocks — quoted string values, `@font-face` declarations, data URIs, and special characters (`&`, `<`, `>`) are preserved exactly as written and are never HTML-escaped. Only non-`@`-rule selectors are rewritten for scoping.
+
 #### Nested composition
 
 Components can freely use other components registered in the same engine.

@@ -157,7 +157,12 @@ func extractSections(src string) (map[string]string, error) {
 
 		case html.TextToken:
 			if current != nil {
-				current.buf.WriteString(tok.Data)
+				// Use the raw bytes rather than tok.Data: tok.Data for TextTokens
+				// contains the HTML-decoded string, which corrupts CSS content
+				// (e.g. quoted strings in @font-face, & in content properties).
+				// raw holds the verbatim source bytes, which is what <style> and
+				// <script> sections require.
+				current.buf.WriteString(raw)
 			}
 		case html.CommentToken, html.DoctypeToken:
 			if current != nil {

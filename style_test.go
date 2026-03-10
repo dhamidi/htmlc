@@ -332,3 +332,131 @@ func TestStyleCollector_NilCollectorDoesNotPanic(t *testing.T) {
 		t.Fatalf("Render with nil collector: %v", err)
 	}
 }
+
+// --- CSS verbatim extraction tests ---
+
+// TestExtractSections_StyleFontFaceQuotesPreserved verifies that extractSections
+// returns the @font-face CSS body with double-quoted string values intact.
+// Previously tok.Data (HTML-decoded) was used for TextTokens, which could mangle
+// quoted values inside <style> blocks.
+func TestExtractSections_StyleFontFaceQuotesPreserved(t *testing.T) {
+	src := `<template><p>x</p></template>
+<style>
+@font-face {
+  font-family: "My Font";
+  src: url("font.woff2") format("woff2");
+}
+</style>`
+	sections, err := extractSections(src)
+	if err != nil {
+		t.Fatalf("extractSections: %v", err)
+	}
+	css, ok := sections["style"]
+	if !ok {
+		t.Fatal("style section not found")
+	}
+	for _, want := range []string{`"My Font"`, `"font.woff2"`, `format("woff2")`} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style section %q: want %q preserved verbatim", css, want)
+		}
+	}
+}
+
+// TestExtractSections_StyleSingleQuotesPreserved checks that single-quoted
+// CSS string values are also kept verbatim.
+func TestExtractSections_StyleSingleQuotesPreserved(t *testing.T) {
+	src := `<template><p>x</p></template>
+<style>
+@font-face {
+  font-family: 'My Font';
+  src: url('font.woff2') format('woff2');
+}
+</style>`
+	sections, err := extractSections(src)
+	if err != nil {
+		t.Fatalf("extractSections: %v", err)
+	}
+	css := sections["style"]
+	for _, want := range []string{`'My Font'`, `'font.woff2'`, `format('woff2')`} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style section %q: want %q preserved verbatim", css, want)
+		}
+	}
+}
+
+// TestExtractSections_StyleSpecialCharsPreserved checks that &, <, > in CSS
+// content property values are not HTML-decoded or corrupted.
+func TestExtractSections_StyleSpecialCharsPreserved(t *testing.T) {
+	src := "<template><p>x</p></template>\n<style>\n.arrow::before { content: \"a > b & c < d\"; }\n</style>"
+	sections, err := extractSections(src)
+	if err != nil {
+		t.Fatalf("extractSections: %v", err)
+	}
+	css := sections["style"]
+	want := `"a > b & c < d"`
+	if !strings.Contains(css, want) {
+		t.Errorf("style section %q: want %q preserved verbatim", css, want)
+	}
+}
+
+// TestRenderer_FontFaceStyleVerbatim verifies the end-to-end path: a component
+// with a global <style> block containing an @font-face rule with quoted values
+// must emit those values byte-for-byte in the rendered output.
+func TestRenderer_FontFaceStyleVerbatim(t *testing.T) {
+	src := `<template><p>x</p></template>
+<style>
+@font-face {
+  font-family: "My Font";
+  src: url("font.woff2") format("woff2");
+}
+</style>`
+	c, err := ParseFile("Font.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	sc := &StyleCollector{}
+	if _, err := NewRenderer(c).WithStyles(sc).RenderString(nil); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	contribs := sc.All()
+	if len(contribs) != 1 {
+		t.Fatalf("got %d contributions, want 1", len(contribs))
+	}
+	for _, want := range []string{`"My Font"`, `"font.woff2"`, `format("woff2")`} {
+		if !strings.Contains(contribs[0].CSS, want) {
+			t.Errorf("CSS contribution %q: want %q preserved verbatim", contribs[0].CSS, want)
+		}
+	}
+}
+
+// TestRenderer_ScopedFontFaceStyleVerbatim verifies that a scoped <style> block
+// with an @font-face rule emits quoted values verbatim (not rewritten, since
+// @-rules are passed through by ScopeCSS).
+func TestRenderer_ScopedFontFaceStyleVerbatim(t *testing.T) {
+	src := `<template><p>x</p></template>
+<style scoped>
+@font-face {
+  font-family: "My Font";
+  src: url("font.woff2") format("woff2");
+}
+.text { font-family: "My Font"; }
+</style>`
+	c, err := ParseFile("ScopedFont.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	sc := &StyleCollector{}
+	if _, err := NewRenderer(c).WithStyles(sc).RenderString(nil); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	contribs := sc.All()
+	if len(contribs) != 1 {
+		t.Fatalf("got %d contributions, want 1", len(contribs))
+	}
+	// @font-face must be passed through verbatim by ScopeCSS.
+	for _, want := range []string{`"My Font"`, `"font.woff2"`, `format("woff2")`} {
+		if !strings.Contains(contribs[0].CSS, want) {
+			t.Errorf("scoped CSS contribution %q: want %q preserved verbatim", contribs[0].CSS, want)
+		}
+	}
+}
