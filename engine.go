@@ -78,7 +78,10 @@ type Engine struct {
 }
 
 // WithMissingPropHandler sets the function called when any component rendered
-// by this engine has a missing prop. If not set, missing props cause render errors.
+// by this engine has a missing prop. The default behaviour (when no handler is
+// set) is to render a visible "[missing: <name>]" placeholder in place of the
+// prop value. Use ErrorOnMissingProp to restore strict error behaviour, or
+// SubstituteMissingProp to use the legacy "MISSING PROP: <name>" format.
 func (e *Engine) WithMissingPropHandler(fn MissingPropFunc) *Engine {
 	e.missingPropHandler = fn
 	return e

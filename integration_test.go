@@ -459,7 +459,9 @@ func TestIntegration_SelfClosingComponentWarning(t *testing.T) {
 	errs := e.ValidateAll()
 	found := false
 	for _, ve := range errs {
-		if ve.Component == "Page" && strings.Contains(ve.Message, "auto-corrected") {
+		// The engine registers both "Page" and "page" (lowercase alias); either
+		// may appear here depending on map iteration order.
+		if strings.EqualFold(ve.Component, "Page") && strings.Contains(ve.Message, "auto-corrected") {
 			found = true
 		}
 	}

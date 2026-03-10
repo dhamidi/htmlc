@@ -116,6 +116,14 @@ func SubstituteMissingProp(name string) (any, error) {
 	return fmt.Sprintf("MISSING PROP: %s", name), nil
 }
 
+// ErrorOnMissingProp is a MissingPropFunc that aborts rendering with an error
+// whenever a prop is missing. Use it to restore strict validation:
+//
+//	renderer.WithMissingPropHandler(htmlc.ErrorOnMissingProp)
+func ErrorOnMissingProp(name string) (any, error) {
+	return nil, fmt.Errorf("missing prop %q", name)
+}
+
 // Renderer walks a component's parsed template and produces HTML output.
 // It is the low-level rendering primitive — most callers should use Engine
 // (via RenderPage or RenderFragment) rather than constructing a Renderer
@@ -262,7 +270,16 @@ func (r *Renderer) validateProps(scope map[string]any) (map[string]any, error) {
 			}
 			augmented[p.Name] = val
 		} else {
-			return nil, fmt.Errorf("missing prop %q (used in: %s)", p.Name, strings.Join(p.Expressions, ", "))
+			// Default: render a visible placeholder so the author can see
+			// which prop is missing without having to configure a handler.
+			val := fmt.Sprintf("[missing: %s]", p.Name)
+			if augmented == nil {
+				augmented = make(map[string]any, len(scope)+1)
+				for k, v := range scope {
+					augmented[k] = v
+				}
+			}
+			augmented[p.Name] = val
 		}
 	}
 	if augmented != nil {

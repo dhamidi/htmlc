@@ -301,9 +301,46 @@ func TestEngine_MissingProp_NoHandler_ReturnsError(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
+	out, err := e.RenderFragmentString("Greeter", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !strings.Contains(out, "[missing: greeting]") {
+		t.Errorf("expected '[missing: greeting]' in output, got: %q", out)
+	}
+}
+
+func TestEngine_MissingProp_DefaultPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Greeter.vue"), `<template><p>{{ greeting }}</p></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Greeter", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !strings.Contains(out, "[missing: greeting]") {
+		t.Errorf("expected '[missing: greeting]' in output, got: %q", out)
+	}
+}
+
+func TestEngine_MissingProp_ErrorOnMissingPropHandler(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Greeter.vue"), `<template><p>{{ greeting }}</p></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	e.WithMissingPropHandler(ErrorOnMissingProp)
+
 	_, err = e.RenderFragmentString("Greeter", nil)
 	if err == nil {
-		t.Error("expected error for missing prop, got nil")
+		t.Error("expected error for missing prop with ErrorOnMissingProp handler, got nil")
 	}
 	if !strings.Contains(err.Error(), "greeting") {
 		t.Errorf("expected error to mention 'greeting', got: %v", err)
