@@ -213,6 +213,33 @@
 //
 // Renders to: <div class="card"><p>No content provided</p></div>
 //
+// # Scope propagation
+//
+// Every component renders in an isolated scope that contains only the props
+// explicitly passed to it as attributes. Parent scope variables are not
+// inherited; this makes data flow visible and prevents accidental coupling.
+//
+// Engine-level functions (registered with Engine.RegisterFunc) are the one
+// exception: they are injected into every component's scope at every depth.
+// Use RegisterFunc for helper functions — URL builders, route helpers,
+// formatters — that need to be callable from any component without explicit
+// prop threading.
+//
+// WithDataMiddleware values are injected into the top-level render scope
+// only. If a child component needs a middleware-supplied value, pass it
+// down as an explicit prop.
+//
+//	// Good: helper functions via RegisterFunc — available everywhere
+//	engine.RegisterFunc("url", buildURL)
+//	engine.RegisterFunc("routeActive", checkActive)
+//
+//	// Good: per-request data via explicit props
+//	// In Page.vue: <Shell :currentUser="currentUser" />
+//	// In Shell.vue: {{ currentUser.Name }}
+//
+//	// Avoid: relying on middleware values inside child components
+//	// — they are not automatically propagated.
+//
 // # Scoped styles
 //
 // Adding <style scoped> to a .vue file generates a unique data-v-XXXXXXXX

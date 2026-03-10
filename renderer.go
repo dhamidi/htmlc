@@ -129,6 +129,12 @@ func ErrorOnMissingProp(name string) (any, error) {
 // (via RenderPage or RenderFragment) rather than constructing a Renderer
 // directly. Use NewRenderer when you need fine-grained control over style
 // collection or registry attachment.
+//
+// Engine-level functions (from Engine.RegisterFunc) are available in child
+// components only when the renderer is created by Engine — Engine calls
+// WithFuncs automatically. Callers using the low-level NewRenderer API who
+// want engine functions to propagate into child components must call WithFuncs
+// explicitly.
 type Renderer struct {
 	component          *Component
 	styleCollector     *StyleCollector
@@ -143,7 +149,9 @@ type Renderer struct {
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
-// before Render to enable style collection and component composition.
+// before Render to enable style collection and component composition. Call
+// WithFuncs to make engine-registered functions available in this component and
+// all child components rendered from it.
 func NewRenderer(c *Component) *Renderer {
 	return &Renderer{component: c}
 }

@@ -106,6 +106,10 @@ func (e *Engine) RegisterDirective(name string, dir Directive) {
 // takes precedence over them, which in turn takes precedence over the global
 // expr.RegisterBuiltin table.
 //
+// Functions registered here are propagated automatically into every child
+// component's scope, so they are available at any nesting depth without
+// being threaded through as explicit props.
+//
 // RegisterFunc returns the Engine so calls can be chained.
 func (e *Engine) RegisterFunc(name string, fn func(...any) (any, error)) *Engine {
 	if e.funcs == nil {
@@ -118,6 +122,11 @@ func (e *Engine) RegisterFunc(name string, fn func(...any) (any, error)) *Engine
 // WithDataMiddleware adds a function that is called on every HTTP-triggered
 // render to augment the data map. Middleware functions are called in
 // registration order; later middleware can overwrite keys set by earlier ones.
+//
+// Data middleware applies only to the HTTP-triggered top-level render and is
+// not automatically propagated into child component scopes. If child components
+// need access to values injected by middleware, those values must be passed as
+// explicit props or the same values should be registered via RegisterFunc.
 //
 // WithDataMiddleware returns the Engine so calls can be chained.
 func (e *Engine) WithDataMiddleware(fn func(*http.Request, map[string]any) map[string]any) *Engine {

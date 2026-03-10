@@ -296,6 +296,76 @@ Binding patterns:
 - Slot props (from `:prop="expr"` on `<slot>`) are merged into the scope when rendering that slot's content — they do not leak into the rest of the caller's template.
 - Named-slot props are scoped to the `<template #name="…">` block.
 
+#### Scope rules for props and engine functions
+
+Each component renders in an **isolated scope** containing only its own props.
+It does not automatically inherit variables from the parent component's scope.
+This is intentional: it prevents accidental coupling between components and
+makes data-flow explicit.
+
+Engine-level functions registered via `engine.RegisterFunc` are an exception:
+they are injected into every component's scope automatically, at every level
+of the component tree. Treat them as a lightweight, read-only global namespace
+for helper functions (URL builders, route matchers, formatters).
+
+**WithDataMiddleware** values are **not** propagated automatically — they are
+available only in the top-level page scope. If a deeply-nested component needs
+a value supplied by middleware (such as the current user), pass it down as an
+explicit prop or register it as an engine function instead.
+
+| Mechanism | Available in page | Available in child components |
+|-----------|:-----------------:|:-----------------------------:|
+| `RenderPage` / `RenderFragment` data map | Yes | No (pass as props) |
+| `WithDataMiddleware` values | Yes | No (pass as props) |
+| `RegisterFunc` functions | Yes | Yes (automatic) |
+| Explicit `:prop="expr"` | — | Yes |
+
+#### The page-to-shell pattern
+
+A common layout structure has a page component that passes request-specific
+data into a shared shell (layout) component:
+
+```vue
+<!-- HomePage.vue -->
+<template>
+  <Shell :title="title">
+    <h1>Welcome</h1>
+    <p>{{ intro }}</p>
+  </Shell>
+</template>
+```
+
+```vue
+<!-- Shell.vue -->
+<template>
+  <html>
+    <head><title>{{ title }}</title></head>
+    <body>
+      <nav>
+        <a :href="url('home')">Home</a>  <!-- url() from RegisterFunc -->
+      </nav>
+      <main><slot /></main>
+    </body>
+  </html>
+</template>
+```
+
+Render data for the page:
+
+```go
+engine.RenderPage(w, "HomePage", map[string]any{
+    "title": "Welcome",
+    "intro": "Hello from the server.",
+})
+```
+
+Key points:
+- The `Shell` component receives `title` as an explicit prop.
+- Helper functions like `url` are available in `Shell` automatically via
+  `RegisterFunc` — they do not need to be passed as props.
+- Slot content (`<h1>Welcome</h1>`) is evaluated in the **page's** scope,
+  not Shell's scope, so it can reference `title` and `intro` directly.
+
 #### Component resolution
 
 Given a tag name, the engine tries these strategies in order:
@@ -553,6 +623,40 @@ engine.RegisterFunc("formatDate", func(args ...any) (any, error) {
 ```html
 <span>{{ formatDate(post.CreatedAt) }}</span>
 ```
+
+### Share helper functions across the component tree
+
+Functions registered with `RegisterFunc` are available in **every** component
+at any nesting depth — you do not need to pass them as props:
+
+```go
+engine.RegisterFunc("url", func(args ...any) (any, error) {
+    name, _ := args[0].(string)
+    return router.URLFor(name), nil
+})
+engine.RegisterFunc("routeActive", func(args ...any) (any, error) {
+    name, _ := args[0].(string)
+    return r.URL.Path == router.URLFor(name), nil
+})
+```
+
+```vue
+<!-- Shell.vue — url() and routeActive() are available without any prop wiring -->
+<template>
+  <nav>
+    <a :href="url('home')" :class="{ active: routeActive('home') }">Home</a>
+    <a :href="url('about')" :class="{ active: routeActive('about') }">About</a>
+  </nav>
+  <slot />
+</template>
+```
+
+This is the recommended approach for router helpers, auth utilities, and any
+other function that many components across the tree need to call.
+
+For **data values** (structs, strings, booleans) that vary per request, pass
+them as explicit props or use `WithDataMiddleware` and thread them down through
+the component tree where needed.
 
 ### Serve a full-page component as an HTTP handler
 
