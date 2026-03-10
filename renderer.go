@@ -139,6 +139,7 @@ type Renderer struct {
 	ctx                context.Context // optional; nil means no cancellation
 	debug              bool
 	debugW             *debugWriter
+	funcs              map[string]any // engine-registered functions, propagated to child renderers
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -192,6 +193,14 @@ func (r *Renderer) WithContext(ctx context.Context) *Renderer {
 func (r *Renderer) withDebug(dw *debugWriter) *Renderer {
 	r.debug = true
 	r.debugW = dw
+	return r
+}
+
+// WithFuncs attaches engine-registered functions to this renderer so they are
+// available in template expressions and propagated to all child renderers.
+// Returns the Renderer for chaining.
+func (r *Renderer) WithFuncs(funcs map[string]any) *Renderer {
+	r.funcs = funcs
 	return r
 }
 
@@ -1300,6 +1309,18 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		slotDefs = collectSlotDefs(n, scope)
 	}
 
+	// Apply engine funcs as lower-priority values (explicit props win over funcs).
+	if len(r.funcs) > 0 {
+		merged := make(map[string]any, len(r.funcs)+len(childScope))
+		for k, v := range r.funcs {
+			merged[k] = v
+		}
+		for k, v := range childScope {
+			merged[k] = v // explicit props override engine funcs
+		}
+		childScope = merged
+	}
+
 	// Build a child renderer that shares the registry and style collector.
 	childRenderer := &Renderer{
 		component:          comp,
@@ -1311,6 +1332,7 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		ctx:                r.ctx,
 		debug:              r.debug,
 		debugW:             r.debugW,
+		funcs:              r.funcs, // propagate engine functions to child renderers
 	}
 
 	if err := childRenderer.Render(w, childScope); err != nil {

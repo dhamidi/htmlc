@@ -473,14 +473,15 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 		return nil, fmt.Errorf("engine: unknown component %q: %w", name, ErrComponentNotFound)
 	}
 
-	scope := e.applyEngineScope(data)
-
 	sc := &StyleCollector{}
 	renderer := NewRenderer(entry.comp).
 		WithStyles(sc).
 		WithComponents(reg).
 		WithDirectives(e.directives).
+		WithFuncs(e.funcs).
 		WithContext(ctx)
+
+	scope := e.applyEngineScope(data)
 	if e.missingPropHandler != nil {
 		renderer = renderer.WithMissingPropHandler(e.missingPropHandler)
 	}

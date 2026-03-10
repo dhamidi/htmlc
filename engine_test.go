@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -549,5 +550,105 @@ func TestEngine_ReloadDetectsChangedFile(t *testing.T) {
 	}
 	if !strings.Contains(out, "updated") {
 		t.Errorf("after reload: got %q, want 'updated'", out)
+	}
+}
+
+func TestEngine_RegisterFunc_AvailableInChildComponent(t *testing.T) {
+	// Child.vue calls greet() without receiving it as a prop.
+	// Parent.vue embeds Child without passing greet as a prop.
+	// greet() must be available in Child because it was registered on the engine.
+	memFS := fstest.MapFS{
+		"Child.vue": &fstest.MapFile{Data: []byte(
+			`<template><span>{{ greet("world") }}</span></template>`,
+		)},
+		"Parent.vue": &fstest.MapFile{Data: []byte(
+			`<template><div><Child /></div></template>`,
+		)},
+	}
+
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	e.RegisterFunc("greet", func(args ...any) (any, error) {
+		if len(args) == 0 {
+			return "Hello!", nil
+		}
+		return "Hello, " + fmt.Sprint(args[0]) + "!", nil
+	})
+
+	out, err := e.RenderFragmentString("Parent", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "Hello, world!") {
+		t.Errorf("expected 'Hello, world!' in output, got: %q", out)
+	}
+}
+
+func TestEngine_RegisterFunc_PropOverridesFunc(t *testing.T) {
+	// When a child component is passed an explicit prop with the same name as a
+	// registered function, the prop value takes precedence.
+	memFS := fstest.MapFS{
+		"Child.vue": &fstest.MapFile{Data: []byte(
+			`<template><span>{{ label }}</span></template>`,
+		)},
+		"Parent.vue": &fstest.MapFile{Data: []byte(
+			`<template><div><Child :label="'from-prop'" /></div></template>`,
+		)},
+	}
+
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Register a function under the same name as the prop.
+	e.RegisterFunc("label", func(args ...any) (any, error) {
+		return "from-func", nil
+	})
+
+	out, err := e.RenderFragmentString("Parent", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "from-prop") {
+		t.Errorf("expected 'from-prop' in output (prop should win over func), got: %q", out)
+	}
+	if strings.Contains(out, "from-func") {
+		t.Errorf("expected func value to be overridden by prop, but got 'from-func' in: %q", out)
+	}
+}
+
+func TestEngine_RegisterFunc_AvailableInGrandchildComponent(t *testing.T) {
+	// Ensures engine funcs propagate recursively (grandchild gets them too).
+	memFS := fstest.MapFS{
+		"Grandchild.vue": &fstest.MapFile{Data: []byte(
+			`<template><em>{{ shout("hi") }}</em></template>`,
+		)},
+		"Child.vue": &fstest.MapFile{Data: []byte(
+			`<template><section><Grandchild /></section></template>`,
+		)},
+		"Parent.vue": &fstest.MapFile{Data: []byte(
+			`<template><div><Child /></div></template>`,
+		)},
+	}
+
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	e.RegisterFunc("shout", func(args ...any) (any, error) {
+		if len(args) == 0 {
+			return "SHOUT!", nil
+		}
+		return strings.ToUpper(fmt.Sprint(args[0])) + "!", nil
+	})
+
+	out, err := e.RenderFragmentString("Parent", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "HI!") {
+		t.Errorf("expected 'HI!' in output (grandchild should have shout()), got: %q", out)
 	}
 }
