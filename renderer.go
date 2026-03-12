@@ -927,6 +927,15 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 			// server-side: render normally; consume directive, don't emit
 		case "v-model":
 			// strip: no meaning in server-side rendering
+		case "v-bind":
+			// Argument-less v-bind: spread a map of attributes onto the element.
+			val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
+			if err != nil {
+				return fmt.Errorf("v-bind %q: %w", attr.Val, err)
+			}
+			if err := applyAttrSpread(val, &dynClassParts, &dynStyleParts, &dynAttrs); err != nil {
+				return err
+			}
 		case "v-if", "v-else-if", "v-else", "v-for":
 			// consumed by directives; not emitted as attributes
 		case "class":
@@ -1257,6 +1266,24 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 	}
 	childScope := make(map[string]any)
 
+	// Phase 1: Apply v-bind spread maps (lower priority).
+	for _, attr := range n.Attr {
+		if attr.Key != "v-bind" {
+			continue
+		}
+		val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
+		if err != nil {
+			return fmt.Errorf("v-bind %q: %w", attr.Val, err)
+		}
+		if m, ok := toStringMap(val); ok {
+			for k, v := range m {
+				childScope[k] = v
+			}
+		} else if val != nil {
+			return fmt.Errorf("v-bind on component %q: expected map, got %T", n.Data, val)
+		}
+	}
+
 	// Look for a v-slot / # directive on the component tag itself.
 	var componentSlotName string
 	var componentSlotAttrVal string
@@ -1267,7 +1294,7 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		switch attr.Key {
 		case "v-if", "v-else-if", "v-else", "v-for",
 			"v-pre", "v-once", "v-show", "v-text", "v-html",
-			"v-model":
+			"v-model", "v-bind":
 			continue
 		}
 		if isClientSideDirective(attr.Key) {
@@ -1547,6 +1574,64 @@ func camelToKebab(s string) string {
 }
 
 // valueToString converts an evaluated expression value to its string representation.
+// applyAttrSpread applies the entries of a map value (from v-bind="obj")
+// to the accumulator slices used when building element attributes.
+// It applies the same per-key logic as individual :attr bindings.
+func applyAttrSpread(
+	val any,
+	dynClassParts *[]string,
+	dynStyleParts *[]string,
+	dynAttrs *[]outAttr,
+) error {
+	m, ok := toStringMap(val)
+	if !ok {
+		return fmt.Errorf("v-bind: expected map, got %T", val)
+	}
+	// Sort keys for deterministic output.
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		v := m[k]
+		switch k {
+		case "class":
+			s, err := resolveClass(v)
+			if err != nil {
+				return fmt.Errorf("v-bind class: %w", err)
+			}
+			*dynClassParts = append(*dynClassParts, s)
+		case "style":
+			s, err := resolveStyle(v)
+			if err != nil {
+				return fmt.Errorf("v-bind style: %w", err)
+			}
+			*dynStyleParts = append(*dynStyleParts, s)
+		default:
+			if isBooleanAttr(k) {
+				if expr.IsTruthy(v) {
+					*dynAttrs = append(*dynAttrs, outAttr{key: k, boolOnly: true})
+				}
+			} else {
+				*dynAttrs = append(*dynAttrs, outAttr{key: k, val: valueToString(v)})
+			}
+		}
+	}
+	return nil
+}
+
+// toStringMap converts a value to map[string]any if possible.
+// A nil value is treated as an empty map (no-op spread).
+func toStringMap(val any) (map[string]any, bool) {
+	if val == nil {
+		return nil, true // nil spread is a no-op; treat as ok
+	}
+	m, ok := val.(map[string]any)
+	return m, ok
+}
+
 // Values that implement fmt.Stringer are converted via their String() method.
 func valueToString(v any) string {
 	switch val := v.(type) {

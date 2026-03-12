@@ -88,6 +88,16 @@
 //	    Inline style binding; camelCase keys are converted to kebab-case.
 //	    Example: <p :style="{ fontSize: '14px', color: 'red' }">…</p>
 //
+//	v-bind="obj"
+//	    Attribute spreading: each key-value pair in the map becomes an HTML
+//	    attribute on the element. Keys "class" and "style" are merged with
+//	    any static and dynamic class/style attributes. Boolean attribute
+//	    semantics apply per key. On child components, the map is spread into
+//	    the component's prop scope (explicit :prop bindings take precedence
+//	    over spread values).
+//	    Example: <div v-bind="attrs"></div>
+//	             <Button v-bind="buttonProps" :type="'submit'" />
+//
 //	v-show="expr"
 //	    Adds style="display:none" when the expression is falsy; the element
 //	    is always present in the output.

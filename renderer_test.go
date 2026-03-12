@@ -1873,3 +1873,123 @@ func TestDebug_ExpressionComment_NotEmittedWhenDisabled(t *testing.T) {
 		t.Errorf("output should not contain debug comments when debug is disabled, got:\n%s", out)
 	}
 }
+
+func TestRender_VBindSpreadMap(t *testing.T) {
+	// Basic map spread onto HTML element; keys appear in sorted (deterministic) order.
+	scope := map[string]any{
+		"attrs": map[string]any{
+			"hx-delete":  "/items/1",
+			"hx-confirm": "Are you sure?",
+			"hx-target":  "#list",
+		},
+	}
+	out := renderTemplate(t, `<button v-bind="attrs">click</button>`, scope)
+	want := `<button hx-confirm="Are you sure?" hx-delete="/items/1" hx-target="#list">click</button>`
+	if !strings.Contains(out, want) {
+		t.Errorf("got %q, want it to contain %q", out, want)
+	}
+}
+
+func TestRender_VBindSpreadNilNoOp(t *testing.T) {
+	// nil spread is a no-op: element renders without extra attributes.
+	scope := map[string]any{"nothing": nil}
+	out := renderTemplate(t, `<div v-bind="nothing">x</div>`, scope)
+	want := `<div>x</div>`
+	if !strings.Contains(out, want) {
+		t.Errorf("got %q, want it to contain %q", out, want)
+	}
+}
+
+func TestRender_VBindSpreadMergesClass(t *testing.T) {
+	// class key in spread map is merged with static class attribute.
+	scope := map[string]any{
+		"extra": map[string]any{"class": "active"},
+	}
+	out := renderTemplate(t, `<div class="base" v-bind="extra">x</div>`, scope)
+	want := `<div class="base active">x</div>`
+	if !strings.Contains(out, want) {
+		t.Errorf("got %q, want it to contain %q", out, want)
+	}
+}
+
+func TestRender_VBindSpreadBooleanAttr(t *testing.T) {
+	// Boolean attrs in spread: truthy → present, falsy → omitted.
+	scope := map[string]any{
+		"attrs": map[string]any{
+			"disabled": true,
+			"required": false,
+		},
+	}
+	out := renderTemplate(t, `<button v-bind="attrs">x</button>`, scope)
+	if !strings.Contains(out, "disabled") {
+		t.Errorf("got %q, want 'disabled' present", out)
+	}
+	if strings.Contains(out, "required") {
+		t.Errorf("got %q, want 'required' omitted (falsy)", out)
+	}
+}
+
+func TestRender_VBindSpreadStyle(t *testing.T) {
+	// style key in spread map is merged with static style attribute.
+	scope := map[string]any{
+		"extra": map[string]any{"style": map[string]any{"fontSize": "14px"}},
+	}
+	out := renderTemplate(t, `<div style="color:red" v-bind="extra">x</div>`, scope)
+	if !strings.Contains(out, "color:red") {
+		t.Errorf("got %q, want static style 'color:red' preserved", out)
+	}
+	if !strings.Contains(out, "font-size:14px") {
+		t.Errorf("got %q, want spread style 'font-size:14px' present", out)
+	}
+}
+
+func TestRender_VBindSpreadComponentProps(t *testing.T) {
+	// Spread map into child component props.
+	child := mustParseComponent(t, "child.vue", `<div>{{ title }} {{ count }}</div>`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="props" />`)
+	scope := map[string]any{
+		"props": map[string]any{"title": "Hello", "count": float64(42)},
+	}
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := `<div>Hello 42</div>`
+	if !strings.Contains(out, want) {
+		t.Errorf("got %q, want it to contain %q", out, want)
+	}
+}
+
+func TestRender_VBindSpreadComponentExplicitPropWins(t *testing.T) {
+	// Explicit :prop binding should override spread value.
+	child := mustParseComponent(t, "child.vue", `<div>{{ title }}</div>`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="props" :title="'Override'" />`)
+	scope := map[string]any{
+		"props": map[string]any{"title": "Spread"},
+	}
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := `<div>Override</div>`
+	if !strings.Contains(out, want) {
+		t.Errorf("got %q, want it to contain %q", out, want)
+	}
+}
+
+func TestRender_VBindSpreadNonMapError(t *testing.T) {
+	// Non-map value should return an error.
+	scope := map[string]any{"notAMap": "hello"}
+	src := "<template><div v-bind=\"notAMap\">x</div></template>"
+	c, err := ParseFile("test.vue", src)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	_, err = RenderString(c, scope)
+	if err == nil {
+		t.Fatal("expected error for non-map v-bind, got nil")
+	}
+	if !strings.Contains(err.Error(), "v-bind") {
+		t.Errorf("error %q should mention 'v-bind'", err.Error())
+	}
+}

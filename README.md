@@ -147,6 +147,21 @@ The engine ships with no pre-registered built-in functions. Use `expr.RegisterBu
 - `class` and `:class` are merged into a single `class` attribute.
 - `style` and `:style` are merged into a single `style` attribute.
 - `v-bind:attr` (long form) is equivalent to `:attr` (shorthand).
+- **`v-bind="obj"` (attribute spreading)**: When `v-bind` is used without
+  an attribute name and its value is a `map[string]any`, each entry is spread
+  as an HTML attribute. Keys `class` and `style` follow the same merge rules
+  as `:class`/`:style`. Boolean attribute semantics apply per key.
+
+  ```html
+  <!-- Spread HTMX attributes from a map: -->
+  <button v-bind="actions.delete.hxAttrs">Delete</button>
+
+  <!-- Spread props into a child component: -->
+  <Card v-bind="cardProps" :title="override" />
+  ```
+
+  On child components, the spread map values are lower priority than
+  explicitly named `:prop` bindings.
 
 ---
 
