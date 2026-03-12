@@ -29,6 +29,11 @@ type SlotDefinition struct {
 	// It is used to stamp the correct scope attribute on slot elements.
 	// May be nil when the parent has no component context (rare).
 	Component *Component
+	// SlotDefs holds the slot definitions that were active in the authoring
+	// component at the time this slot content was captured.  When the slot
+	// content itself contains <slot /> elements they must be resolved against
+	// this map, not against the consuming component's slot definitions.
+	SlotDefs map[string]*SlotDefinition
 }
 
 // identRe matches a valid JS/Vue identifier: starts with letter, _ or $,
@@ -797,7 +802,11 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 			}
 
 			// slotRenderer uses the authoring component for correct scope attribute stamping.
+			// Use the authoring component's slot definitions so that any <slot /> elements
+			// inside the slot content are resolved against the authoring context, not the
+			// consuming component's context (which would cause infinite recursion).
 			slotRenderer := r.rendererWithComponent(def.Component)
+			slotRenderer.slotDefs = def.SlotDefs
 
 			nodes := def.Nodes
 			for i := 0; i < len(nodes); {
@@ -1181,7 +1190,7 @@ func (r *Renderer) resolveComponent(tagName string) *Component {
 // SlotDefinition so that slot content is rendered with the caller's bindings.
 // parentComp is the component that authored the slot content and is stored in
 // each SlotDefinition for correct scope attribute stamping.
-func collectSlotDefs(n *html.Node, parentScope map[string]any, parentComp *Component) map[string]*SlotDefinition {
+func collectSlotDefs(n *html.Node, parentScope map[string]any, parentComp *Component, parentSlotDefs map[string]*SlotDefinition) map[string]*SlotDefinition {
 	defs := make(map[string]*SlotDefinition)
 	var defaultNodes []*html.Node
 
@@ -1218,6 +1227,7 @@ func collectSlotDefs(n *html.Node, parentScope map[string]any, parentComp *Compo
 					BindingVar:  bindingVar,
 					Bindings:    bindings,
 					Component:   parentComp,
+					SlotDefs:    parentSlotDefs,
 				}
 				continue
 			}
@@ -1230,6 +1240,7 @@ func collectSlotDefs(n *html.Node, parentScope map[string]any, parentComp *Compo
 			Nodes:       defaultNodes,
 			ParentScope: cloneScope(),
 			Component:   parentComp,
+			SlotDefs:    parentSlotDefs,
 		}
 	}
 
@@ -1322,11 +1333,12 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 				BindingVar:  bindingVar,
 				Bindings:    bindings,
 				Component:   r.component,
+				SlotDefs:    r.slotDefs,
 			},
 		}
 	} else {
 		// Collect slot definitions from children.
-		slotDefs = collectSlotDefs(n, scope, r.component)
+		slotDefs = collectSlotDefs(n, scope, r.component, r.slotDefs)
 	}
 
 	// Apply engine funcs as lower-priority values (explicit props win over funcs).

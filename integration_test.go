@@ -593,3 +593,104 @@ func TestIntegration_CSSContentSpecialCharsPreserved(t *testing.T) {
 		t.Errorf("CSS special chars: want %q in output:\n%s", want, out)
 	}
 }
+
+// TestIntegration_NestedSlotChain_NoInfiniteRecursion is a regression test for
+// the infinite-recursion bug that occurred when a middle component's template
+// passed slot content containing a <slot /> to an inner component.
+//
+// Layout: Outer → Middle → Inner, where:
+//   - Outer passes <a href="/">Home</a> as slot content to Middle.
+//   - Middle's template wraps <slot /> in a <div> and passes that to Inner.
+//   - Inner's template wraps <slot /> in a <div>.
+//
+// Expected output: <div><div><a href="/">Home</a></div></div>
+func TestIntegration_NestedSlotChain_NoInfiniteRecursion(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Inner.vue"),
+		`<template><div><slot /></div></template>`)
+	writeVue(t, filepath.Join(dir, "Middle.vue"),
+		`<template><Inner><div><slot /></div></Inner></template>`)
+	writeVue(t, filepath.Join(dir, "Outer.vue"),
+		`<template><Middle><a href="/">Home</a></Middle></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Outer", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+
+	// The slot chain must resolve: Inner's slot → Middle's <div><slot/></div>,
+	// which then resolves its slot → Outer's <a href="/">Home</a>.
+	if !strings.Contains(out, `<a href="/">Home</a>`) {
+		t.Errorf("nested slot chain: want anchor in output:\n%s", out)
+	}
+	if !strings.Contains(out, "<div><div>") {
+		t.Errorf("nested slot chain: want nested divs in output:\n%s", out)
+	}
+}
+
+// TestIntegration_NestedSlotChain_NamedSlot verifies that the fix also works
+// when named slots are used in the chain.
+func TestIntegration_NestedSlotChain_NamedSlot(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "InnerNamed.vue"),
+		`<template><section><slot name="body" /></section></template>`)
+	writeVue(t, filepath.Join(dir, "MiddleNamed.vue"),
+		`<template><InnerNamed><template #body><p><slot name="content" /></p></template></InnerNamed></template>`)
+	writeVue(t, filepath.Join(dir, "OuterNamed.vue"),
+		`<template><MiddleNamed><template #content>hello</template></MiddleNamed></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("OuterNamed", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+
+	// The named slot chain: InnerNamed#body → MiddleNamed's <p><slot name="content"/></p>
+	// → OuterNamed's "hello".
+	if !strings.Contains(out, "<p>hello</p>") {
+		t.Errorf("named slot chain: want <p>hello</p> in output:\n%s", out)
+	}
+	if !strings.Contains(out, "<section>") {
+		t.Errorf("named slot chain: want <section> wrapper in output:\n%s", out)
+	}
+}
+
+// TestIntegration_NestedSlotChain_SlotProps verifies that slot props thread
+// correctly through a three-component chain.
+func TestIntegration_NestedSlotChain_SlotProps(t *testing.T) {
+	dir := t.TempDir()
+	// InnerProps emits a static slot prop msg="hello".
+	writeVue(t, filepath.Join(dir, "InnerProps.vue"),
+		`<template><slot msg="hello" /></template>`)
+	// MiddleProps consumes InnerProps' msg and re-emits it as label via slot props.
+	writeVue(t, filepath.Join(dir, "MiddleProps.vue"),
+		`<template><InnerProps v-slot="{ msg }"><slot :label="msg" /></InnerProps></template>`)
+	// OuterProps consumes MiddleProps' label and renders it in a span.
+	writeVue(t, filepath.Join(dir, "OuterProps.vue"),
+		`<template><MiddleProps v-slot="{ label }"><span>{{ label }}</span></MiddleProps></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("OuterProps", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+
+	// Slot props should thread: InnerProps emits msg="hello", MiddleProps rebinds as
+	// label="hello", OuterProps renders <span>hello</span>.
+	if !strings.Contains(out, "<span>hello</span>") {
+		t.Errorf("slot props chain: want <span>hello</span> in output:\n%s", out)
+	}
+}
