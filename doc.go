@@ -339,18 +339,20 @@
 //   - Mounted  – called after the element's closing tag has been written;
 //                may write additional HTML to the output writer.
 //
-// Register directives via Options.Directives or Engine.RegisterDirective:
+// Register custom directives via Options.Directives or Engine.RegisterDirective:
 //
 //	engine, err := htmlc.New(htmlc.Options{
 //	    ComponentDir: "templates/",
 //	    Directives: htmlc.DirectiveRegistry{
-//	        "switch": &htmlc.VSwitch{},
+//	        "my-dir": &MyDirective{},
 //	    },
 //	})
 //
 // The built-in VSwitch directive is the canonical example: it replaces the
 // host element's tag with a registered component name supplied by the
-// directive's expression, enabling dynamic component dispatch.
+// directive's expression, enabling dynamic component dispatch. VSwitch is
+// pre-registered and requires no setup — an engine created with
+// New(Options{ComponentDir: "..."}) handles v-switch out of the box.
 //
 // # Tutorial
 //

@@ -142,6 +142,13 @@ func New(opts Options) (*Engine, error) {
 		entries:    make(map[string]*engineEntry),
 		directives: opts.Directives,
 	}
+	// Auto-register built-in directives when not overridden by caller.
+	if _, ok := e.directives["switch"]; !ok {
+		if e.directives == nil {
+			e.directives = make(DirectiveRegistry)
+		}
+		e.directives["switch"] = &VSwitch{}
+	}
 	if opts.ComponentDir != "" {
 		if err := e.discover(opts.ComponentDir); err != nil {
 			return nil, err

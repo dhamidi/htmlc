@@ -893,10 +893,13 @@ The `DirectiveBinding` passed to both hooks contains:
 
 ### Built-in: VSwitch
 
-`VSwitch` is a built-in custom directive that replaces the host element with a registered component determined at runtime by the directive expression — similar to `<component :is="...">` but using a directive syntax:
+`VSwitch` is a built-in custom directive that replaces the host element with a registered component determined at runtime by the directive expression — similar to `<component :is="...">` but using a directive syntax.
+
+`v-switch` is **pre-registered and enabled by default** — no setup is required:
 
 ```go
-engine.RegisterDirective("switch", &htmlc.VSwitch{})
+// No explicit registration needed; v-switch works out of the box.
+engine, err := htmlc.New(htmlc.Options{ComponentDir: "templates/"})
 ```
 
 ```html
@@ -904,4 +907,10 @@ engine.RegisterDirective("switch", &htmlc.VSwitch{})
 <div v-switch="item.type" :title="item.title" />
 ```
 
-All attributes other than `v-switch` are forwarded to the resolved component as props. An error is returned if the component name does not exist in the registry.
+All attributes other than `v-switch` (and any `v-switch:*` argument forms) are forwarded to the resolved component as props. Component names are matched case-insensitively. An error is returned if the component name does not exist in the registry.
+
+To override the built-in with a custom implementation, supply it via `Options.Directives` or `Engine.RegisterDirective`:
+
+```go
+engine.RegisterDirective("switch", &myCustomSwitch{})
+```

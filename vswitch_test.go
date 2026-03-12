@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// vswitchEngine creates a test engine with VSwitch registered and the given
-// components available. Each entry in components is a map from name to template.
+// vswitchEngine creates a test engine with the given components available.
+// VSwitch is enabled by default so no explicit directive registration is needed.
 func vswitchEngine(t *testing.T, components map[string]string) *Engine {
 	t.Helper()
 	dir := t.TempDir()
@@ -16,9 +16,6 @@ func vswitchEngine(t *testing.T, components map[string]string) *Engine {
 	}
 	e, err := New(Options{
 		ComponentDir: dir,
-		Directives: DirectiveRegistry{
-			"switch": &VSwitch{},
-		},
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -123,5 +120,42 @@ func TestVSwitch_UnknownComponent(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "NoSuchComponent") {
 		t.Errorf("error %q should mention component name", err.Error())
+	}
+}
+
+// TestVSwitch_DefaultEnabled verifies that v-switch works without any explicit
+// directive registration — VSwitch is auto-registered by New.
+func TestVSwitch_DefaultEnabled(t *testing.T) {
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Host.vue"),
+		"<template><div v-switch=\"'Card'\"></div></template>")
+	writeVue(t, filepath.Join(dir, "Card.vue"),
+		"<template><article>card</article></template>")
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := e.RenderFragmentString("Host", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "card") {
+		t.Errorf("got %q, want Card output when v-switch enabled by default", out)
+	}
+}
+
+// TestVSwitch_CaseInsensitiveResolution verifies that providing "card"
+// (lowercase) dispatches to a component registered as "Card".
+func TestVSwitch_CaseInsensitiveResolution(t *testing.T) {
+	e := vswitchEngine(t, map[string]string{
+		"Host": `<div v-switch="lowerName"></div>`,
+		"Card": `<article>card</article>`,
+	})
+	out, err := e.RenderFragmentString("Host", map[string]any{"lowerName": "card"})
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "card") {
+		t.Errorf("got %q, want Card rendered for lowercase name", out)
 	}
 }
