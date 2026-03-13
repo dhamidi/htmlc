@@ -1,19 +1,11 @@
 <template>
-  <div class="callout" :class="type ? 'callout-' + type : ''">
+  <div v-if="type === 'info'" class="callout callout-info">
+    <slot />
+  </div>
+  <div v-else class="callout">
     <slot />
   </div>
 </template>
-
-<script>
-export default {
-  props: {
-    type: {
-      type: String,
-      default: ''
-    }
-  }
-}
-</script>
 
 <style>
 .callout {
