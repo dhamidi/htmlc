@@ -908,3 +908,37 @@ The `DirectiveBinding` passed to both hooks contains:
 - **`v-default`** — rendered when no preceding `v-case` matched. Only the first `v-default` is used.
 
 Only the first matching branch is rendered; subsequent matches are skipped. Children without `v-case` or `v-default` are silently ignored. These directives are built-in — no registration is required.
+
+### Example: VHighlight
+
+`VHighlight` is a worked example directive (modelled on the [Vue.js v-highlight guide](https://vuejs.org/guide/reusability/custom-directives.html)) that sets the `background` CSS property on the host element via its `style` attribute.
+
+Register it explicitly — it is **not** auto-registered:
+
+```go
+engine.RegisterDirective("highlight", &htmlc.VHighlight{})
+```
+
+Or pass it through `Options`:
+
+```go
+e, _ := htmlc.New(htmlc.Options{
+    ComponentDir: "templates",
+    Directives:   htmlc.DirectiveRegistry{"highlight": &htmlc.VHighlight{}},
+})
+```
+
+Then use `v-highlight` in any template:
+
+```html
+<!-- literal colour -->
+<p v-highlight="'yellow'">Highlighted text</p>
+
+<!-- dynamic colour from scope -->
+<span v-highlight="colour">Dynamic colour</span>
+
+<!-- merged with existing style -->
+<p style="color:blue" v-highlight="'green'">Both styles</p>
+```
+
+The directive uses the `Created` hook so the `style` attribute is set before the element is written to the output stream. If the element already has a `style` attribute, `background:<colour>` is appended after a semicolon; existing declarations are preserved.
