@@ -1,18 +1,11 @@
 [tools]
 go = "latest"
+"go:github.com/dhamidi/htmlc/cmd/htmlc" = "HEAD"
 
 [tasks.build]
 description = "Build the docs site with htmlc"
 run = """
-go install github.com/dhamidi/htmlc/cmd/htmlc@latest
-PROPS=$(cat ./pages/_data.json)
-mkdir -p ./dist/docs
-htmlc page -dir ./pages -props "$PROPS" index > ./dist/index.html
-htmlc page -dir ./pages/docs -props "$PROPS" index > ./dist/docs/index.html
-htmlc page -dir ./pages/docs -props "$PROPS" cli > ./dist/docs/cli.html
-htmlc page -dir ./pages/docs -props "$PROPS" directives > ./dist/docs/directives.html
-htmlc page -dir ./pages/docs -props "$PROPS" components > ./dist/docs/components.html
-echo "Build complete: 5 pages, 0 errors."
+htmlc build -dir ./components -pages ./pages -out ./dist
 """
 
 [tasks.dev]
