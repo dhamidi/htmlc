@@ -146,6 +146,7 @@
           <img src="/images/logo.webp" alt="htmlc logo" width="32" height="32" style="border-radius:6px;">htmlc</a>
         <div class="nav-links">
           <a href="/docs/index.html">Docs</a>
+          <a href="/docs/tutorial.html">Tutorial</a>
           <a href="/docs/cli.html">CLI</a>
           <a href="/docs/directives.html">Directives</a>
           <a href="https://github.com/dhamidi/htmlc" target="_blank" rel="noopener">GitHub</a>

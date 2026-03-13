@@ -7,6 +7,7 @@
           <a href="#overview" class="sidebar-link">Overview</a>
           <a href="#installation" class="sidebar-link">Installation</a>
           <a href="#quick-start" class="sidebar-link">Quick start</a>
+          <a href="/docs/tutorial.html" class="sidebar-link">Tutorial</a>
         </SidebarSection>
         <SidebarSection label="Template syntax">
           <a href="#interpolation" class="sidebar-link">Interpolation</a>

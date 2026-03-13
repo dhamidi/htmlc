@@ -10,8 +10,8 @@
         Render them server-side in Go — no Node.js, no JavaScript runtime, no virtual DOM.
       </p>
       <div class="hero-actions">
-        <Button href="/docs/index.html" variant="primary">Get started</Button>
-        <Button href="/docs/cli.html" variant="secondary">CLI reference</Button>
+        <Button href="/docs/tutorial.html" variant="primary">Get started</Button>
+        <Button href="/docs/index.html" variant="secondary">Documentation</Button>
       </div>
       <div class="hero-install">
         <code>go install github.com/dhamidi/htmlc/cmd/htmlc@latest</code>

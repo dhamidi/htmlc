@@ -1,15 +1,14 @@
 <template>
-  <component
-    :is="href ? 'a' : 'button'"
-    :href="href"
+  <a
+    :href="href ?? '#'"
     :class="['btn', 'btn-' + variant]"
-  ><slot /></component>
+  ><slot /></a>
 </template>
 
 <script>
 export default {
   props: {
-    href:    { type: String,  default: null },
+    href:    { type: String,  default: null  },
     variant: { type: String,  default: 'primary' },
   },
 }
