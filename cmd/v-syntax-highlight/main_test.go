@@ -126,6 +126,34 @@ func TestPrintCSSFlag(t *testing.T) {
 	}
 }
 
+// TestHighlightsHTMLWithMustacheSyntax verifies that HTML containing mustache
+// template syntax is highlighted correctly and that {{ expressions }} are
+// preserved as literal text rather than evaluated.
+func TestHighlightsHTMLWithMustacheSyntax(t *testing.T) {
+	style := styles.Get("monokai")
+	formatter := defaultFormatter()
+
+	req := request{
+		Hook: "created",
+		ID:   "10",
+		Tag:  "pre",
+		Text: "<span>{{ items.length }}</span>",
+	}
+	req.Binding.Value = "html"
+
+	resp := processRequest(req, style, formatter)
+
+	if resp.Error != "" {
+		t.Errorf("unexpected error: %s", resp.Error)
+	}
+	if resp.InnerHTML == "" {
+		t.Error("inner_html should be non-empty")
+	}
+	if !strings.Contains(resp.InnerHTML, "{{ items.length }}") {
+		t.Errorf("inner_html should preserve mustache text, got: %s", resp.InnerHTML)
+	}
+}
+
 // TestMalformedInputContinues verifies that a bad JSON line is skipped with a
 // warning on stderr and that the process continues to handle valid lines.
 func TestMalformedInputContinues(t *testing.T) {
