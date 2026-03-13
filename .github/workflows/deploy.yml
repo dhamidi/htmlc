@@ -19,12 +19,6 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@v2
 
-      - name: Install Go
-        run: mise use -g go@latest
-
-      - name: Install htmlc
-        run: go install github.com/dhamidi/htmlc/cmd/htmlc@latest
-
       - name: Build docs
         run: mise run build
 

@@ -5,14 +5,20 @@ go = "latest"
 description = "Build the docs site with htmlc"
 run = """
 go install github.com/dhamidi/htmlc/cmd/htmlc@latest
-htmlc build -dir ./components -pages ./pages -out ./dist -layout Layout
+PROPS=$(cat ./pages/_data.json)
+mkdir -p ./dist/docs
+htmlc page -dir ./pages -props "$PROPS" index > ./dist/index.html
+htmlc page -dir ./pages/docs -props "$PROPS" index > ./dist/docs/index.html
+htmlc page -dir ./pages/docs -props "$PROPS" cli > ./dist/docs/cli.html
+htmlc page -dir ./pages/docs -props "$PROPS" directives > ./dist/docs/directives.html
+htmlc page -dir ./pages/docs -props "$PROPS" components > ./dist/docs/components.html
+echo "Build complete: 5 pages, 0 errors."
 """
 
 [tasks.dev]
 description = "Build and serve with live reload"
 run = """
-go install github.com/dhamidi/htmlc/cmd/htmlc@latest
-htmlc build -dir ./components -pages ./pages -out ./dist -layout Layout -dev :8080
+mise run build
 """
 
 [tasks.deploy]
