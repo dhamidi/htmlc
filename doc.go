@@ -3,6 +3,10 @@
 // <script>, and an optional <style> section — and renders them to HTML strings
 // ready to serve via net/http or any http.Handler-based framework.
 //
+// [htmlc logo]
+//
+// [htmlc logo]: ./logo.svg
+//
 // # Problem it solves
 //
 // Writing server-rendered HTML in Go typically means either concatenating

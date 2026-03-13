@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.svg" width="256" height="256" alt="htmlc logo" />
+</p>
+
 # htmlc
 
 A server-side Go template engine that uses Vue.js Single File Component (`.vue`) syntax for authoring but renders entirely in Go with no JavaScript runtime.
