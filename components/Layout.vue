@@ -5,6 +5,7 @@
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <meta name="description" :content="description ?? 'htmlc — server-side Vue component rendering in Go'" />
       <title>{{ pageTitle ?? siteTitle }}</title>
+      <link rel="stylesheet" href="/fonts.css" />
       <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -24,7 +25,7 @@
         body {
           background: var(--bg);
           color: var(--text);
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+          font-family: 'Outfit', system-ui, sans-serif;
           font-size: 16px;
           line-height: 1.6;
           min-height: 100vh;
@@ -58,6 +59,7 @@
         }
 
         h1, h2, h3, h4 {
+          font-family: 'Alegreya', Georgia, serif;
           line-height: 1.2;
           font-weight: 700;
           letter-spacing: -0.02em;
@@ -90,7 +92,8 @@
         }
 
         .site-nav .logo {
-          font-weight: 800;
+          font-family: 'Outfit', system-ui, sans-serif;
+          font-weight: 700;
           font-size: 1.1rem;
           color: var(--text);
           letter-spacing: -0.03em;
