@@ -11,6 +11,7 @@
       <a href="/docs/directives.html" class="sidebar-link">Directives</a>
       <a href="/docs/components.html" class="sidebar-link">Component system</a>
       <a href="/docs/cli.html" class="sidebar-link">CLI</a>
+      <a href="/docs/go-api.html" class="sidebar-link">Go API</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Project</div>
