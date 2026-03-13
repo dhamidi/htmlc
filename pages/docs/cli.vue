@@ -17,7 +17,13 @@
       {label: 'Guides'},
       {href: '#static-site', label: 'Static sites'},
       {href: '#layouts', label: 'Layouts'},
-      {href: '#data-files', label: 'Data files'}
+      {href: '#data-files', label: 'Data files'},
+      {label: 'External directives'},
+      {href: '#external-directives', label: 'Overview'},
+      {href: '#directive-discovery', label: 'Discovery'},
+      {href: '#directive-protocol', label: 'Protocol'},
+      {href: '#directive-created', label: 'created hook'},
+      {href: '#directive-mounted', label: 'mounted hook'}
     ]"
   >
     <h1 id="synopsis">CLI Reference</h1>
@@ -138,6 +144,79 @@ htmlc help
 
 # Show help for a specific subcommand
 htmlc help build</code></pre>
+
+    <h2 id="external-directives">External directives</h2>
+    <p>External directives extend <code>htmlc build</code> with custom element transformations. They are standalone executables that communicate with the build via newline-delimited JSON (NDJSON) over stdin/stdout.</p>
+
+    <h3 id="directive-discovery">Discovery</h3>
+    <p>During <code>build</code>, <code>htmlc</code> walks the component directory (<code>-dir</code>) and registers every file that satisfies all three conditions:</p>
+    <table>
+      <thead><tr><th>Condition</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td>Name</td><td>Base name without extension matches <code>v-&lt;directive-name&gt;</code></td></tr>
+        <tr><td>Directive name format</td><td>Lower-kebab-case: <code>[a-z][a-z0-9-]*</code></td></tr>
+        <tr><td>Executable</td><td>File mode has at least one executable bit set (<code>mode &amp; 0111 != 0</code>)</td></tr>
+      </tbody>
+    </table>
+    <p>Hidden directories (names starting with <code>.</code>) are skipped. Extensions are ignored, so <code>v-foo</code>, <code>v-foo.sh</code>, and <code>v-foo.py</code> all register as directive <code>foo</code>.</p>
+    <pre v-syntax-highlight="'bash'"><code>v-syntax-highlight      → directive name: syntax-highlight
+v-upper.sh              → directive name: upper
+v-toc-builder.py        → directive name: toc-builder</code></pre>
+
+    <p>Each directive is started once at the beginning of the build and stopped when the build finishes. A non-zero exit code is treated as a warning; the build continues.</p>
+
+    <h3 id="directive-protocol">Protocol</h3>
+    <p>Communication is NDJSON: one JSON object per line, no pretty-printing. Requests flow from <code>htmlc</code> to the directive on stdin; responses flow back on stdout. Requests are sent sequentially. The directive's stderr is forwarded verbatim to <code>htmlc</code>'s stderr.</p>
+    <p><strong>Request envelope</strong> (sent for every element carrying the directive's attribute):</p>
+    <pre v-syntax-highlight="'json'"><code>{
+  "hook":    "created" | "mounted",
+  "id":      "&lt;opaque string&gt;",
+  "tag":     "&lt;element tag name&gt;",
+  "attrs":   { "&lt;name&gt;": "&lt;value&gt;", ... },
+  "text":    "&lt;concatenated text content of child text nodes&gt;",
+  "binding": {
+    "value":     "&lt;evaluated expression&gt;",
+    "raw_expr":  "&lt;unevaluated expression string&gt;",
+    "arg":       "&lt;directive argument, or empty string&gt;",
+    "modifiers": { "&lt;modifier&gt;": true, ... }
+  }
+}</code></pre>
+
+    <h3 id="directive-created">created hook</h3>
+    <p>Called <strong>before</strong> the element is rendered. The response may mutate the element's tag, attributes, or inner content.</p>
+    <pre v-syntax-highlight="'json'"><code>{
+  "id":         "&lt;same id as request&gt;",
+  "tag":        "&lt;optional: replacement tag name&gt;",
+  "attrs":      { "&lt;name&gt;": "&lt;value&gt;", ... },
+  "inner_html": "&lt;optional: verbatim HTML to use as element content&gt;",
+  "error":      "&lt;optional: non-empty string aborts rendering of this element&gt;"
+}</code></pre>
+    <table>
+      <thead><tr><th>Field</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>Required. Must match the request <code>id</code>.</td></tr>
+        <tr><td><code>tag</code></td><td>If non-empty, replaces the element's tag name.</td></tr>
+        <tr><td><code>attrs</code></td><td>If present, replaces all element attributes.</td></tr>
+        <tr><td><code>inner_html</code></td><td>If non-empty, replaces the element's children with this HTML verbatim. Template children are discarded.</td></tr>
+        <tr><td><code>error</code></td><td>If non-empty, aborts rendering of this element.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="directive-mounted">mounted hook</h3>
+    <p>Called <strong>after</strong> the element's closing tag has been written.</p>
+    <pre v-syntax-highlight="'json'"><code>{
+  "id":    "&lt;same id as request&gt;",
+  "html":  "&lt;optional: HTML injected immediately after the closing tag&gt;",
+  "error": "&lt;optional: non-empty string aborts rendering&gt;"
+}</code></pre>
+    <table>
+      <thead><tr><th>Field</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>Required. Must match the request <code>id</code>.</td></tr>
+        <tr><td><code>html</code></td><td>If non-empty, written verbatim after the element's closing tag.</td></tr>
+        <tr><td><code>error</code></td><td>If non-empty, aborts rendering and logs the message.</td></tr>
+      </tbody>
+    </table>
   </DocsPage>
 </template>
 
