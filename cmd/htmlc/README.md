@@ -395,15 +395,24 @@ htmlc build [-dir <path>] [-pages <path>] [-out <path>] [-layout <name>] [-debug
 
 Files in the pages directory whose base name starts with `_` are skipped — they are treated as shared partials, not pages.
 
-Props for each page are loaded from a sibling JSON file with the same base name (e.g. `pages/posts/hello.json` for `pages/posts/hello.vue`).  If no data file exists the page is rendered with no props.
+Props for each page are loaded by shallow-merging JSON data files in ascending directory order:
+
+1. `pages/_data.json` — root-level defaults inherited by every page.
+2. `pages/subdir/_data.json` — sub-directory defaults (one per directory level).
+3. `pages/subdir/hello.json` — page-level props with the same base name as the `.vue` file (highest priority).
+
+Missing files are silently skipped.  A page-level key always overrides the same key from an ancestor `_data.json`.  If no data files exist the page is rendered with no props.
 
 The directory hierarchy is preserved: `pages/posts/hello.vue` becomes `out/posts/hello.html`.
 
 ```
 pages/
+  _data.json         ← defaults for all pages
   index.vue          → out/index.html
+  index.json         ← props for index.vue (merged on top of _data.json)
   about.vue          → out/about.html
   posts/
+    _data.json       ← defaults for pages under posts/
     hello.vue        → out/posts/hello.html
     hello.json       ← props for posts/hello.vue
 ```

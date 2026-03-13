@@ -85,9 +85,14 @@ DESCRIPTION
   HTML page, and writes the results to the output directory. The directory
   hierarchy is preserved: pages/posts/hello.vue becomes out/posts/hello.html.
 
-  Props for each page are loaded from a JSON file with the same name as the
-  page (e.g. pages/posts/hello.json for pages/posts/hello.vue). If no data
-  file exists the page is rendered with no props.
+  Props for each page are loaded by merging JSON data files in order:
+
+    1. pages/_data.json          — root defaults (all pages)
+    2. pages/subdir/_data.json   — subdirectory defaults (pages in that dir)
+    3. pages/subdir/hello.json   — page-level props (highest priority)
+
+  Each level is shallow-merged so page-level values always win. If no data
+  files exist the page is rendered with no props.
 
 FLAGS
   -dir string     Directory containing shared .vue components. (default ".")
@@ -629,6 +634,78 @@ func discoverPages(pagesDir string) ([]pageEntry, error) {
 	return entries, nil
 }
 
+// readJSONFile reads path and unmarshals its contents into a map.
+// It returns a descriptive error if the file contains invalid JSON.
+func readJSONFile(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("%s: invalid JSON: %w", path, err)
+	}
+	return m, nil
+}
+
+// loadPageData loads and shallow-merges props for entry.
+//
+// It collects ancestor _data.json files from pagesRoot down to the page's
+// parent directory (inclusive), then the page's own .json file
+// (entry.dataPath), and shallow-merges them in that order so that
+// page-level values take highest priority.
+//
+// Missing files are silently skipped. An error is returned only when a
+// file that exists contains invalid JSON.
+func loadPageData(entry pageEntry, pagesRoot string) (map[string]any, error) {
+	pageDir := filepath.Dir(entry.absPath)
+	rel, err := filepath.Rel(pagesRoot, pageDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving page directory: %w", err)
+	}
+
+	result := map[string]any{}
+
+	// Collect _data.json paths from pagesRoot down to pageDir.
+	// First check pagesRoot itself, then descend one component at a time.
+	var dataDirs []string
+	dataDirs = append(dataDirs, pagesRoot)
+	if rel != "." {
+		current := pagesRoot
+		for _, part := range strings.Split(rel, string(filepath.Separator)) {
+			current = filepath.Join(current, part)
+			dataDirs = append(dataDirs, current)
+		}
+	}
+
+	for _, dir := range dataDirs {
+		candidate := filepath.Join(dir, "_data.json")
+		if _, statErr := os.Stat(candidate); statErr != nil {
+			continue
+		}
+		m, err := readJSONFile(candidate)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range m {
+			result[k] = v
+		}
+	}
+
+	// Apply page-level data last (highest priority).
+	if entry.dataPath != "" {
+		m, err := readJSONFile(entry.dataPath)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range m {
+			result[k] = v
+		}
+	}
+
+	return result, nil
+}
+
 func runBuild(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -670,8 +747,20 @@ func runBuild(args []string, stdout, stderr io.Writer) error {
 	}
 
 	_ = out
+	failed := 0
 	for _, e := range discovered {
+		data, err := loadPageData(e, *pages)
+		if err != nil {
+			fmt.Fprintf(stderr, "htmlc build: %s: failed to load data: %v\n", e.relPath, err)
+			failed++
+			continue
+		}
+		_ = data
 		fmt.Fprintf(stdout, "%s → %s\n", e.relPath, e.outPath)
+	}
+	if failed > 0 {
+		fmt.Fprintf(stderr, "htmlc build: %d page(s) failed; see errors above.\n", failed)
+		return errSilent
 	}
 	return nil
 }

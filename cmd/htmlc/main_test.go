@@ -675,6 +675,146 @@ func TestBuildMissingPagesDir(t *testing.T) {
 	}
 }
 
+// --- loadPageData tests ---
+
+func writeJSON(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile %s: %v", path, err)
+	}
+}
+
+func makeEntry(t *testing.T, pagesRoot, relVue string) pageEntry {
+	t.Helper()
+	absPath := filepath.Join(pagesRoot, relVue)
+	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(absPath, []byte(`<template><div></div></template>`), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	dataPath := strings.TrimSuffix(absPath, ".vue") + ".json"
+	if _, err := os.Stat(dataPath); err != nil {
+		dataPath = ""
+	}
+	return pageEntry{
+		relPath:  relVue,
+		absPath:  absPath,
+		dataPath: dataPath,
+		outPath:  strings.TrimSuffix(relVue, ".vue") + ".html",
+	}
+}
+
+func TestLoadPageData_NoDataFiles(t *testing.T) {
+	pagesRoot := t.TempDir()
+	entry := makeEntry(t, pagesRoot, "index.vue")
+
+	got, err := loadPageData(entry, pagesRoot)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty map, got %v", got)
+	}
+}
+
+func TestLoadPageData_PageLevelOnly(t *testing.T) {
+	pagesRoot := t.TempDir()
+	writeJSON(t, filepath.Join(pagesRoot, "index.json"), `{"title":"Hello","count":3}`)
+	entry := makeEntry(t, pagesRoot, "index.vue")
+	// Manually set dataPath since makeEntry uses stat after vue creation
+	entry.dataPath = filepath.Join(pagesRoot, "index.json")
+
+	got, err := loadPageData(entry, pagesRoot)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got["title"] != "Hello" {
+		t.Errorf("expected title=Hello, got %v", got["title"])
+	}
+	if got["count"] != float64(3) {
+		t.Errorf("expected count=3, got %v", got["count"])
+	}
+}
+
+func TestLoadPageData_RootDataPlusPageLevel(t *testing.T) {
+	pagesRoot := t.TempDir()
+	writeJSON(t, filepath.Join(pagesRoot, "_data.json"), `{"site":"MySite","author":"root"}`)
+	writeJSON(t, filepath.Join(pagesRoot, "index.json"), `{"author":"override","title":"Home"}`)
+	entry := makeEntry(t, pagesRoot, "index.vue")
+	entry.dataPath = filepath.Join(pagesRoot, "index.json")
+
+	got, err := loadPageData(entry, pagesRoot)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got["site"] != "MySite" {
+		t.Errorf("expected site=MySite, got %v", got["site"])
+	}
+	// page-level "author" overrides root default
+	if got["author"] != "override" {
+		t.Errorf("expected author=override, got %v", got["author"])
+	}
+	if got["title"] != "Home" {
+		t.Errorf("expected title=Home, got %v", got["title"])
+	}
+}
+
+func TestLoadPageData_TwoLevelChain(t *testing.T) {
+	pagesRoot := t.TempDir()
+	writeJSON(t, filepath.Join(pagesRoot, "_data.json"), `{"site":"Root","section":"root","page":"root"}`)
+	writeJSON(t, filepath.Join(pagesRoot, "posts", "_data.json"), `{"section":"posts","page":"posts"}`)
+	writeJSON(t, filepath.Join(pagesRoot, "posts", "hello.json"), `{"page":"hello"}`)
+	entry := makeEntry(t, pagesRoot, filepath.Join("posts", "hello.vue"))
+	entry.dataPath = filepath.Join(pagesRoot, "posts", "hello.json")
+
+	got, err := loadPageData(entry, pagesRoot)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got["site"] != "Root" {
+		t.Errorf("expected site=Root, got %v", got["site"])
+	}
+	if got["section"] != "posts" {
+		t.Errorf("expected section=posts (subdir wins over root), got %v", got["section"])
+	}
+	if got["page"] != "hello" {
+		t.Errorf("expected page=hello (page-level wins over all), got %v", got["page"])
+	}
+}
+
+func TestLoadPageData_InvalidRootDataJSON(t *testing.T) {
+	pagesRoot := t.TempDir()
+	writeJSON(t, filepath.Join(pagesRoot, "_data.json"), `not-json`)
+	entry := makeEntry(t, pagesRoot, "index.vue")
+
+	_, err := loadPageData(entry, pagesRoot)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON in _data.json, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid JSON") {
+		t.Errorf("expected 'invalid JSON' in error, got: %v", err)
+	}
+}
+
+func TestLoadPageData_InvalidPageJSON(t *testing.T) {
+	pagesRoot := t.TempDir()
+	writeJSON(t, filepath.Join(pagesRoot, "index.json"), `{bad json}`)
+	entry := makeEntry(t, pagesRoot, "index.vue")
+	entry.dataPath = filepath.Join(pagesRoot, "index.json")
+
+	_, err := loadPageData(entry, pagesRoot)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON in page file, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid JSON") {
+		t.Errorf("expected 'invalid JSON' in error, got: %v", err)
+	}
+}
+
 func TestBuildDiscoversPages(t *testing.T) {
 	pagesDir := t.TempDir()
 
