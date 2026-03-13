@@ -1,9 +1,5 @@
 <template>
-  <Layout
-    pageTitle="htmlc — Server-side Vue component rendering for Go"
-    :siteTitle="siteTitle"
-    :description="description"
-  >
+  <Layout :siteTitle="siteTitle" :description="description">
 
     <!-- Hero -->
     <section class="hero">
@@ -18,54 +14,54 @@
         <Button href="/docs/index.html" variant="secondary">Documentation</Button>
       </div>
       <div class="hero-install">
-        <code>go install github.com/dhamidi/htmlc/cmd/htmlc@latest</code>
+        <code>go get github.com/dhamidi/htmlc</code>
       </div>
     </section>
 
     <!-- Features -->
     <div class="features">
       <div class="feature-card">
-        <div class="feature-icon">&#127381;</div>
+        <div class="feature-icon"><IconZap /></div>
         <div class="feature-title">Zero JavaScript runtime</div>
         <p class="feature-desc">Templates evaluate once per request and produce plain HTML. No hydration, no virtual DOM, no client bundles.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">&#128196;</div>
+        <div class="feature-icon"><IconFileCode /></div>
         <div class="feature-title">Vue SFC syntax</div>
         <p class="feature-desc">Author components using the same <code>.vue</code> format you already know — <code>v-if</code>, <code>v-for</code>, <code>v-bind</code>, slots, scoped styles.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">&#128295;</div>
+        <div class="feature-icon"><IconTerminal /></div>
         <div class="feature-title">CLI &amp; Go API</div>
         <p class="feature-desc">Use the <code>htmlc</code> CLI for static sites or import the Go package to render components inside any HTTP handler.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">&#127912;</div>
+        <div class="feature-icon"><IconPalette /></div>
         <div class="feature-title">Scoped styles</div>
         <p class="feature-desc"><code>&lt;style scoped&gt;</code> rewrites selectors and injects scope attributes automatically — styles never leak between components.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">&#128218;</div>
+        <div class="feature-icon"><IconGlobe /></div>
         <div class="feature-title">Static site generation</div>
         <p class="feature-desc"><code>htmlc build</code> walks a pages directory and renders every <code>.vue</code> file to a matching <code>.html</code> file. Props come from sibling JSON files.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">&#128270;</div>
+        <div class="feature-icon"><IconBug /></div>
         <div class="feature-title">Debug mode</div>
         <p class="feature-desc">Pass <code>-debug</code> and the output is annotated with HTML comments showing which component rendered each subtree.</p>
       </div>
     </div>
 
-    <!-- Quick start -->
+    <!-- Quick start (Go API) -->
     <section class="section">
       <div class="section-label">Quick start</div>
-      <h2 class="section-title">Up and running in minutes</h2>
-      <p class="section-desc">Install the CLI, write a component, render it.</p>
+      <h2 class="section-title">Embed in any Go application</h2>
+      <p class="section-desc">Import the package, create an engine, and render components directly from your HTTP handlers.</p>
 
       <div class="two-col">
         <div>
-          <div class="col-label">1. Install</div>
-          <pre><code>go install github.com/dhamidi/htmlc/cmd/htmlc@latest</code></pre>
+          <div class="col-label">1. Add the dependency</div>
+          <pre><code>go get github.com/dhamidi/htmlc</code></pre>
         </div>
         <div>
           <div class="col-label">2. Write a component</div>
@@ -75,18 +71,25 @@
 &lt;/template&gt;</code></pre>
         </div>
         <div>
-          <div class="col-label">3. Render it</div>
-          <pre><code>$ htmlc render -dir ./templates Greeting \
-    -props '{"name":"world"}'
-&lt;p&gt;Hello, world!&lt;/p&gt;</code></pre>
+          <div class="col-label">3. Create an engine &amp; render</div>
+          <pre><code>engine, err := htmlc.New(htmlc.Options{
+    ComponentDir: "templates/",
+})
+
+html, err := engine.RenderFragmentString(
+    "Greeting",
+    map[string]any{"name": "world"},
+)
+// html == "&lt;p&gt;Hello, world!&lt;/p&gt;"</code></pre>
         </div>
         <div>
-          <div class="col-label">4. Build a whole site</div>
-          <pre><code>$ htmlc build \
-    -dir ./templates \
-    -pages ./pages \
-    -out ./dist
-Build complete: 12 pages, 0 errors.</code></pre>
+          <div class="col-label">4. Serve over HTTP</div>
+          <pre><code>http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+    engine.RenderPage(w, "Page", map[string]any{
+        "title": "Home",
+    })
+})</code></pre>
         </div>
       </div>
     </section>
@@ -100,12 +103,13 @@ Build complete: 12 pages, 0 errors.</code></pre>
   .hero-title { font-size: clamp(2.2rem, 5vw, 3.6rem); font-weight: 800; line-height: 1.1; margin-bottom: 1.25rem; color: var(--text); letter-spacing: -0.04em; }
   .hero-sub { font-size: 1.1rem; color: var(--muted); margin-bottom: 2.5rem; max-width: 560px; margin-left: auto; margin-right: auto; }
   .hero-actions { display: flex; gap: 1rem; justify-content: center; margin-bottom: 2rem; flex-wrap: wrap; }
-  .hero-install { display: inline-block; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 1.2rem; font-size: 0.85rem; color: var(--accent); }
+  .hero-install { display: inline-block; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 1.2rem; font-size: 0.85rem; color: var(--accent2); }
   .hero-install code { background: none; border: none; padding: 0; border-radius: 0; }
 
   .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin: 4rem 0; }
   .feature-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
-  .feature-icon { font-size: 1.8rem; margin-bottom: 0.75rem; }
+  .feature-icon { margin-bottom: 0.75rem; color: var(--accent); }
+  .feature-icon .icon { width: 1.5rem; height: 1.5rem; }
   .feature-title { font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; }
   .feature-desc { font-size: 0.875rem; color: var(--muted); line-height: 1.6; }
 
