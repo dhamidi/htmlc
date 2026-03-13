@@ -14,6 +14,10 @@
       <a href="/docs/go-api.html" class="sidebar-link">Go API</a>
     </div>
     <div class="sidebar-section">
+      <div class="sidebar-label">Guides</div>
+      <a href="/docs/howto.html" class="sidebar-link">How-to guides</a>
+    </div>
+    <div class="sidebar-section">
       <div class="sidebar-label">Project</div>
       <a href="https://github.com/dhamidi/htmlc" class="sidebar-link" target="_blank" rel="noopener">GitHub</a>
     </div>
