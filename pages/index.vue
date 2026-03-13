@@ -1,5 +1,9 @@
 <template>
-  <Layout :siteTitle="siteTitle" :description="description">
+  <Layout
+    pageTitle="htmlc — Server-side Vue component rendering for Go"
+    :siteTitle="siteTitle"
+    :description="description"
+  >
 
     <!-- Hero -->
     <section class="hero">
