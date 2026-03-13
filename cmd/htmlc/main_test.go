@@ -815,6 +815,142 @@ func TestLoadPageData_InvalidPageJSON(t *testing.T) {
 	}
 }
 
+// --- Build integration tests ---
+
+func TestBuildRendersPages(t *testing.T) {
+	componentsDir := t.TempDir()
+	pagesDir := t.TempDir()
+	outDir := t.TempDir()
+
+	// index page
+	os.WriteFile(filepath.Join(pagesDir, "index.vue"),
+		[]byte(`<template><html><body><h1>{{ title }}</h1></body></html></template>`), 0644)
+	os.WriteFile(filepath.Join(pagesDir, "index.json"),
+		[]byte(`{"title":"Home"}`), 0644)
+
+	// posts/hello page
+	if err := os.MkdirAll(filepath.Join(pagesDir, "posts"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(pagesDir, "posts", "hello.vue"),
+		[]byte(`<template><html><body><p>{{ body }}</p></body></html></template>`), 0644)
+	os.WriteFile(filepath.Join(pagesDir, "posts", "hello.json"),
+		[]byte(`{"body":"Hello World"}`), 0644)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"build", "-dir", componentsDir, "-pages", pagesDir, "-out", outDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr: %s", code, stderr.String())
+	}
+
+	// Check index.html
+	indexHTML := filepath.Join(outDir, "index.html")
+	if _, err := os.Stat(indexHTML); err != nil {
+		t.Errorf("expected %s to exist: %v", indexHTML, err)
+	} else {
+		content, _ := os.ReadFile(indexHTML)
+		if !strings.Contains(string(content), "Home") {
+			t.Errorf("index.html should contain 'Home', got: %s", content)
+		}
+	}
+
+	// Check posts/hello.html
+	helloHTML := filepath.Join(outDir, "posts", "hello.html")
+	if _, err := os.Stat(helloHTML); err != nil {
+		t.Errorf("expected %s to exist: %v", helloHTML, err)
+	} else {
+		content, _ := os.ReadFile(helloHTML)
+		if !strings.Contains(string(content), "Hello World") {
+			t.Errorf("posts/hello.html should contain 'Hello World', got: %s", content)
+		}
+	}
+
+	// Summary line
+	outStr := stdout.String()
+	if !strings.Contains(outStr, "2 pages") {
+		t.Errorf("summary should say '2 pages', got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "0 errors") {
+		t.Errorf("summary should say '0 errors', got: %s", outStr)
+	}
+}
+
+func TestBuildCreatesOutDir(t *testing.T) {
+	componentsDir := t.TempDir()
+	pagesDir := t.TempDir()
+	outDir := filepath.Join(t.TempDir(), "new-output-dir")
+
+	os.WriteFile(filepath.Join(pagesDir, "index.vue"),
+		[]byte(`<template><html><body>Hello</body></html></template>`), 0644)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"build", "-dir", componentsDir, "-pages", pagesDir, "-out", outDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr: %s", code, stderr.String())
+	}
+
+	if _, err := os.Stat(outDir); err != nil {
+		t.Errorf("output directory should have been created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "index.html")); err != nil {
+		t.Errorf("index.html should exist in created output dir: %v", err)
+	}
+}
+
+func TestBuildReportsErrors(t *testing.T) {
+	componentsDir := t.TempDir()
+	pagesDir := t.TempDir()
+	outDir := t.TempDir()
+
+	// valid page
+	os.WriteFile(filepath.Join(pagesDir, "good.vue"),
+		[]byte(`<template><html><body>Good</body></html></template>`), 0644)
+
+	// broken page: missing <template> section causes a parse error
+	os.WriteFile(filepath.Join(pagesDir, "broken.vue"),
+		[]byte(`<script>// no template section</script>`), 0644)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"build", "-dir", componentsDir, "-pages", pagesDir, "-out", outDir}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
+	}
+
+	// good.html should still be rendered
+	goodHTML := filepath.Join(outDir, "good.html")
+	if _, err := os.Stat(goodHTML); err != nil {
+		t.Errorf("good.html should exist despite other page failing: %v", err)
+	}
+
+	// Summary should reflect errors
+	outStr := stdout.String()
+	if !strings.Contains(outStr, "1 errors") {
+		t.Errorf("summary should say '1 errors', got: %s", outStr)
+	}
+}
+
+func TestBuildEmpty(t *testing.T) {
+	componentsDir := t.TempDir()
+	pagesDir := t.TempDir()
+	outDir := t.TempDir()
+
+	// No .vue files in pages dir
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"build", "-dir", componentsDir, "-pages", pagesDir, "-out", outDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr: %s", code, stderr.String())
+	}
+
+	outStr := stdout.String()
+	if !strings.Contains(outStr, "0 pages") {
+		t.Errorf("summary should say '0 pages', got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "Build complete") {
+		t.Errorf("summary should say 'Build complete', got: %s", outStr)
+	}
+}
+
 func TestBuildDiscoversPages(t *testing.T) {
 	pagesDir := t.TempDir()
 

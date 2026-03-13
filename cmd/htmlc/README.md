@@ -417,6 +417,29 @@ pages/
     hello.json       ← props for posts/hello.vue
 ```
 
+**Progress and summary output**
+
+When stdout is a terminal, `build` prints one status line per page:
+
+```
+  built  posts/hello.html
+  ERROR  posts/broken.html  (reason)
+```
+
+A summary is always printed:
+
+```
+Build complete: 5 pages, 0 errors.
+```
+
+**Exit code**
+
+`build` exits `0` when all pages are rendered successfully.  It exits `1` when one or more pages fail (parse error, data error, or render error).  Failed pages do not abort the build — all remaining pages are still attempted.
+
+**Output directory**
+
+The `-out` directory is created automatically with `mkdir -p` semantics if it does not already exist.  Intermediate subdirectories for nested pages are also created as needed.
+
 ---
 
 ### props

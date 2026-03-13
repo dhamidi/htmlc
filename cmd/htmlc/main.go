@@ -707,14 +707,14 @@ func loadPageData(entry pageEntry, pagesRoot string) (map[string]any, error) {
 }
 
 func runBuild(args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("build", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	dir := fs.String("dir", ".", "directory containing shared .vue components")
-	pages := fs.String("pages", "./pages", "root of the page tree")
-	out := fs.String("out", "./out", "output directory")
-	_ = fs.String("layout", "", "layout component to wrap every page")
-	_ = fs.Bool("debug", false, "enable debug render mode")
-	if err := fs.Parse(args); err != nil {
+	fset := flag.NewFlagSet("build", flag.ContinueOnError)
+	fset.SetOutput(stderr)
+	dir := fset.String("dir", ".", "directory containing shared .vue components")
+	pages := fset.String("pages", "./pages", "root of the page tree")
+	out := fset.String("out", "./out", "output directory")
+	layoutFlag := fset.String("layout", "", "layout component to wrap every page")
+	debugFlag := fset.Bool("debug", false, "enable debug render mode")
+	if err := fset.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Fprint(stdout, helpBuild)
 			return nil
@@ -746,20 +746,101 @@ func runBuild(args []string, stdout, stderr io.Writer) error {
 		return errSilent
 	}
 
-	_ = out
+	engine, err := htmlc.New(htmlc.Options{ComponentDir: *dir, Debug: *debugFlag})
+	if err != nil {
+		fmt.Fprintln(stderr, cmdErrorMsg("build", fmt.Sprintf("failed to initialise engine: %v", err)))
+		return errSilent
+	}
+
+	if err := os.MkdirAll(*out, 0755); err != nil {
+		fmt.Fprintln(stderr, cmdErrorMsg("build", fmt.Sprintf("cannot create output directory %q: %v", *out, err)))
+		return errSilent
+	}
+
+	verbose := isTerminal(stdout)
 	failed := 0
+	total := len(discovered)
+
 	for _, e := range discovered {
+		name := strings.TrimSuffix(filepath.Base(e.relPath), ".vue")
+
+		// Register the page component when the pages dir differs from the components dir.
+		if *pages != *dir {
+			if regErr := engine.Register(name, e.absPath); regErr != nil {
+				fmt.Fprintf(stderr, "htmlc build: %s: %v\n", e.relPath, regErr)
+				if verbose {
+					fmt.Fprintf(stdout, "  ERROR  %s  (%v)\n", e.outPath, regErr)
+				}
+				failed++
+				continue
+			}
+		}
+
 		data, err := loadPageData(e, *pages)
 		if err != nil {
 			fmt.Fprintf(stderr, "htmlc build: %s: failed to load data: %v\n", e.relPath, err)
+			if verbose {
+				fmt.Fprintf(stdout, "  ERROR  %s  (%v)\n", e.outPath, err)
+			}
 			failed++
 			continue
 		}
-		_ = data
-		fmt.Fprintf(stdout, "%s → %s\n", e.relPath, e.outPath)
+
+		outFile := filepath.Join(*out, e.outPath)
+		if mkErr := os.MkdirAll(filepath.Dir(outFile), 0755); mkErr != nil {
+			fmt.Fprintf(stderr, "htmlc build: %s: cannot create output directory: %v\n", e.relPath, mkErr)
+			if verbose {
+				fmt.Fprintf(stdout, "  ERROR  %s  (%v)\n", e.outPath, mkErr)
+			}
+			failed++
+			continue
+		}
+
+		f, createErr := os.Create(outFile)
+		if createErr != nil {
+			fmt.Fprintf(stderr, "htmlc build: %s: cannot create output file: %v\n", e.relPath, createErr)
+			if verbose {
+				fmt.Fprintf(stdout, "  ERROR  %s  (%v)\n", e.outPath, createErr)
+			}
+			failed++
+			continue
+		}
+
+		var renderErr error
+		if *layoutFlag != "" {
+			content, fragErr := engine.RenderFragmentString(name, data)
+			if fragErr != nil {
+				renderErr = fragErr
+			} else {
+				layoutData := make(map[string]any, len(data)+1)
+				for k, v := range data {
+					layoutData[k] = v
+				}
+				layoutData["content"] = content
+				renderErr = engine.RenderPage(f, *layoutFlag, layoutData)
+			}
+		} else {
+			renderErr = engine.RenderPage(f, name, data)
+		}
+		f.Close()
+
+		if renderErr != nil {
+			fmt.Fprintf(stderr, "htmlc build: %s: %v\n", e.relPath, renderErr)
+			if verbose {
+				fmt.Fprintf(stdout, "  ERROR  %s  (%v)\n", e.outPath, renderErr)
+			}
+			os.Remove(outFile)
+			failed++
+			continue
+		}
+
+		if verbose {
+			fmt.Fprintf(stdout, "  built  %s\n", e.outPath)
+		}
 	}
+
+	fmt.Fprintf(stdout, "Build complete: %d pages, %d errors.\n", total, failed)
 	if failed > 0 {
-		fmt.Fprintf(stderr, "htmlc build: %d page(s) failed; see errors above.\n", failed)
 		return errSilent
 	}
 	return nil
