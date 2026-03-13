@@ -38,6 +38,7 @@ For template syntax, directives, the Go API, and the expression language, see th
    - [Scoped styles in CLI output](#scoped-styles-in-cli-output)
    - [Debug mode](#debug-mode)
    - [Page-centric build](#page-centric-build)
+5. [External Directives](#external-directives)
 
 ---
 
@@ -673,3 +674,45 @@ Props are loaded from JSON files that sit next to the `.vue` files.  This keeps 
 Layout wrapping is additive: a layout component receives the rendered page HTML as a `content` prop, enabling a single shell to be applied to every page without modifying any page component.
 
 Files whose base name starts with `_` are skipped during page discovery.  Use this convention for shared partials that are referenced by page components but should not produce standalone output files.
+
+---
+
+## External Directives
+
+`htmlc build` automatically discovers executable files named `v-<name>` in the
+`-dir` component tree and registers them as **external directives**.
+
+An external directive is a standalone executable that speaks the
+[External Directive Protocol](../../docs/external-directive-protocol.md) over
+stdin/stdout using newline-delimited JSON.  It is spawned once per build and
+handles all invocations of the directive for that run.
+
+### Protocol
+
+Each directive executable is spawned once at build start.  `htmlc` sends one
+JSON object per directive invocation and reads one JSON response, both
+separated by newlines.  See the
+[External Directive Protocol](../../docs/external-directive-protocol.md) for
+the full specification.
+
+### Example: v-syntax-highlight
+
+[`v-syntax-highlight`](../v-syntax-highlight/README.md) is a ready-made
+external directive that syntax-highlights source code using the
+[chroma](https://github.com/alecthomas/chroma) library.
+
+```sh
+# Build
+go build -o bin/v-syntax-highlight ./cmd/v-syntax-highlight
+
+# Install into the component tree
+cp bin/v-syntax-highlight ./templates/v-syntax-highlight
+chmod +x ./templates/v-syntax-highlight
+
+# Generate CSS (include in your layout's <head>)
+./templates/v-syntax-highlight -print-css -style monokai > assets/highlight.css
+
+# Use in templates
+# <pre v-syntax-highlight="'go'">…</pre>
+htmlc build -dir ./templates -pages ./pages -out ./dist
+```
