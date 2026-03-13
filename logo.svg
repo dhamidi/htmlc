@@ -1,0 +1,45 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 512 512"
+  width="512"
+  height="512"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">htmlc square logo</title>
+  <desc id="desc">Square htmlc logo with Go-blue background and small htmlc wordmark in the bottom-right corner.</desc>
+
+  <defs>
+    <style>
+      .bg { fill: #00ADD8; }      /* Go blue */
+      .white { fill: #F8FAFC; }   /* soft white */
+      .charcoal { fill: #1F2937; }/* charcoal */
+      .guide {
+        fill: none;
+        stroke: rgba(255,255,255,0.25);
+        stroke-width: 2;
+        stroke-dasharray: 8 8;
+      }
+    </style>
+  </defs>
+
+  <!-- Square background -->
+  <rect class="bg" x="0" y="0" width="512" height="512" />
+
+  <!-- Optional safe area guide -->
+  <!-- <rect class="guide" x="40" y="40" width="432" height="432" rx="20" /> -->
+
+  <!-- Small bottom-right wordmark -->
+  <g
+    id="wordmark"
+    transform="translate(468 456)"
+    font-family="Inter, SF Pro Display, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+    font-size="96"
+    font-weight="800"
+    text-anchor="end"
+  >
+    <text x="0" y="0">
+      <tspan class="white">html</tspan><tspan class="charcoal">c</tspan>
+    </text>
+  </g>
+</svg>
