@@ -1,0 +1,4 @@
+{
+  "siteTitle": "htmlc.sh",
+  "description": "htmlc — server-side Vue component rendering in Go. No Node.js, no JavaScript runtime."
+}

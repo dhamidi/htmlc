@@ -1,0 +1,36 @@
+name: Deploy docs to Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - docs
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+
+      - name: Install Go
+        run: mise use -g go@latest
+
+      - name: Install htmlc
+        run: go install github.com/dhamidi/htmlc/cmd/htmlc@latest
+
+      - name: Build docs
+        run: mise run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=htmlc-sh --branch=docs

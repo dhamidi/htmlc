@@ -1,0 +1,23 @@
+[tools]
+go = "latest"
+
+[tasks.build]
+description = "Build the docs site with htmlc"
+run = """
+go install github.com/dhamidi/htmlc/cmd/htmlc@latest
+htmlc build -dir ./components -pages ./pages -out ./dist -layout Layout
+"""
+
+[tasks.dev]
+description = "Build and serve with live reload"
+run = """
+go install github.com/dhamidi/htmlc/cmd/htmlc@latest
+htmlc build -dir ./components -pages ./pages -out ./dist -layout Layout -dev :8080
+"""
+
+[tasks.deploy]
+description = "Build and deploy to Cloudflare Pages"
+run = """
+mise run build
+wrangler pages deploy dist --project-name=htmlc-sh --branch=docs
+"""
