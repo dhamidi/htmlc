@@ -129,7 +129,7 @@
 
     <p>Once registered, templates can call it like any other expression:</p>
 
-    <pre v-syntax-highlight="'html'"><code>&lt;span&gt;{{ "{{" }} formatDate(post.publishedAt) }}&lt;/span&gt;</code></pre>
+    <pre v-syntax-highlight="'html'"><code>&lt;span&gt;&#123;&#123; formatDate(post.publishedAt) }}&lt;/span&gt;</code></pre>
 
     <p>Functions registered via <code>RegisterFunc</code> are scoped to a single engine instance. For truly global functions (available to all engines in a process), use <code>expr.RegisterBuiltin</code> from the <code>htmlc/expr</code> package directly — but note that it modifies global state and must be called before any concurrent evaluation begins.</p>
 

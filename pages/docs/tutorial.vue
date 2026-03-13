@@ -33,7 +33,7 @@
     <pre v-syntax-highlight="'html'"><code>&lt;!-- components/Card.vue --&gt;
 &lt;template&gt;
   &lt;div class="card"&gt;
-    &lt;h2&gt;{{ "{{" }} title }}&lt;/h2&gt;
+    &lt;h2&gt;&#123;&#123; title }}&lt;/h2&gt;
     &lt;slot&gt;No content provided.&lt;/slot&gt;
   &lt;/div&gt;
 &lt;/template&gt;
@@ -123,7 +123,7 @@ fmt.Println(html)</code></pre>
       If you need to inject a dynamic HTML string into a component from Go, use a regular prop with <code>v-html</code> instead of a slot:</p>
       <pre v-syntax-highlight="'html'"><code>&lt;!-- components/Card.vue --&gt;
 &lt;div class="card"&gt;
-  &lt;h2&gt;{{ "{{" }} title }}&lt;/h2&gt;
+  &lt;h2&gt;&#123;&#123; title }}&lt;/h2&gt;
   &lt;div v-html="body"&gt;&lt;/div&gt;
 &lt;/div&gt;</code></pre>
       <pre v-syntax-highlight="'go'"><code>html, err := engine.RenderFragmentString("Card", map[string]any{

@@ -64,6 +64,15 @@
 
         pre code { font-size: 0.85rem; }
 
+        /* v-syntax-highlight wraps output in <pre class="chroma">; neutralise double-styling */
+        pre > .chroma {
+          background: transparent;
+          border: none;
+          padding: 0;
+          margin: 0;
+          border-radius: 0;
+        }
+
         :not(pre) > code {
           background: var(--code-bg);
           border: 1px solid var(--border);

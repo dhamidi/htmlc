@@ -104,7 +104,7 @@ htmlc build -dir ./templates -pages ./pages -out ./dist -dev :8080</code></pre>
     <pre v-syntax-highlight="'html'"><code>&lt;!-- templates/PostPage.vue --&gt;
 &lt;template&gt;
   &lt;AppLayout :title="title"&gt;
-    &lt;article&gt;{{ "{{" }} body }}&lt;/article&gt;
+    &lt;article&gt;&#123;&#123; body }}&lt;/article&gt;
   &lt;/AppLayout&gt;
 &lt;/template&gt;</code></pre>
 

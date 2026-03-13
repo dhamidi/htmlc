@@ -44,7 +44,7 @@
     <p>Create a component file:</p>
     <pre v-syntax-highlight="'html'"><code>&lt;!-- templates/Greeting.vue --&gt;
 &lt;template&gt;
-  &lt;p&gt;Hello, {{ "{{" }} name }}!&lt;/p&gt;
+  &lt;p&gt;Hello, &#123;&#123; name }}!&lt;/p&gt;
 &lt;/template&gt;</code></pre>
 
     <p>Render it:</p>
@@ -59,8 +59,8 @@
     <h2 id="interpolation">Text interpolation</h2>
 
     <p><code>{{ "{{" }} expr }}</code> evaluates the expression against the current render scope and HTML-escapes the result.</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;p&gt;Hello, {{ "{{" }} name }}!&lt;/p&gt;
-&lt;p&gt;{{ "{{" }} a }} + {{ "{{" }} b }} = {{ "{{" }} a + b }}&lt;/p&gt;</code></pre>
+    <pre v-syntax-highlight="'html'"><code>&lt;p&gt;Hello, &#123;&#123; name }}!&lt;/p&gt;
+&lt;p&gt;&#123;&#123; a }} + &#123;&#123; b }} = &#123;&#123; a + b }}&lt;/p&gt;</code></pre>
 
     <h2 id="expressions">Expression language</h2>
 
@@ -83,7 +83,7 @@
     </table>
 
     <p>Use <code>.length</code> to measure collections — it works on strings, slices, arrays, and maps:</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;span&gt;{{ "{{" }} items.length }}&lt;/span&gt;</code></pre>
+    <pre v-syntax-highlight="'html'"><code>&lt;span&gt;&#123;&#123; items.length }}&lt;/span&gt;</code></pre>
 
     <h2 id="directives">Directives overview</h2>
 
@@ -122,7 +122,7 @@
     <pre v-syntax-highlight="'html'"><code>&lt;!-- templates/Card.vue --&gt;
 &lt;template&gt;
   &lt;div class="card"&gt;
-    &lt;h2&gt;{{ "{{" }} title }}&lt;/h2&gt;
+    &lt;h2&gt;&#123;&#123; title }}&lt;/h2&gt;
     &lt;slot&gt;Default content&lt;/slot&gt;
   &lt;/div&gt;
 &lt;/template&gt;
