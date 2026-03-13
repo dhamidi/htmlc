@@ -52,6 +52,41 @@
         </div>
       </aside>
 
+      <details class="mobile-nav">
+        <summary>On this page</summary>
+        <div class="sidebar-label">Engine</div>
+        <a href="#creating-engine" class="sidebar-link">New / Options</a>
+        <a href="#component-management" class="sidebar-link">Register / Has / Components</a>
+        <a href="#validate" class="sidebar-link">ValidateAll</a>
+        <div class="sidebar-label">Rendering</div>
+        <a href="#render-page" class="sidebar-link">RenderPage</a>
+        <a href="#render-fragment" class="sidebar-link">RenderFragment</a>
+        <a href="#render-string" class="sidebar-link">String helpers</a>
+        <a href="#render-context" class="sidebar-link">Context variants</a>
+        <div class="sidebar-label">HTTP</div>
+        <a href="#serve-component" class="sidebar-link">ServeComponent</a>
+        <a href="#serve-page-component" class="sidebar-link">ServePageComponent</a>
+        <a href="#mount" class="sidebar-link">Mount</a>
+        <a href="#data-middleware" class="sidebar-link">WithDataMiddleware</a>
+        <div class="sidebar-label">Customization</div>
+        <a href="#register-func" class="sidebar-link">RegisterFunc</a>
+        <a href="#register-directive" class="sidebar-link">RegisterDirective</a>
+        <a href="#missing-prop" class="sidebar-link">Missing prop handling</a>
+        <div class="sidebar-label">Low-level API</div>
+        <a href="#parse-file" class="sidebar-link">ParseFile / Component</a>
+        <a href="#renderer" class="sidebar-link">Renderer</a>
+        <a href="#registry" class="sidebar-link">Registry</a>
+        <div class="sidebar-label">Directives</div>
+        <a href="#directive-interface" class="sidebar-link">Directive interface</a>
+        <a href="#directive-types" class="sidebar-link">DirectiveBinding / Context</a>
+        <div class="sidebar-label">Styles</div>
+        <a href="#style-collector" class="sidebar-link">StyleCollector</a>
+        <a href="#style-helpers" class="sidebar-link">ScopeID / ScopeCSS</a>
+        <div class="sidebar-label">Errors</div>
+        <a href="#error-types" class="sidebar-link">Error types</a>
+        <a href="#sentinel-errors" class="sidebar-link">Sentinel errors</a>
+      </details>
+
       <div class="docs-content">
         <h1>Go API Reference</h1>
         <p class="lead">Complete reference for every exported symbol in the <code>htmlc</code> package. Import path: <code>github.com/dhamidi/htmlc</code>.</p>
@@ -507,12 +542,28 @@ export default {
   margin-bottom: 2rem;
 }
 
-@media (max-width: 700px) {
+.mobile-nav { display: none; }
+.mobile-nav summary { list-style: none; cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--muted); padding: 0.75rem 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; user-select: none; transition: color 0.15s; }
+.mobile-nav summary::-webkit-details-marker { display: none; }
+.mobile-nav[open] summary { color: var(--text); border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
+.mobile-nav[open] { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; overflow: hidden; }
+.mobile-nav[open] summary { margin: 0; border: none; border-bottom: 1px solid var(--border); border-radius: 0; }
+.mobile-nav .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); padding: 0.75rem 1rem 0.25rem; }
+.mobile-nav .sidebar-link { display: block; padding: 0.35rem 1rem; font-size: 0.875rem; color: var(--muted); text-decoration: none; transition: color 0.15s, background 0.15s; }
+.mobile-nav .sidebar-link:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+@media (max-width: 800px) {
   .docs-layout {
     grid-template-columns: 1fr;
   }
   .docs-sidebar {
-    position: static;
+    display: none;
+  }
+  .mobile-nav {
+    display: block;
+  }
+  .docs-content {
+    padding: 1.5rem 1rem 3rem;
   }
 }
 </style>

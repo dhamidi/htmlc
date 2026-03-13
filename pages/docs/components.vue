@@ -27,6 +27,29 @@
         </SidebarSection>
       </aside>
 
+      <details class="mobile-nav">
+        <summary>On this page</summary>
+        <div class="sidebar-label">Components</div>
+        <a href="#sfc-format" class="sidebar-link">SFC format</a>
+        <a href="#registration" class="sidebar-link">Registration</a>
+        <a href="#composition" class="sidebar-link">Composition</a>
+        <div class="sidebar-label">Data</div>
+        <a href="#props" class="sidebar-link">Props</a>
+        <a href="#slots" class="sidebar-link">Slots</a>
+        <a href="#scoped-styles" class="sidebar-link">Scoped styles</a>
+        <div class="sidebar-label">Go API</div>
+        <a href="#go-api" class="sidebar-link">Engine</a>
+        <a href="#rendering" class="sidebar-link">Rendering</a>
+        <a href="#http-handlers" class="sidebar-link">HTTP handlers</a>
+        <a href="#validate" class="sidebar-link">ValidateAll</a>
+        <a href="#missing-props" class="sidebar-link">Missing props</a>
+        <a href="#register-func" class="sidebar-link">RegisterFunc</a>
+        <a href="#advanced-options" class="sidebar-link">Hot-reload / FS</a>
+        <a href="#errors" class="sidebar-link">Error handling</a>
+        <a href="#scope-rules" class="sidebar-link">Scope rules</a>
+        <a href="#custom-directives" class="sidebar-link">Custom directives</a>
+      </details>
+
       <div class="docs-content">
         <h1>Component system</h1>
         <p class="lead">htmlc components are Vue Single File Components — <code>.vue</code> files with template, optional script, and optional style sections.</p>
@@ -444,7 +467,16 @@ if errors.As(err, &re) {
   li { margin: 0.25rem 0; }
 
   .docs-layout { display: grid; grid-template-columns: 220px 1fr; gap: 0; max-width: 1200px; margin: 0 auto; }
-  @media (max-width: 800px) { .docs-layout { grid-template-columns: 1fr; } .docs-sidebar { display: none; } }
+  .mobile-nav { display: none; }
+  .mobile-nav summary { list-style: none; cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--muted); padding: 0.75rem 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; user-select: none; transition: color 0.15s; }
+  .mobile-nav summary::-webkit-details-marker { display: none; }
+  .mobile-nav[open] summary { color: var(--text); border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
+  .mobile-nav[open] { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; overflow: hidden; }
+  .mobile-nav[open] summary { margin: 0; border: none; border-bottom: 1px solid var(--border); border-radius: 0; }
+  .mobile-nav .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); padding: 0.75rem 1rem 0.25rem; }
+  .mobile-nav .sidebar-link { display: block; padding: 0.35rem 1rem; font-size: 0.875rem; color: var(--muted); text-decoration: none; transition: color 0.15s, background 0.15s; }
+  .mobile-nav .sidebar-link:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  @media (max-width: 800px) { .docs-layout { grid-template-columns: 1fr; } .docs-sidebar { display: none; } .mobile-nav { display: block; } .docs-content { padding: 1.5rem 1rem 3rem; } }
   .docs-sidebar { border-right: 1px solid var(--border); padding: 2rem 1.5rem; position: sticky; top: var(--nav-height); height: calc(100vh - var(--nav-height)); overflow-y: auto; }
   .docs-content { padding: 3rem 3rem 5rem; max-width: 800px; }
   .docs-content h1 { font-size: 2.2rem; margin-bottom: 0.75rem; color: #f0f2ff; }

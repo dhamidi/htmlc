@@ -27,6 +27,22 @@
         </div>
       </aside>
 
+      <details class="mobile-nav">
+        <summary>On this page</summary>
+        <div class="sidebar-label">HTTP</div>
+        <a href="#serve-http" class="sidebar-link">Serve via net/http</a>
+        <div class="sidebar-label">Deployment</div>
+        <a href="#embed-fs" class="sidebar-link">Embed into a binary</a>
+        <a href="#validate-startup" class="sidebar-link">Validate at startup</a>
+        <div class="sidebar-label">Development</div>
+        <a href="#hot-reload" class="sidebar-link">Hot reload</a>
+        <div class="sidebar-label">Customization</div>
+        <a href="#custom-directive" class="sidebar-link">Custom directive</a>
+        <a href="#missing-props" class="sidebar-link">Missing prop handling</a>
+        <div class="sidebar-label">Static sites</div>
+        <a href="#static-site" class="sidebar-link">Static site with layout</a>
+      </details>
+
       <div class="docs-content">
         <h1>How-to Guides</h1>
         <p class="lead">Practical recipes for common tasks. Each guide assumes you have a working htmlc engine — see the <a href="/docs/index.html">overview</a> for initial setup and the <a href="/docs/go-api.html">Go API reference</a> for full API details.</p>
@@ -408,12 +424,28 @@ export default {
   margin: 1rem 0 1.25rem;
 }
 
-@media (max-width: 700px) {
+.mobile-nav { display: none; }
+.mobile-nav summary { list-style: none; cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--muted); padding: 0.75rem 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; user-select: none; transition: color 0.15s; }
+.mobile-nav summary::-webkit-details-marker { display: none; }
+.mobile-nav[open] summary { color: var(--text); border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
+.mobile-nav[open] { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; overflow: hidden; }
+.mobile-nav[open] summary { margin: 0; border: none; border-bottom: 1px solid var(--border); border-radius: 0; }
+.mobile-nav .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); padding: 0.75rem 1rem 0.25rem; }
+.mobile-nav .sidebar-link { display: block; padding: 0.35rem 1rem; font-size: 0.875rem; color: var(--muted); text-decoration: none; transition: color 0.15s, background 0.15s; }
+.mobile-nav .sidebar-link:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+@media (max-width: 800px) {
   .docs-layout {
     grid-template-columns: 1fr;
   }
   .docs-sidebar {
-    position: static;
+    display: none;
+  }
+  .mobile-nav {
+    display: block;
+  }
+  .docs-content {
+    padding: 1.5rem 1rem 3rem;
   }
 }
 </style>

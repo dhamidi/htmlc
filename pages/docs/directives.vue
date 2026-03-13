@@ -26,6 +26,26 @@
         </SidebarSection>
       </aside>
 
+      <details class="mobile-nav">
+        <summary>On this page</summary>
+        <div class="sidebar-label">Conditionals</div>
+        <a href="#v-if" class="sidebar-link">v-if / v-else-if / v-else</a>
+        <a href="#v-show" class="sidebar-link">v-show</a>
+        <a href="#v-switch" class="sidebar-link">v-switch / v-case</a>
+        <div class="sidebar-label">Lists</div>
+        <a href="#v-for" class="sidebar-link">v-for</a>
+        <div class="sidebar-label">Binding</div>
+        <a href="#v-bind" class="sidebar-link">v-bind / :attr</a>
+        <a href="#v-html" class="sidebar-link">v-html</a>
+        <a href="#v-text" class="sidebar-link">v-text</a>
+        <a href="#v-pre" class="sidebar-link">v-pre</a>
+        <div class="sidebar-label">Components</div>
+        <a href="#v-slot" class="sidebar-link">v-slot / #slot</a>
+        <a href="#dynamic-component" class="sidebar-link">component :is</a>
+        <div class="sidebar-label">Not supported</div>
+        <a href="#not-supported" class="sidebar-link">Stripped directives</a>
+      </details>
+
       <div class="docs-content">
         <h1>Directives</h1>
         <p class="lead">Full reference for all template directives supported by htmlc.</p>
@@ -244,7 +264,16 @@
   li { margin: 0.25rem 0; }
 
   .docs-layout { display: grid; grid-template-columns: 220px 1fr; gap: 0; max-width: 1200px; margin: 0 auto; }
-  @media (max-width: 800px) { .docs-layout { grid-template-columns: 1fr; } .docs-sidebar { display: none; } }
+  .mobile-nav { display: none; }
+  .mobile-nav summary { list-style: none; cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--muted); padding: 0.75rem 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; user-select: none; transition: color 0.15s; }
+  .mobile-nav summary::-webkit-details-marker { display: none; }
+  .mobile-nav[open] summary { color: var(--text); border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
+  .mobile-nav[open] { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; overflow: hidden; }
+  .mobile-nav[open] summary { margin: 0; border: none; border-bottom: 1px solid var(--border); border-radius: 0; }
+  .mobile-nav .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); padding: 0.75rem 1rem 0.25rem; }
+  .mobile-nav .sidebar-link { display: block; padding: 0.35rem 1rem; font-size: 0.875rem; color: var(--muted); text-decoration: none; transition: color 0.15s, background 0.15s; }
+  .mobile-nav .sidebar-link:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  @media (max-width: 800px) { .docs-layout { grid-template-columns: 1fr; } .docs-sidebar { display: none; } .mobile-nav { display: block; } .docs-content { padding: 1.5rem 1rem 3rem; } }
   .docs-sidebar { border-right: 1px solid var(--border); padding: 2rem 1.5rem; position: sticky; top: var(--nav-height); height: calc(100vh - var(--nav-height)); overflow-y: auto; }
   .docs-content { padding: 3rem 3rem 5rem; max-width: 800px; }
   .docs-content h1 { font-size: 2.2rem; margin-bottom: 0.75rem; color: #f0f2ff; }

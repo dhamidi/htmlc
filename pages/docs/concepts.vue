@@ -26,6 +26,21 @@
         </div>
       </aside>
 
+      <details class="mobile-nav">
+        <summary>On this page</summary>
+        <div class="sidebar-label">Rendering</div>
+        <a href="#rendering-model" class="sidebar-link">The rendering model</a>
+        <a href="#components-as-templates" class="sidebar-link">Components as templates</a>
+        <div class="sidebar-label">Expressions</div>
+        <a href="#expression-language" class="sidebar-link">Expression language</a>
+        <div class="sidebar-label">Styles</div>
+        <a href="#scoped-styles" class="sidebar-link">Scoped styles</a>
+        <div class="sidebar-label">API</div>
+        <a href="#engine-vs-renderer" class="sidebar-link">Engine vs Renderer</a>
+        <div class="sidebar-label">Design</div>
+        <a href="#ssr-vs-csr" class="sidebar-link">Server-side vs client-side</a>
+      </details>
+
       <div class="docs-content">
         <h1>Concepts</h1>
         <p class="lead">This page explains how htmlc works internally — the mental models and design decisions behind it. It is aimed at developers who want to reason about performance, debug unexpected output, understand limitations, or integrate htmlc into complex Go applications.</p>
@@ -464,12 +479,28 @@ export default {
   border-bottom: none;
 }
 
-@media (max-width: 700px) {
+.mobile-nav { display: none; }
+.mobile-nav summary { list-style: none; cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--muted); padding: 0.75rem 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; user-select: none; transition: color 0.15s; }
+.mobile-nav summary::-webkit-details-marker { display: none; }
+.mobile-nav[open] summary { color: var(--text); border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
+.mobile-nav[open] { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; overflow: hidden; }
+.mobile-nav[open] summary { margin: 0; border: none; border-bottom: 1px solid var(--border); border-radius: 0; }
+.mobile-nav .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); padding: 0.75rem 1rem 0.25rem; }
+.mobile-nav .sidebar-link { display: block; padding: 0.35rem 1rem; font-size: 0.875rem; color: var(--muted); text-decoration: none; transition: color 0.15s, background 0.15s; }
+.mobile-nav .sidebar-link:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+@media (max-width: 800px) {
   .docs-layout {
     grid-template-columns: 1fr;
   }
   .docs-sidebar {
-    position: static;
+    display: none;
+  }
+  .mobile-nav {
+    display: block;
+  }
+  .docs-content {
+    padding: 1.5rem 1rem 3rem;
   }
   .data-flow {
     flex-direction: column;

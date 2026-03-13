@@ -127,6 +127,58 @@
 
         .site-nav .nav-links a:hover { color: var(--text); text-decoration: none; }
 
+        /* Mobile nav */
+        .mobile-menu { display: none; margin-left: auto; }
+        .mobile-menu-toggle {
+          list-style: none;
+          cursor: pointer;
+          color: var(--muted);
+          font-size: 0.875rem;
+          padding: 0.4rem 0.75rem;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          transition: color 0.15s, border-color 0.15s;
+          user-select: none;
+        }
+        .mobile-menu-toggle:hover { color: var(--text); border-color: var(--muted); }
+        .mobile-menu-toggle::-webkit-details-marker { display: none; }
+        .mobile-menu[open] .mobile-menu-toggle { color: var(--text); }
+        .mobile-menu-links {
+          position: absolute;
+          top: var(--nav-height);
+          right: 1rem;
+          background: var(--bg2);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 0.5rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+          min-width: 160px;
+          z-index: 200;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        }
+        .mobile-menu-links a {
+          display: block;
+          padding: 0.5rem 0.75rem;
+          color: var(--muted);
+          font-size: 0.875rem;
+          border-radius: 6px;
+          transition: color 0.15s, background 0.15s;
+        }
+        .mobile-menu-links a:hover { color: var(--text); background: rgba(255,255,255,0.06); text-decoration: none; }
+
+        @media (max-width: 640px) {
+          .site-nav { padding: 0 1rem; }
+          .site-nav .nav-links { display: none; }
+          .mobile-menu { display: block; }
+          .site-main { padding: 0 1rem; }
+        }
+
+        @media (max-width: 800px) {
+          table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        }
+
         .site-main {
           max-width: var(--max-width);
           margin: 0 auto;
@@ -158,6 +210,17 @@
           <a href="/docs/go-api.html">Go API</a>
           <a href="https://github.com/dhamidi/htmlc" target="_blank" rel="noopener">GitHub</a>
         </div>
+        <details class="mobile-menu">
+          <summary class="mobile-menu-toggle">Menu</summary>
+          <div class="mobile-menu-links">
+            <a href="/docs/index.html">Docs</a>
+            <a href="/docs/tutorial.html">Tutorial</a>
+            <a href="/docs/cli.html">CLI</a>
+            <a href="/docs/directives.html">Directives</a>
+            <a href="/docs/go-api.html">Go API</a>
+            <a href="https://github.com/dhamidi/htmlc" target="_blank" rel="noopener">GitHub</a>
+          </div>
+        </details>
       </nav>
       <main class="site-main">
         <slot><!-- page content --></slot>

@@ -25,6 +25,24 @@
         </div>
       </aside>
 
+      <details class="mobile-nav">
+        <summary>On this page</summary>
+        <div class="sidebar-label">Overview</div>
+        <a href="#synopsis" class="sidebar-link">Synopsis</a>
+        <a href="#installation" class="sidebar-link">Installation</a>
+        <div class="sidebar-label">Subcommands</div>
+        <a href="#render" class="sidebar-link">render</a>
+        <a href="#page" class="sidebar-link">page</a>
+        <a href="#build" class="sidebar-link">build</a>
+        <a href="#props" class="sidebar-link">props</a>
+        <a href="#ast" class="sidebar-link">ast</a>
+        <a href="#help" class="sidebar-link">help</a>
+        <div class="sidebar-label">Guides</div>
+        <a href="#static-site" class="sidebar-link">Static sites</a>
+        <a href="#layouts" class="sidebar-link">Layouts</a>
+        <a href="#data-files" class="sidebar-link">Data files</a>
+      </details>
+
       <div class="docs-content">
         <h1 id="synopsis">CLI Reference</h1>
         <p class="lead"><code>htmlc</code> renders Vue Single File Components (<code>.vue</code>) to HTML entirely in Go — no Node.js, no browser, no JavaScript runtime.</p>
@@ -156,7 +174,16 @@ htmlc help build</code></pre>
   li { margin: 0.25rem 0; }
 
   .docs-layout { display: grid; grid-template-columns: 220px 1fr; gap: 0; max-width: 1200px; margin: 0 auto; }
-  @media (max-width: 800px) { .docs-layout { grid-template-columns: 1fr; } .docs-sidebar { display: none; } }
+  .mobile-nav { display: none; }
+  .mobile-nav summary { list-style: none; cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--muted); padding: 0.75rem 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; user-select: none; transition: color 0.15s; }
+  .mobile-nav summary::-webkit-details-marker { display: none; }
+  .mobile-nav[open] summary { color: var(--text); border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
+  .mobile-nav[open] { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin: 1rem 0; overflow: hidden; }
+  .mobile-nav[open] summary { margin: 0; border: none; border-bottom: 1px solid var(--border); border-radius: 0; }
+  .mobile-nav .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); padding: 0.75rem 1rem 0.25rem; }
+  .mobile-nav .sidebar-link { display: block; padding: 0.35rem 1rem; font-size: 0.875rem; color: var(--muted); text-decoration: none; transition: color 0.15s, background 0.15s; }
+  .mobile-nav .sidebar-link:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  @media (max-width: 800px) { .docs-layout { grid-template-columns: 1fr; } .docs-sidebar { display: none; } .mobile-nav { display: block; } .docs-content { padding: 1.5rem 1rem 3rem; } }
   .docs-sidebar { border-right: 1px solid var(--border); padding: 2rem 1.5rem; position: sticky; top: var(--nav-height); height: calc(100vh - var(--nav-height)); overflow-y: auto; }
   .sidebar-section { margin-bottom: 1.5rem; }
   .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text); margin-bottom: 0.5rem; padding: 0 0.5rem; }
