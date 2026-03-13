@@ -57,6 +57,22 @@
 //	             <span v-else-if="score >= 70">B</span>
 //	             <span v-else>C</span>
 //
+//	v-switch="expr" (on <template>)
+//	    Switch-statement conditional rendering. Evaluates the expression once;
+//	    the first child with a matching v-case is rendered; v-default renders
+//	    when no case matched. Not part of stable Vue.js; implements RFC #482.
+//	    Example: <template v-switch="user.role">
+//	               <Admin v-case="'admin'" />
+//	               <User  v-default />
+//	             </template>
+//
+//	v-case="expr"
+//	    Child of <template v-switch>. Rendered when its expression equals the
+//	    parent switch value (Go == comparison).
+//
+//	v-default
+//	    Child of <template v-switch>. Rendered when no preceding v-case matched.
+//
 //	v-for="item in items"
 //	    Iterate over a slice or array. Use (item, i) in items for zero-based
 //	    index access.
@@ -348,9 +364,18 @@
 //	    },
 //	})
 //
-// The built-in v-switch/v-case/v-default directives work like a switch
-// statement for conditional rendering — see the v-switch section of the
-// package documentation for details.
+// The built-in VHighlight directive is the canonical example: it sets the
+// background colour of the host element to the CSS colour string supplied by
+// the directive's expression — mirroring the v-highlight example from the
+// Vue.js custom directives guide. VHighlight is not pre-registered; to use it,
+// add it via Options.Directives:
+//
+//	engine, err := htmlc.New(htmlc.Options{
+//	    ComponentDir: "templates/",
+//	    Directives: htmlc.DirectiveRegistry{
+//	        "highlight": &htmlc.VHighlight{},
+//	    },
+//	})
 //
 // # Tutorial
 //

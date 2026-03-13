@@ -17,6 +17,7 @@ A server-side Go template engine that uses Vue.js Single File Component (`.vue`)
 7. [Expression Language Reference](#expression-language-reference)
 8. [Debug Mode](#debug-mode)
 9. [Custom Directives](#custom-directives)
+10. [Compatibility with Vue.js](#compatibility-with-vuejs)
 
 ---
 
@@ -96,6 +97,9 @@ The engine ships with no pre-registered built-in functions. Use `expr.RegisterBu
 | `v-if` | Yes | Renders the element only when the expression is truthy. |
 | `v-else-if` | Yes | Must immediately follow a `v-if` or `v-else-if` element (whitespace between is allowed). |
 | `v-else` | Yes | Must immediately follow a `v-if` or `v-else-if` element. |
+| `v-switch` | Yes | See [v-switch syntax](#v-switch-syntax) below. Must be on a `<template>` element. |
+| `v-case` | Yes | Child of `<template v-switch>`. Renders when its expression equals the switch value. |
+| `v-default` | Yes | Child of `<template v-switch>`. Renders when no preceding `v-case` matched. |
 | `v-for` | Yes | See [v-for syntax](#v-for-syntax) below. |
 | `v-bind` / `:attr` | Yes | Dynamic attribute binding. See [v-bind notes](#v-bind-notes) below. |
 | `v-pre` | Yes | Skips all interpolation and directive processing for the element and all its descendants. The `v-pre` attribute itself is stripped from the output. |
@@ -137,6 +141,42 @@ The engine ships with no pre-registered built-in functions. Use `expr.RegisterBu
 ```
 
 **Difference from Vue.js:** Map iteration order follows Go's `reflect.MapKeys()` order, which is not guaranteed to be insertion order.
+
+### v-switch syntax
+
+`v-switch` provides a concise switch-statement pattern for conditional
+rendering. It must be placed on a `<template>` element; its children carry
+`v-case` or `v-default` directives.
+
+```html
+<!-- Switch on a string value -->
+<template v-switch="user.role">
+  <AdminPanel v-case="'admin'" />
+  <ModPanel   v-case="'mod'" />
+  <UserPanel  v-default />
+</template>
+
+<!-- Switch on a numeric value -->
+<template v-switch="step">
+  <StepOne   v-case="1" />
+  <StepTwo   v-case="2" />
+  <StepThree v-case="3" />
+  <p v-default>Unknown step</p>
+</template>
+```
+
+Rules:
+- Only the **first matching** `v-case` branch is rendered.
+- `v-default` renders when **no** `v-case` matched; only the first
+  `v-default` is evaluated if multiple are present.
+- Children of `<template v-switch>` that carry neither `v-case` nor
+  `v-default` are silently ignored.
+- Values are compared with Go `==` (strict equality; no type coercion).
+- Using `v-switch` on a non-`<template>` element is an error.
+
+**Difference from Vue.js:** Vue.js does not yet ship `v-switch`/`v-case`/
+`v-default` as stable built-ins (as of 2026). htmlc implements the semantics
+proposed in [RFC #482](https://github.com/vuejs/rfcs/discussions/482).
 
 ### v-bind notes
 
@@ -891,54 +931,88 @@ The `DirectiveBinding` passed to both hooks contains:
 | `Arg` | `string` | Argument after `:` (e.g. `"href"` in `v-my-dir:href`) |
 | `Modifiers` | `map[string]bool` | Dot-separated modifiers (e.g. `{"prevent": true}`) |
 
-### Built-in: v-switch / v-case / v-default
-
-`v-switch`, `v-case`, and `v-default` work like a switch statement for conditional rendering. Place them on a `<template>` element and only the first matching branch is rendered.
-
-```html
-<template v-switch="user.role">
-  <AdminPanel v-case="'admin'" />
-  <ModPanel   v-case="'mod'" />
-  <UserPanel  v-default />
-</template>
-```
-
-- **`v-switch="expr"`** — evaluated once; its result is the switch value. Must appear on a `<template>` element.
-- **`v-case="expr"`** — the child is rendered when its evaluated expression equals the switch value (strict Go `==`).
-- **`v-default`** — rendered when no preceding `v-case` matched. Only the first `v-default` is used.
-
-Only the first matching branch is rendered; subsequent matches are skipped. Children without `v-case` or `v-default` are silently ignored. These directives are built-in — no registration is required.
-
 ### Example: VHighlight
 
-`VHighlight` is a worked example directive (modelled on the [Vue.js v-highlight guide](https://vuejs.org/guide/reusability/custom-directives.html)) that sets the `background` CSS property on the host element via its `style` attribute.
+`VHighlight` is the canonical example of a custom directive in htmlc. It
+mirrors the `v-highlight` directive from the
+[Vue.js custom directives guide](https://vuejs.org/guide/reusability/custom-directives.html).
 
-Register it explicitly — it is **not** auto-registered:
-
-```go
-engine.RegisterDirective("highlight", &htmlc.VHighlight{})
-```
-
-Or pass it through `Options`:
+`VHighlight` is **not** auto-registered; you must opt in:
 
 ```go
-e, _ := htmlc.New(htmlc.Options{
-    ComponentDir: "templates",
-    Directives:   htmlc.DirectiveRegistry{"highlight": &htmlc.VHighlight{}},
+engine, err := htmlc.New(htmlc.Options{
+    ComponentDir: "templates/",
+    Directives: htmlc.DirectiveRegistry{
+        "highlight": &htmlc.VHighlight{},
+    },
 })
 ```
 
-Then use `v-highlight` in any template:
+Then use `v-highlight` in templates:
 
 ```html
-<!-- literal colour -->
-<p v-highlight="'yellow'">Highlighted text</p>
-
-<!-- dynamic colour from scope -->
-<span v-highlight="colour">Dynamic colour</span>
-
-<!-- merged with existing style -->
-<p style="color:blue" v-highlight="'green'">Both styles</p>
+<p v-highlight="'yellow'">Highlight this text bright yellow</p>
+<p v-highlight="theme.accentColour">Dynamic colour from scope</p>
 ```
 
-The directive uses the `Created` hook so the `style` attribute is set before the element is written to the output stream. If the element already has a `style` attribute, `background:<colour>` is appended after a semicolon; existing declarations are preserved.
+The directive sets `background:<colour>` on the element's `style` attribute,
+merging with any existing inline styles.
+
+`VHighlight` implements only the `Created` hook because htmlc is server-side —
+there is no DOM `mounted` event. This is the htmlc equivalent of Vue's
+`mounted` hook on a custom directive.
+
+> **Note:** The old `v-switch` component-dispatch directive (which replaced
+> the host element's tag at runtime) has been removed. Use
+> `<component :is="expr">` for dynamic component dispatch, or the new built-in
+> `v-switch`/`v-case`/`v-default` for switch-style conditional rendering.
+
+---
+
+## 10. Compatibility with Vue.js
+
+htmlc uses `.vue` Single File Component syntax and many of the same directive
+names as Vue.js, but it is a **server-side-only renderer** with intentional
+differences. This section documents where htmlc diverges from or extends
+standard Vue.js behaviour.
+
+### Directives
+
+| Directive | Vue.js behaviour | htmlc behaviour |
+|---|---|---|
+| `v-switch` / `v-case` / `v-default` | Not in stable Vue.js (proposed in RFC #482) | Built-in; `v-switch` on `<template>`, children carry `v-case` / `v-default` |
+| `v-on` / `@event` | Client-side event handler | Stripped from output |
+| `v-model` | Two-way binding | Stripped from output |
+| `v-cloak` | Hide until mounted | Not relevant (no mounting); ignored |
+| `v-memo` | Memoised subtree | Not implemented |
+| `v-once` | Render once, skip future updates | Accepted; no-op (server always renders once) |
+| `<component :is="...">` | Dynamic component | Supported |
+
+### Expression language
+
+The htmlc expression evaluator supports a subset of JavaScript expressions. The
+following are **not** supported:
+
+- Template literals (backtick strings).
+- Arrow functions and `function` keyword.
+- `new`, `delete`, `typeof`, `instanceof`.
+- Assignment operators (`=`, `+=`, etc.) and increment/decrement (`++`, `--`).
+- Filters (`{{ value | filter }}`).
+
+### Map iteration order
+
+`v-for` over a Go `map` iterates in `reflect.MapKeys()` order, which is not
+guaranteed to match insertion order. Vue.js preserves insertion order for
+`Object.keys()`. Use a slice of objects if deterministic order is required.
+
+### Scoped styles
+
+htmlc supports `<style scoped>` with the same semantics as Vue.js SFCs: a
+unique `data-v-XXXXXXXX` attribute is added to all elements rendered by the
+component, and CSS selectors are rewritten to target that attribute.
+
+### No reactivity
+
+htmlc has no virtual DOM, no reactivity system, and no JavaScript runtime.
+Every render call produces a fixed HTML string. Props are plain Go values
+passed at render time.
