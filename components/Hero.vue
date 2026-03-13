@@ -33,9 +33,9 @@
 
 .hero-badge {
   display: inline-block;
-  background: rgba(124, 106, 247, 0.12);
-  border: 1px solid rgba(124, 106, 247, 0.35);
-  color: #a99ff8;
+  background: rgba(0, 173, 216, 0.12);
+  border: 1px solid rgba(0, 173, 216, 0.35);
+  color: #7dd9ef;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -83,10 +83,10 @@
 }
 
 .btn-primary {
-  background: #7c6af7;
+  background: #00ADD8;
   color: #fff;
 }
-.btn-primary:hover { background: #6b59e6; text-decoration: none; }
+.btn-primary:hover { background: #0099bf; text-decoration: none; }
 
 .btn-secondary {
   background: rgba(255,255,255,0.06);

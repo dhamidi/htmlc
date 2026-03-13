@@ -15,7 +15,7 @@
           --border: #2a2d3e;
           --text: #e2e4f0;
           --muted: #8b8fa8;
-          --accent: #7c6af7;
+          --accent: #00ADD8;
           --accent2: #5be49b;
           --code-bg: #161822;
           --nav-height: 60px;
