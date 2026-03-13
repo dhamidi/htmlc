@@ -9,16 +9,17 @@
 
 <style scoped>
 .code-example {
-  border: 1px solid #2a2d3e;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  overflow: hidden;
   margin: 1.5rem 0;
+  max-width: 100%;
 }
 
 .code-header {
   background: #1a1d27;
-  border-bottom: 1px solid #2a2d3e;
+  border-bottom: 1px solid var(--border);
   padding: 0.5rem 1rem;
+  border-radius: 8px 8px 0 0;
 }
 
 .code-filename {
@@ -29,7 +30,8 @@
 
 .code-example pre {
   border: none;
-  border-radius: 0;
+  border-radius: 0 0 8px 8px;
   margin: 0;
+  overflow-x: auto;
 }
 </style>

@@ -59,6 +59,7 @@
           padding: 1.25rem 1.5rem;
           overflow-x: auto;
           line-height: 1.5;
+          max-width: 100%;
         }
 
         pre code { font-size: 0.85rem; }
