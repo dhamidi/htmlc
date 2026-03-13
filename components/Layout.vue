@@ -189,6 +189,11 @@
           padding: 0 2rem;
         }
 
+        .site-main--full {
+          max-width: none;
+          padding: 0;
+        }
+
         .site-footer {
           border-top: 1px solid var(--border);
           margin-top: 6rem;
@@ -226,7 +231,7 @@
           </div>
         </details>
       </nav>
-      <main class="site-main">
+      <main :class="['site-main', { 'site-main--full': fullWidth }]">
         <slot><!-- page content --></slot>
       </main>
       <footer class="site-footer">
@@ -238,3 +243,9 @@
     </body>
   </html>
 </template>
+
+<script>
+export default {
+  props: ['pageTitle', 'description', 'siteTitle', 'fullWidth']
+}
+</script>
