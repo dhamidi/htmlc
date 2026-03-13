@@ -6,6 +6,7 @@ go = "latest"
 description = "Build the docs site with htmlc"
 run = """
 htmlc build -dir ./components -pages ./pages -out ./dist
+cp -r public/. dist/
 """
 
 [tasks.dev]
