@@ -587,6 +587,56 @@ func TestAstSubcommand_MissingComponent(t *testing.T) {
 	}
 }
 
+func TestPageLayout_LayoutNotFound(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "PostPage.vue"), []byte(`<template><article>{{ body }}</article></template>`), 0644)
+
+	var stderr bytes.Buffer
+	code := run([]string{"page", "-dir", dir, "-layout", "AppLayout", "PostPage", "-props", `{"body":"Hello"}`}, io.Discard, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
+	}
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "AppLayout") {
+		t.Errorf("expected layout name in stderr, got: %s", errOut)
+	}
+}
+
+func TestPageLayout_ContentPassedToLayout(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "PostPage.vue"), []byte(`<template><article>{{ body }}</article></template>`), 0644)
+	os.WriteFile(filepath.Join(dir, "AppLayout.vue"), []byte(`<template><html><body v-html="content"></body></html></template>`), 0644)
+
+	var stdout bytes.Buffer
+	code := run([]string{"page", "-dir", dir, "-layout", "AppLayout", "PostPage", "-props", `{"body":"Hello"}`}, &stdout, io.Discard)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "<article>") {
+		t.Errorf("expected <article> in layout output, got: %s", out)
+	}
+	if !strings.Contains(out, "Hello") {
+		t.Errorf("expected body content in layout output, got: %s", out)
+	}
+}
+
+func TestPageLayout_PropsPassedToLayout(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "PostPage.vue"), []byte(`<template><article>{{ body }}</article></template>`), 0644)
+	os.WriteFile(filepath.Join(dir, "AppLayout.vue"), []byte(`<template><html><head><title>{{ title }}</title></head><body v-html="content"></body></html></template>`), 0644)
+
+	var stdout bytes.Buffer
+	code := run([]string{"page", "-dir", dir, "-layout", "AppLayout", "PostPage", "-props", `{"title":"My Title","body":"Hello"}`}, &stdout, io.Discard)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "My Title") {
+		t.Errorf("expected title prop in layout output, got: %s", out)
+	}
+}
+
 func TestHelpAst(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"help", "ast"}, &stdout, &stderr)

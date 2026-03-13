@@ -13,6 +13,8 @@ For template syntax, directives, the Go API, and the expression language, see th
 2. [How-to guides](#how-to-guides)
    - [Render a component fragment](#render-a-component-fragment)
    - [Render a full HTML page](#render-a-full-html-page)
+   - [Wrap a page in a layout using a slot (manual composition)](#wrap-a-page-in-a-layout-using-a-slot-manual-composition)
+   - [Use the `-layout` flag to apply a layout at render time](#use-the--layout-flag-to-apply-a-layout-at-render-time)
    - [Pass props to a component](#pass-props-to-a-component)
    - [Pipe props from stdin](#pipe-props-from-stdin)
    - [Inspect a component's props](#inspect-a-components-props)
@@ -114,6 +116,75 @@ Any scoped styles are injected into the document `<head>` automatically.
 ```
 htmlc page -dir ./templates PostPage -props '{"slug":"intro","title":"Introduction"}'
 ```
+
+---
+
+### Wrap a page in a layout using a slot (manual composition)
+
+In this pattern the page component itself references the layout component directly in its template and passes its content through a `<slot>`.  No extra CLI flag is needed.
+
+```vue
+<!-- templates/AppLayout.vue -->
+<template>
+  <html>
+    <head><title>{{ title }}</title></head>
+    <body>
+      <nav><!-- site nav --></nav>
+      <main><slot /></main>
+    </body>
+  </html>
+</template>
+```
+
+```vue
+<!-- templates/PostPage.vue -->
+<template>
+  <AppLayout :title="title">
+    <article>{{ body }}</article>
+  </AppLayout>
+</template>
+```
+
+```
+htmlc page -dir ./templates PostPage -props '{"title":"Hello","body":"World"}'
+```
+
+Use this approach when different pages use different layouts, or when the layout is an inherent part of the component's design.
+
+---
+
+### Use the `-layout` flag to apply a layout at render time
+
+With `-layout` the page component does not need to know about the layout at all.  `htmlc` renders the page as a fragment, then passes the resulting HTML to the layout component as a `content` prop.
+
+```vue
+<!-- templates/AppLayout.vue -->
+<template>
+  <html>
+    <head><title>{{ title }}</title></head>
+    <body v-html="content"></body>
+  </html>
+</template>
+```
+
+```vue
+<!-- templates/PostPage.vue -->
+<template>
+  <article>{{ body }}</article>
+</template>
+```
+
+```
+htmlc page -dir ./templates -layout AppLayout PostPage \
+  -props '{"title":"Hello","body":"World"}'
+```
+
+The layout receives:
+
+- `content` — the rendered HTML of the page component.
+- all top-level props from `-props` (e.g. `title`) so the layout can use them directly.
+
+Use this approach when the layout is a deployment-time concern (a shared shell applied to every page) and you want page components to remain independent of it.
 
 ---
 
@@ -267,13 +338,22 @@ Exits non-zero and prints an error to stderr when the component is not found, pr
 ### page
 
 ```
-htmlc page [-dir <path>] [-props <json|->] [-debug] <component>
+htmlc page [-dir <path>] [-props <json|->] [-debug] [-layout <component>] <component>
 ```
 
-Identical flags to `render`.  Differences:
+| Flag | Default | Description |
+|---|---|---|
+| `-dir` | `.` | Directory that contains `.vue` files |
+| `-props` | _(empty)_ | Props as a JSON object literal, or `-` to read from stdin |
+| `-debug` | false | Annotate output with diagnostic HTML comments |
+| `-layout` | _(none)_ | Wrap the rendered page inside this layout component. The layout receives the rendered HTML as a `content` prop. |
+
+Differences from `render`:
 
 - Output begins with `<!DOCTYPE html>`.
 - Scoped styles are moved into the document `<head>`.
+
+When `-layout` is given, the page component is rendered as a fragment first, then its HTML is passed to the layout as the `content` prop.  All top-level `-props` values are forwarded to both renders.
 
 ---
 
