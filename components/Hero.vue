@@ -1,5 +1,9 @@
 <template>
   <section class="hero">
+    <div class="hero-logo">
+      <img src="/images/logo.webp" alt="htmlc" width="96" height="96"
+           style="border-radius:16px;" />
+    </div>
     <div class="hero-badge">Go &bull; Zero JS &bull; Vue SFC syntax</div>
     <h1 class="hero-title">
       Server-side component<br />rendering for Go
@@ -90,6 +94,10 @@
   color: #e2e4f0;
 }
 .btn-secondary:hover { background: rgba(255,255,255,0.1); text-decoration: none; }
+
+.hero-logo {
+  margin-bottom: 1.75rem;
+}
 
 .hero-install {
   display: inline-block;

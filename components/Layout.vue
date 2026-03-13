@@ -139,7 +139,11 @@
     </head>
     <body>
       <nav class="site-nav">
-        <a href="/" class="logo">htmlc<span>.sh</span></a>
+        <a href="/" class="logo">
+          <img src="/images/logo.webp" alt="htmlc logo" width="32" height="32"
+               style="border-radius:6px;" />
+          htmlc<span>.sh</span>
+        </a>
         <div class="nav-links">
           <a href="/docs/index.html">Docs</a>
           <a href="/docs/cli.html">CLI</a>
