@@ -3,32 +3,27 @@
 
     <div class="docs-layout">
       <aside class="docs-sidebar">
-        <div class="sidebar-section">
-          <div class="sidebar-label">Conditionals</div>
+        <SidebarSection label="Conditionals">
           <a href="#v-if" class="sidebar-link">v-if / v-else-if / v-else</a>
           <a href="#v-show" class="sidebar-link">v-show</a>
           <a href="#v-switch" class="sidebar-link">v-switch / v-case</a>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-label">Lists</div>
+        </SidebarSection>
+        <SidebarSection label="Lists">
           <a href="#v-for" class="sidebar-link">v-for</a>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-label">Binding</div>
+        </SidebarSection>
+        <SidebarSection label="Binding">
           <a href="#v-bind" class="sidebar-link">v-bind / :attr</a>
           <a href="#v-html" class="sidebar-link">v-html</a>
           <a href="#v-text" class="sidebar-link">v-text</a>
           <a href="#v-pre" class="sidebar-link">v-pre</a>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-label">Components</div>
+        </SidebarSection>
+        <SidebarSection label="Components">
           <a href="#v-slot" class="sidebar-link">v-slot / #slot</a>
           <a href="#dynamic-component" class="sidebar-link">component :is</a>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-label">Not supported</div>
+        </SidebarSection>
+        <SidebarSection label="Not supported">
           <a href="#not-supported" class="sidebar-link">Stripped directives</a>
-        </div>
+        </SidebarSection>
       </aside>
 
       <div class="docs-content">
@@ -251,10 +246,6 @@
   .docs-layout { display: grid; grid-template-columns: 220px 1fr; gap: 0; max-width: 1200px; margin: 0 auto; }
   @media (max-width: 800px) { .docs-layout { grid-template-columns: 1fr; } .docs-sidebar { display: none; } }
   .docs-sidebar { border-right: 1px solid var(--border); padding: 2rem 1.5rem; position: sticky; top: var(--nav-height); height: calc(100vh - var(--nav-height)); overflow-y: auto; }
-  .sidebar-section { margin-bottom: 1.5rem; }
-  .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 0.5rem; padding: 0 0.5rem; }
-  .sidebar-link { display: block; padding: 0.3rem 0.5rem; font-size: 0.875rem; color: var(--muted); border-radius: 4px; }
-  .sidebar-link:hover { color: var(--text); background: rgba(255,255,255,0.05); text-decoration: none; }
   .docs-content { padding: 3rem 3rem 5rem; max-width: 800px; }
   .docs-content h1 { font-size: 2.2rem; margin-bottom: 0.75rem; color: #f0f2ff; }
   .docs-content h2 { font-size: 1.4rem; margin: 2.5rem 0 0.75rem; padding-top: 2.5rem; border-top: 1px solid var(--border); }

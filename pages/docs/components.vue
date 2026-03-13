@@ -3,20 +3,17 @@
 
     <div class="docs-layout">
       <aside class="docs-sidebar">
-        <div class="sidebar-section">
-          <div class="sidebar-label">Components</div>
+        <SidebarSection label="Components">
           <a href="#sfc-format" class="sidebar-link">SFC format</a>
           <a href="#registration" class="sidebar-link">Registration</a>
           <a href="#composition" class="sidebar-link">Composition</a>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-label">Data</div>
+        </SidebarSection>
+        <SidebarSection label="Data">
           <a href="#props" class="sidebar-link">Props</a>
           <a href="#slots" class="sidebar-link">Slots</a>
           <a href="#scoped-styles" class="sidebar-link">Scoped styles</a>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-label">Go API</div>
+        </SidebarSection>
+        <SidebarSection label="Go API">
           <a href="#go-api" class="sidebar-link">Engine</a>
           <a href="#rendering" class="sidebar-link">Rendering</a>
           <a href="#http-handlers" class="sidebar-link">HTTP handlers</a>
@@ -27,7 +24,7 @@
           <a href="#errors" class="sidebar-link">Error handling</a>
           <a href="#scope-rules" class="sidebar-link">Scope rules</a>
           <a href="#custom-directives" class="sidebar-link">Custom directives</a>
-        </div>
+        </SidebarSection>
       </aside>
 
       <div class="docs-content">
@@ -449,10 +446,6 @@ if errors.As(err, &re) {
   .docs-layout { display: grid; grid-template-columns: 220px 1fr; gap: 0; max-width: 1200px; margin: 0 auto; }
   @media (max-width: 800px) { .docs-layout { grid-template-columns: 1fr; } .docs-sidebar { display: none; } }
   .docs-sidebar { border-right: 1px solid var(--border); padding: 2rem 1.5rem; position: sticky; top: var(--nav-height); height: calc(100vh - var(--nav-height)); overflow-y: auto; }
-  .sidebar-section { margin-bottom: 1.5rem; }
-  .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 0.5rem; padding: 0 0.5rem; }
-  .sidebar-link { display: block; padding: 0.3rem 0.5rem; font-size: 0.875rem; color: var(--muted); border-radius: 4px; }
-  .sidebar-link:hover { color: var(--text); background: rgba(255,255,255,0.05); text-decoration: none; }
   .docs-content { padding: 3rem 3rem 5rem; max-width: 800px; }
   .docs-content h1 { font-size: 2.2rem; margin-bottom: 0.75rem; color: #f0f2ff; }
   .docs-content h2 { font-size: 1.4rem; margin: 2.5rem 0 0.75rem; padding-top: 2.5rem; border-top: 1px solid var(--border); }

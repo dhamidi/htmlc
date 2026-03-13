@@ -3,31 +3,27 @@
 
     <div class="docs-layout">
       <aside class="docs-sidebar">
-        <div class="sidebar-section">
-          <div class="sidebar-label">Getting started</div>
+        <SidebarSection label="Getting started">
           <a href="#overview" class="sidebar-link">Overview</a>
           <a href="#installation" class="sidebar-link">Installation</a>
           <a href="#quick-start" class="sidebar-link">Quick start</a>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-label">Template syntax</div>
+        </SidebarSection>
+        <SidebarSection label="Template syntax">
           <a href="#interpolation" class="sidebar-link">Interpolation</a>
           <a href="#expressions" class="sidebar-link">Expressions</a>
           <a href="#directives" class="sidebar-link">Directives</a>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-label">Components</div>
+        </SidebarSection>
+        <SidebarSection label="Components">
           <a href="#component-system" class="sidebar-link">Component system</a>
           <a href="#props" class="sidebar-link">Props</a>
           <a href="#slots" class="sidebar-link">Slots</a>
           <a href="#scoped-styles" class="sidebar-link">Scoped styles</a>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-label">Reference</div>
+        </SidebarSection>
+        <SidebarSection label="Reference">
           <a href="/docs/directives.html" class="sidebar-link">All directives</a>
           <a href="/docs/cli.html" class="sidebar-link">CLI reference</a>
           <a href="/docs/components.html" class="sidebar-link">Component API</a>
-        </div>
+        </SidebarSection>
       </aside>
 
       <div class="docs-content">
@@ -206,11 +202,6 @@ p[data-v-3a2b1c]    { color: gray; }
   @media (max-width: 800px) { .docs-layout { grid-template-columns: 1fr; } .docs-sidebar { display: none; } }
 
   .docs-sidebar { border-right: 1px solid var(--border); padding: 2rem 1.5rem; position: sticky; top: var(--nav-height); height: calc(100vh - var(--nav-height)); overflow-y: auto; }
-  .sidebar-section { margin-bottom: 1.5rem; }
-  .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 0.5rem; padding: 0 0.5rem; }
-  .sidebar-link { display: block; padding: 0.3rem 0.5rem; font-size: 0.875rem; color: var(--muted); border-radius: 4px; }
-  .sidebar-link:hover { color: var(--text); background: rgba(255,255,255,0.05); text-decoration: none; }
-
   .docs-content { padding: 3rem 3rem 5rem; max-width: 800px; }
 
   .docs-content h1 { font-size: 2.2rem; margin-bottom: 0.75rem; color: #f0f2ff; }
