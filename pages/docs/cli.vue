@@ -65,7 +65,7 @@ echo '{"name":"world"}' | htmlc render -dir ./templates Greeting</code></pre>
 &lt;/html&gt;</code></pre>
 
     <h2 id="build">build</h2>
-    <p>Walks the pages directory recursively, renders every <code>.vue</code> file as a full HTML page, and writes results to the output directory. The directory hierarchy is preserved.</p>
+    <p>Walks the pages directory recursively, renders every <code>.vue</code> file as a full HTML page, and writes results to the output directory. The directory hierarchy is preserved. Supports <a href="#external-directives">external directives</a> for custom element transformations.</p>
     <pre v-syntax-highlight="'bash'"><code>htmlc build [-strict] [-dir &lt;path&gt;] [-pages &lt;path&gt;] [-out &lt;path&gt;] [-layout &lt;name&gt;] [-debug] [-dev &lt;addr&gt;]</code></pre>
 
     <h3>Flags</h3>
