@@ -5,6 +5,7 @@
       <a href="/docs/index.html" class="sidebar-link">Overview</a>
       <a href="/docs/index.html#installation" class="sidebar-link">Installation</a>
       <a href="/docs/index.html#quick-start" class="sidebar-link">Quick start</a>
+      <a href="/docs/tutorial.html" class="sidebar-link">Tutorial</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Reference</div>
