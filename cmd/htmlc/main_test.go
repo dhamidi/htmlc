@@ -1020,6 +1020,93 @@ func TestBuildLayoutNotFound(t *testing.T) {
 	}
 }
 
+// --- Strict mode tests ---
+
+func TestRun_StrictFlag_MissingProp_Render(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Card.vue"), []byte(`<template><div>{{ title }}</div></template>`), 0644)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"render", "-strict", "-dir", dir, "-props", "{}", "Card"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "missing prop") {
+		t.Errorf("expected 'missing prop' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRun_StrictFlag_MissingProp_Page(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "MyPage.vue"), []byte(`<template><html><body>{{ title }}</body></html></template>`), 0644)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"page", "-strict", "-dir", dir, "-props", "{}", "MyPage"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "missing prop") {
+		t.Errorf("expected 'missing prop' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRun_StrictFlag_ValidateAll_Build(t *testing.T) {
+	componentsDir := t.TempDir()
+	pagesDir := t.TempDir()
+	outDir := t.TempDir()
+
+	// Component that references a non-existent child component
+	os.WriteFile(filepath.Join(componentsDir, "Wrapper.vue"),
+		[]byte(`<template><div><NonExistentChild /></div></template>`), 0644)
+
+	// A valid page
+	os.WriteFile(filepath.Join(pagesDir, "index.vue"),
+		[]byte(`<template><html><body>Hello</body></html></template>`), 0644)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"build", "-strict", "-dir", componentsDir, "-pages", pagesDir, "-out", outDir}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d; stderr: %s", code, stderr.String())
+	}
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "validation error") {
+		t.Errorf("expected 'validation error' in stderr, got: %s", errOut)
+	}
+}
+
+func TestRun_StrictFlag_NoError_WhenPropsProvided(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Card.vue"), []byte(`<template><div>{{ title }}</div></template>`), 0644)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"render", "-strict", "-dir", dir, "-props", `{"title":"hi"}`, "Card"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "hi") {
+		t.Errorf("expected 'hi' in output, got: %s", stdout.String())
+	}
+}
+
+func TestRun_StrictFlag_PositionIndependent(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Card.vue"), []byte(`<template><div>{{ title }}</div></template>`), 0644)
+
+	// -strict before subcommand
+	var stdout1, stderr1 bytes.Buffer
+	code1 := run([]string{"-strict", "render", "-dir", dir, "-props", `{"title":"hello"}`, "Card"}, &stdout1, &stderr1)
+	if code1 != 0 {
+		t.Errorf("-strict before subcommand: expected exit 0, got %d; stderr: %s", code1, stderr1.String())
+	}
+
+	// -strict after subcommand
+	var stdout2, stderr2 bytes.Buffer
+	code2 := run([]string{"render", "-strict", "-dir", dir, "-props", `{"title":"hello"}`, "Card"}, &stdout2, &stderr2)
+	if code2 != 0 {
+		t.Errorf("-strict after subcommand: expected exit 0, got %d; stderr: %s", code2, stderr2.String())
+	}
+}
+
 func TestBuildDiscoversPages(t *testing.T) {
 	pagesDir := t.TempDir()
 

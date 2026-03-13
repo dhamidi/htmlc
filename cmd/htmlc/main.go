@@ -19,7 +19,7 @@ import (
 const helpTop = `htmlc — server-side Vue.js component renderer
 
 USAGE
-  htmlc <subcommand> [flags] [args]
+  htmlc [-strict] <subcommand> [flags] [args]
 
 SUBCOMMANDS
   render   Render a component as an HTML fragment (stdout)
@@ -27,6 +27,9 @@ SUBCOMMANDS
   props    List the props expected by a component
   ast      Print the template AST of a component (stdout)
   help     Show help for a subcommand
+
+GLOBAL FLAGS
+  -strict   Enable strict mode (see 'htmlc help <subcommand>' for details)
 
 EXAMPLES
   # Render a fragment with inline props
@@ -47,7 +50,7 @@ Run 'htmlc help <subcommand>' for detailed flags and examples.
 const helpRender = `render — render a .vue component as an HTML fragment
 
 SYNOPSIS
-  htmlc render [-dir <path>] [-props <json|->] [-debug] <component>
+  htmlc render [-strict] [-dir <path>] [-props <json|->] [-debug] <component>
 
 DESCRIPTION
   Renders the named .vue component and writes the resulting HTML fragment to
@@ -55,6 +58,8 @@ DESCRIPTION
   is matched case-insensitively against files in the component directory.
 
 FLAGS
+  -strict       Enable strict mode: missing props abort with an error and all
+                components are validated before rendering.
   -dir string   Directory containing .vue component files. (default ".")
   -props string Props as a JSON object, or "-" to read JSON from stdin.
   -debug        Enable debug render mode: annotate output with HTML comments
@@ -78,7 +83,7 @@ EXAMPLES
 const helpBuild = `build — render a page tree to an output directory
 
 SYNOPSIS
-  htmlc build [-dir <path>] [-pages <path>] [-out <path>] [-layout <name>] [-debug]
+  htmlc build [-strict] [-dir <path>] [-pages <path>] [-out <path>] [-layout <name>] [-debug]
 
 DESCRIPTION
   Walks the pages directory recursively, renders every .vue file as a full
@@ -95,6 +100,8 @@ DESCRIPTION
   files exist the page is rendered with no props.
 
 FLAGS
+  -strict         Enable strict mode: missing props abort with an error and all
+                  components are validated before rendering.
   -dir string     Directory containing shared .vue components. (default ".")
   -pages string   Root of the page tree. (default "./pages")
   -out string     Output directory. Created if it does not exist. (default "./out")
@@ -115,7 +122,7 @@ EXAMPLES
 const helpPage = `page — render a .vue component as a full HTML page
 
 SYNOPSIS
-  htmlc page [-dir <path>] [-props <json|->] [-debug] [-layout <component>] <component>
+  htmlc page [-strict] [-dir <path>] [-props <json|->] [-debug] [-layout <component>] <component>
 
 DESCRIPTION
   Renders the named .vue component and writes a complete HTML document to
@@ -125,6 +132,8 @@ DESCRIPTION
   component directory.
 
 FLAGS
+  -strict         Enable strict mode: missing props abort with an error and all
+                  components are validated before rendering.
   -dir string     Directory containing .vue component files. (default ".")
   -props string   Props as a JSON object, or "-" to read JSON from stdin.
   -debug          Enable debug render mode: annotate output with HTML comments
@@ -293,6 +302,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// Pre-scan for -strict / --strict before dispatching to subcommands so
+	// that the flag can appear in any position (e.g. before or after the
+	// subcommand name).
+	strictMode := false
+	filteredArgs := args[:0:0]
+	for i, a := range args {
+		if a == "-strict" || a == "--strict" {
+			strictMode = true
+			continue
+		}
+		filteredArgs = append(filteredArgs, args[i])
+	}
+	args = filteredArgs
+
+	if len(args) == 0 {
+		printHelp(stdout)
+		return 0
+	}
+
 	subcmd := args[0]
 	rest := args[1:]
 
@@ -303,35 +331,35 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	switch subcmd {
 	case "render":
-		if err := runRender(rest, stdout, stderr); err != nil {
+		if err := runRender(rest, stdout, stderr, strictMode); err != nil {
 			if err != errSilent {
 				fmt.Fprintln(stderr, err)
 			}
 			return 1
 		}
 	case "page":
-		if err := runPage(rest, stdout, stderr); err != nil {
+		if err := runPage(rest, stdout, stderr, strictMode); err != nil {
 			if err != errSilent {
 				fmt.Fprintln(stderr, err)
 			}
 			return 1
 		}
 	case "props":
-		if err := runProps(rest, stdout, stderr); err != nil {
+		if err := runProps(rest, stdout, stderr, strictMode); err != nil {
 			if err != errSilent {
 				fmt.Fprintln(stderr, err)
 			}
 			return 1
 		}
 	case "ast":
-		if err := runAst(rest, stdout, stderr); err != nil {
+		if err := runAst(rest, stdout, stderr, strictMode); err != nil {
 			if err != errSilent {
 				fmt.Fprintln(stderr, err)
 			}
 			return 1
 		}
 	case "build":
-		if err := runBuild(rest, stdout, stderr); err != nil {
+		if err := runBuild(rest, stdout, stderr, strictMode); err != nil {
 			if err != errSilent {
 				fmt.Fprintln(stderr, err)
 			}
@@ -420,7 +448,7 @@ func componentNotFoundError(cmd, name, dir string) string {
 	return cmdErrorMsg(cmd, fmt.Sprintf("component %q not found", name), hints...)
 }
 
-func runRender(args []string, stdout, stderr io.Writer) error {
+func runRender(args []string, stdout, stderr io.Writer, strict bool) error {
 	args = normalizeArgs(args)
 	fs := flag.NewFlagSet("render", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -438,7 +466,7 @@ func runRender(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stderr, cmdErrorMsg("render", "missing component name",
 			"",
 			"USAGE",
-			"  htmlc render [-dir <path>] [-props <json|->] [-debug] <component>",
+			"  htmlc render [-strict] [-dir <path>] [-props <json|->] [-debug] <component>",
 			"",
 			"EXAMPLE",
 			"  htmlc render -dir ./templates MyComponent",
@@ -473,6 +501,16 @@ func runRender(args []string, stdout, stderr io.Writer) error {
 		return errSilent
 	}
 
+	if strict {
+		engine.WithMissingPropHandler(htmlc.ErrorOnMissingProp)
+		if errs := engine.ValidateAll(); len(errs) > 0 {
+			for _, ve := range errs {
+				fmt.Fprintf(stderr, "htmlc render: validation error in %s: %s\n", ve.Component, ve.Message)
+			}
+			return errSilent
+		}
+	}
+
 	if err := engine.RenderFragment(stdout, name, data); err != nil {
 		if strings.Contains(err.Error(), name) {
 			fmt.Fprintln(stderr, componentNotFoundError("render", name, *dir))
@@ -484,7 +522,7 @@ func runRender(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func runPage(args []string, stdout, stderr io.Writer) error {
+func runPage(args []string, stdout, stderr io.Writer, strict bool) error {
 	args = normalizeArgs(args)
 	fs := flag.NewFlagSet("page", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -503,7 +541,7 @@ func runPage(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stderr, cmdErrorMsg("page", "missing component name",
 			"",
 			"USAGE",
-			"  htmlc page [-dir <path>] [-props <json|->] [-debug] [-layout <component>] <component>",
+			"  htmlc page [-strict] [-dir <path>] [-props <json|->] [-debug] [-layout <component>] <component>",
 			"",
 			"EXAMPLE",
 			"  htmlc page -dir ./templates MyPage",
@@ -536,6 +574,16 @@ func runPage(args []string, stdout, stderr io.Writer) error {
 			"  Run 'htmlc help page' for usage.",
 		))
 		return errSilent
+	}
+
+	if strict {
+		engine.WithMissingPropHandler(htmlc.ErrorOnMissingProp)
+		if errs := engine.ValidateAll(); len(errs) > 0 {
+			for _, ve := range errs {
+				fmt.Fprintf(stderr, "htmlc page: validation error in %s: %s\n", ve.Component, ve.Message)
+			}
+			return errSilent
+		}
 	}
 
 	if *layoutFlag != "" {
@@ -706,7 +754,7 @@ func loadPageData(entry pageEntry, pagesRoot string) (map[string]any, error) {
 	return result, nil
 }
 
-func runBuild(args []string, stdout, stderr io.Writer) error {
+func runBuild(args []string, stdout, stderr io.Writer, strict bool) error {
 	fset := flag.NewFlagSet("build", flag.ContinueOnError)
 	fset.SetOutput(stderr)
 	dir := fset.String("dir", ".", "directory containing shared .vue components")
@@ -750,6 +798,16 @@ func runBuild(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		fmt.Fprintln(stderr, cmdErrorMsg("build", fmt.Sprintf("failed to initialise engine: %v", err)))
 		return errSilent
+	}
+
+	if strict {
+		engine.WithMissingPropHandler(htmlc.ErrorOnMissingProp)
+		if errs := engine.ValidateAll(); len(errs) > 0 {
+			for _, ve := range errs {
+				fmt.Fprintf(stderr, "htmlc build: validation error in %s: %s\n", ve.Component, ve.Message)
+			}
+			return errSilent
+		}
 	}
 
 	if *layoutFlag != "" && !engine.Has(*layoutFlag) {
@@ -876,7 +934,7 @@ func isTerminal(w io.Writer) bool {
 	return (stat.Mode() & os.ModeCharDevice) != 0
 }
 
-func runProps(args []string, stdout, stderr io.Writer) error {
+func runProps(args []string, stdout, stderr io.Writer, strict bool) error {
 	args = normalizeArgs(args)
 	fs := flag.NewFlagSet("props", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -1035,7 +1093,7 @@ func printASTNode(w io.Writer, n *html.Node, depth int) {
 	}
 }
 
-func runAst(args []string, stdout, stderr io.Writer) error {
+func runAst(args []string, stdout, stderr io.Writer, strict bool) error {
 	args = normalizeArgs(args)
 	fset := flag.NewFlagSet("ast", flag.ContinueOnError)
 	fset.SetOutput(stderr)
