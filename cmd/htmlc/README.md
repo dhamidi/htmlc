@@ -121,7 +121,7 @@ htmlc page -dir ./templates PostPage -props '{"slug":"intro","title":"Introducti
 
 ### Wrap a page in a layout using a slot (manual composition)
 
-In this pattern the page component itself references the layout component directly in its template and passes its content through a `<slot>`.  No extra CLI flag is needed.
+In this pattern the page component itself references the layout component directly in its template and passes its content through named slots.  No extra CLI flag is needed.
 
 ```vue
 <!-- templates/AppLayout.vue -->
@@ -129,8 +129,9 @@ In this pattern the page component itself references the layout component direct
   <html>
     <head><title>{{ title }}</title></head>
     <body>
-      <nav><!-- site nav --></nav>
+      <header><slot name="header" /></header>
       <main><slot /></main>
+      <footer><slot name="footer" /></footer>
     </body>
   </html>
 </template>
@@ -140,7 +141,15 @@ In this pattern the page component itself references the layout component direct
 <!-- templates/PostPage.vue -->
 <template>
   <AppLayout :title="title">
+    <template #header>
+      <nav><a href="/">Home</a></nav>
+    </template>
+
     <article>{{ body }}</article>
+
+    <template #footer>
+      <p>&copy; 2024 My Site</p>
+    </template>
   </AppLayout>
 </template>
 ```
@@ -149,7 +158,7 @@ In this pattern the page component itself references the layout component direct
 htmlc page -dir ./templates PostPage -props '{"title":"Hello","body":"World"}'
 ```
 
-Use this approach when different pages use different layouts, or when the layout is an inherent part of the component's design.
+Named slots let different pages supply different header and footer content while sharing the same outer structure.  Use this approach when the layout is an inherent part of the component's design, or when pages need to customise individual regions independently.
 
 ---
 
@@ -157,12 +166,22 @@ Use this approach when different pages use different layouts, or when the layout
 
 With `-layout` the page component does not need to know about the layout at all.  `htmlc` renders the page as a fragment, then passes the resulting HTML to the layout component as a `content` prop.
 
+Named slots can still structure the layout's static regions (header, footer) while the injected page HTML occupies the main area via `v-html="content"`.
+
 ```vue
 <!-- templates/AppLayout.vue -->
 <template>
   <html>
     <head><title>{{ title }}</title></head>
-    <body v-html="content"></body>
+    <body>
+      <header>
+        <slot name="header"><nav><a href="/">Home</a></nav></slot>
+      </header>
+      <main v-html="content"></main>
+      <footer>
+        <slot name="footer"><p>&copy; 2024 My Site</p></slot>
+      </footer>
+    </body>
   </html>
 </template>
 ```
@@ -181,8 +200,9 @@ htmlc page -dir ./templates -layout AppLayout PostPage \
 
 The layout receives:
 
-- `content` — the rendered HTML of the page component.
+- `content` — the rendered HTML of the page component, injected into the `<main>` element via `v-html`.
 - all top-level props from `-props` (e.g. `title`) so the layout can use them directly.
+- named slots (`header`, `footer`) fall back to their default content because the CLI does not supply slot children when applying a layout.
 
 Use this approach when the layout is a deployment-time concern (a shared shell applied to every page) and you want page components to remain independent of it.
 
