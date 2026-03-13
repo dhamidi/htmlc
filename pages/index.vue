@@ -1,5 +1,5 @@
 <template>
-  <Layout :siteTitle="siteTitle" :description="description">
+  <Layout pageTitle="htmlc" :siteTitle="siteTitle" :description="description">
 
     <!-- Hero -->
     <section class="hero">
