@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRun_NoArgs(t *testing.T) {
@@ -1104,6 +1107,113 @@ func TestRun_StrictFlag_PositionIndependent(t *testing.T) {
 	code2 := run([]string{"render", "-strict", "-dir", dir, "-props", `{"title":"hello"}`, "Card"}, &stdout2, &stderr2)
 	if code2 != 0 {
 		t.Errorf("-strict after subcommand: expected exit 0, got %d; stderr: %s", code2, stderr2.String())
+	}
+}
+
+// --- dirHash tests ---
+
+func TestDirHash_StableWhenUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.vue"), []byte(`<template><div></div></template>`), 0644)
+
+	h1, err := dirHash(dir)
+	if err != nil {
+		t.Fatalf("dirHash error: %v", err)
+	}
+	h2, err := dirHash(dir)
+	if err != nil {
+		t.Fatalf("dirHash error: %v", err)
+	}
+	if h1 != h2 {
+		t.Errorf("expected same hash on unchanged dir, got %q vs %q", h1, h2)
+	}
+}
+
+func TestDirHash_ChangesOnModification(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.vue")
+	os.WriteFile(path, []byte(`<template><div></div></template>`), 0644)
+
+	h1, err := dirHash(dir)
+	if err != nil {
+		t.Fatalf("dirHash error: %v", err)
+	}
+
+	// Bump mtime by 1 second.
+	future := time.Now().Add(time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	h2, err := dirHash(dir)
+	if err != nil {
+		t.Fatalf("dirHash error: %v", err)
+	}
+	if h1 == h2 {
+		t.Errorf("expected different hash after mtime change, but got same: %q", h1)
+	}
+}
+
+// --- Dev rebuild integration test ---
+
+func TestRunBuild_Dev_RebuildsOnChange(t *testing.T) {
+	t.Parallel()
+	componentsDir := t.TempDir()
+	pagesDir := t.TempDir()
+	outDir := t.TempDir()
+
+	// Write initial page.
+	pagePath := filepath.Join(pagesDir, "index.vue")
+	os.WriteFile(pagePath, []byte(`<template><html><body>v1</body></html></template>`), 0644)
+
+	// Initial build.
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"build", "-dir", componentsDir, "-pages", pagesDir, "-out", outDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("initial build failed: %s", stderr.String())
+	}
+
+	content, _ := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if !strings.Contains(string(content), "v1") {
+		t.Fatalf("expected v1 in initial output, got: %s", content)
+	}
+
+	// Simulate a source change: update the page and bump mtime.
+	os.WriteFile(pagePath, []byte(`<template><html><body>v2</body></html></template>`), 0644)
+	future := time.Now().Add(time.Second)
+	os.Chtimes(pagePath, future, future)
+
+	// Compute initial hash so the rebuild function detects the change.
+	initialHash, _ := dirHash(componentsDir, pagesDir)
+	lastHash := initialHash
+
+	// Change the file so hash differs.
+	future2 := future.Add(time.Second)
+	os.Chtimes(pagePath, future2, future2)
+
+	// Build a handler that rebuilds, then check output.
+	rebuildCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h, err := dirHash(componentsDir, pagesDir)
+		if err == nil && h != lastHash {
+			lastHash = h
+			rebuildCalled = true
+			run([]string{"build", "-dir", componentsDir, "-pages", pagesDir, "-out", outDir}, io.Discard, io.Discard)
+		}
+		http.FileServer(http.Dir(outDir)).ServeHTTP(w, r)
+	})
+
+	rec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/index.html", nil)
+	handler.ServeHTTP(rec, req)
+
+	if !rebuildCalled {
+		t.Error("expected rebuild to be triggered by file change")
+	}
+
+	content2, _ := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if !strings.Contains(string(content2), "v2") {
+		t.Errorf("expected v2 in rebuilt output, got: %s", content2)
 	}
 }
 

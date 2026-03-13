@@ -1,16 +1,22 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"syscall"
 
 	"github.com/dhamidi/htmlc"
 	"golang.org/x/net/html"
@@ -83,7 +89,7 @@ EXAMPLES
 const helpBuild = `build — render a page tree to an output directory
 
 SYNOPSIS
-  htmlc build [-strict] [-dir <path>] [-pages <path>] [-out <path>] [-layout <name>] [-debug]
+  htmlc build [-strict] [-dir <path>] [-pages <path>] [-out <path>] [-layout <name>] [-debug] [-dev <addr>]
 
 DESCRIPTION
   Walks the pages directory recursively, renders every .vue file as a full
@@ -107,6 +113,11 @@ FLAGS
   -out string     Output directory. Created if it does not exist. (default "./out")
   -layout string  Layout component (from -dir) to wrap every page. (default: none)
   -debug          Annotate output with diagnostic HTML comments.
+  -dev string     Start a development server at <addr> (e.g. :8080) that serves
+                  the output directory and automatically rebuilds when source
+                  files change. The server runs until interrupted (Ctrl-C).
+                  Build flags (-dir, -pages, -out, -layout, -debug) are still
+                  honoured.
 
 EXAMPLES
   # Build all pages using defaults
@@ -117,6 +128,9 @@ EXAMPLES
 
   # Build with a shared layout
   htmlc build -dir ./templates -pages ./pages -out ./dist -layout AppLayout
+
+  # Serve the built site with live rebuilds on port 8080
+  htmlc build -dir ./templates -pages ./pages -out ./dist -dev :8080
 `
 
 const helpPage = `page — render a .vue component as a full HTML page
@@ -754,6 +768,81 @@ func loadPageData(entry pageEntry, pagesRoot string) (map[string]any, error) {
 	return result, nil
 }
 
+// dirHash returns a hex digest summarising the mtimes of all files under dirs.
+func dirHash(dirs ...string) (string, error) {
+	h := sha256.New()
+	for _, dir := range dirs {
+		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(h, "%s\t%d\n", path, info.ModTime().UnixNano())
+			return nil
+		})
+		if err != nil {
+			return "", err
+		}
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+// runDevServer starts an HTTP file server on addr that serves the out directory
+// and rebuilds when source files change on each incoming request.
+func runDevServer(addr, dir, pages, out, layout string, debug bool, strict bool, stdout, stderr io.Writer) error {
+	var mu sync.Mutex
+	lastHash, _ := dirHash(dir, pages)
+
+	rebuild := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		h, err := dirHash(dir, pages)
+		if err != nil || h == lastHash {
+			return
+		}
+		lastHash = h
+		fmt.Fprintf(stdout, "htmlc dev: change detected — rebuilding…\n")
+		buildArgs := []string{"-dir", dir, "-pages", pages, "-out", out}
+		if layout != "" {
+			buildArgs = append(buildArgs, "-layout", layout)
+		}
+		if debug {
+			buildArgs = append(buildArgs, "-debug")
+		}
+		if err := runBuild(buildArgs, stdout, stderr, strict); err != nil && err != errSilent {
+			fmt.Fprintf(stderr, "htmlc dev: rebuild error: %v\n", err)
+		}
+	}
+
+	fs := http.FileServer(http.Dir(out))
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rebuild()
+		fs.ServeHTTP(w, r)
+	})
+
+	srv := &http.Server{Addr: addr, Handler: handler}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		<-ctx.Done()
+		_ = srv.Shutdown(context.Background())
+	}()
+
+	fmt.Fprintf(stdout, "htmlc dev: serving %s on http://%s\n", out, addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("dev server: %w", err)
+	}
+	return nil
+}
+
 func runBuild(args []string, stdout, stderr io.Writer, strict bool) error {
 	fset := flag.NewFlagSet("build", flag.ContinueOnError)
 	fset.SetOutput(stderr)
@@ -762,6 +851,7 @@ func runBuild(args []string, stdout, stderr io.Writer, strict bool) error {
 	out := fset.String("out", "./out", "output directory")
 	layoutFlag := fset.String("layout", "", "layout component to wrap every page")
 	debugFlag := fset.Bool("debug", false, "enable debug render mode")
+	devAddr := fset.String("dev", "", "serve output directory and rebuild on changes (e.g. :8080)")
 	if err := fset.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Fprint(stdout, helpBuild)
@@ -908,6 +998,9 @@ func runBuild(args []string, stdout, stderr io.Writer, strict bool) error {
 	fmt.Fprintf(stdout, "Build complete: %d pages, %d errors.\n", total, failed)
 	if failed > 0 {
 		return errSilent
+	}
+	if *devAddr != "" {
+		return runDevServer(*devAddr, *dir, *pages, *out, *layoutFlag, *debugFlag, strict, stdout, stderr)
 	}
 	return nil
 }
