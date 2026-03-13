@@ -28,7 +28,7 @@ type DirectiveBinding struct {
 // DirectiveContext provides directive hooks read-only access to renderer state.
 type DirectiveContext struct {
 	// Registry is the component registry the renderer is using. Directives
-	// like VSwitch use this to verify or resolve component names.
+	// can use this to verify or resolve component names.
 	Registry Registry
 }
 
@@ -50,7 +50,7 @@ type Directive interface {
 	// Common uses:
 	//   - Add, remove, or rewrite attributes (node.Attr).
 	//   - Change the element tag (node.Data) to redirect rendering to a
-	//     different component (see VSwitch for an example).
+	//     different component.
 	//   - Return a non-nil error to abort rendering of this element.
 	Created(node *html.Node, binding DirectiveBinding, ctx DirectiveContext) error
 

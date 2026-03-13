@@ -505,6 +505,16 @@ func (r *Renderer) renderChildren(w io.Writer, parent *html.Node, scope map[stri
 				child = child.NextSibling
 				continue
 			}
+			// Intercept <template v-switch> at the child level.
+			if child.Data == "template" {
+				if switchExpr, ok := attrValue(child, "v-switch"); ok {
+					if err := r.renderSwitchBlock(w, child, switchExpr, scope); err != nil {
+						return err
+					}
+					child = child.NextSibling
+					continue
+				}
+			}
 			switch conditionalDirective(child) {
 			case "v-if":
 				lastInChain, err := r.renderConditionalChain(w, child, scope)
@@ -658,6 +668,60 @@ func shallowCloneNode(n *html.Node) *html.Node {
 	return clone
 }
 
+// removeAttr returns a shallow clone of n with the named attribute removed.
+// The clone's FirstChild is linked to n.FirstChild so children are accessible.
+func removeAttr(n *html.Node, key string) *html.Node {
+	clone := shallowCloneNode(n)
+	clone.FirstChild = n.FirstChild
+	filtered := clone.Attr[:0]
+	for _, a := range clone.Attr {
+		if a.Key != key {
+			filtered = append(filtered, a)
+		}
+	}
+	clone.Attr = filtered
+	return clone
+}
+
+// renderSwitchBlock evaluates a v-switch expression on switchNode and renders
+// the first matching v-case child, or the first v-default child if none match.
+func (r *Renderer) renderSwitchBlock(w io.Writer, switchNode *html.Node, switchExpr string, scope map[string]any) error {
+	switchVal, err := expr.Eval(strings.TrimSpace(switchExpr), scope)
+	if err != nil {
+		return fmt.Errorf("v-switch %q: %w", switchExpr, err)
+	}
+
+	matched := false
+	for child := switchNode.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != html.ElementNode {
+			continue
+		}
+		if caseExpr, ok := attrValue(child, "v-case"); ok {
+			if matched {
+				continue
+			}
+			caseVal, err := expr.Eval(strings.TrimSpace(caseExpr), scope)
+			if err != nil {
+				return fmt.Errorf("v-case %q: %w", caseExpr, err)
+			}
+			if switchVal == caseVal {
+				matched = true
+				if err := r.renderNode(w, removeAttr(child, "v-case"), scope); err != nil {
+					return err
+				}
+			}
+		} else if _, ok := attrValue(child, "v-default"); ok {
+			if !matched {
+				matched = true
+				if err := r.renderNode(w, removeAttr(child, "v-default"), scope); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // invokedDirective records a directive that was applied during Created hooks
 // so its Mounted hook can be called after the element's closing tag.
 type invokedDirective struct {
@@ -675,6 +739,7 @@ func (r *Renderer) applyCreatedHooks(node *html.Node, scope map[string]any) ([]i
 		"text": true, "html": true, "show": true, "once": true, "model": true,
 		"if": true, "else-if": true, "else": true, "for": true, "pre": true,
 		"slot": true, "bind": true, "on": true,
+		"switch": true, "case": true, "default": true,
 	}
 
 	// pendingDir holds a matched custom directive waiting to be Called.
@@ -740,8 +805,11 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 	// <template> without a controlling directive: render children transparently,
 	// without emitting a <template> wrapper element. Directives like v-if and
 	// v-for are intercepted in renderChildren before renderElement is reached,
-	// so this branch only fires for plain <template> elements.
+	// so this branch only fires for plain <template> elements (or v-switch).
 	if n.Data == "template" {
+		if switchExpr, ok := attrValue(n, "v-switch"); ok {
+			return r.renderSwitchBlock(w, n, switchExpr, scope)
+		}
 		return r.renderChildren(w, n, scope)
 	}
 
@@ -1294,7 +1362,7 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		switch attr.Key {
 		case "v-if", "v-else-if", "v-else", "v-for",
 			"v-pre", "v-once", "v-show", "v-text", "v-html",
-			"v-model", "v-bind":
+			"v-model", "v-bind", "v-switch", "v-case", "v-default":
 			continue
 		}
 		if isClientSideDirective(attr.Key) {

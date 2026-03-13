@@ -891,26 +891,20 @@ The `DirectiveBinding` passed to both hooks contains:
 | `Arg` | `string` | Argument after `:` (e.g. `"href"` in `v-my-dir:href`) |
 | `Modifiers` | `map[string]bool` | Dot-separated modifiers (e.g. `{"prevent": true}`) |
 
-### Built-in: VSwitch
+### Built-in: v-switch / v-case / v-default
 
-`VSwitch` is a built-in custom directive that replaces the host element with a registered component determined at runtime by the directive expression — similar to `<component :is="...">` but using a directive syntax.
-
-`v-switch` is **pre-registered and enabled by default** — no setup is required:
-
-```go
-// No explicit registration needed; v-switch works out of the box.
-engine, err := htmlc.New(htmlc.Options{ComponentDir: "templates/"})
-```
+`v-switch`, `v-case`, and `v-default` work like a switch statement for conditional rendering. Place them on a `<template>` element and only the first matching branch is rendered.
 
 ```html
-<!-- item.type evaluates to e.g. "CardWidget" — that component is rendered -->
-<div v-switch="item.type" :title="item.title" />
+<template v-switch="user.role">
+  <AdminPanel v-case="'admin'" />
+  <ModPanel   v-case="'mod'" />
+  <UserPanel  v-default />
+</template>
 ```
 
-All attributes other than `v-switch` (and any `v-switch:*` argument forms) are forwarded to the resolved component as props. Component names are matched case-insensitively. An error is returned if the component name does not exist in the registry.
+- **`v-switch="expr"`** — evaluated once; its result is the switch value. Must appear on a `<template>` element.
+- **`v-case="expr"`** — the child is rendered when its evaluated expression equals the switch value (strict Go `==`).
+- **`v-default`** — rendered when no preceding `v-case` matched. Only the first `v-default` is used.
 
-To override the built-in with a custom implementation, supply it via `Options.Directives` or `Engine.RegisterDirective`:
-
-```go
-engine.RegisterDirective("switch", &myCustomSwitch{})
-```
+Only the first matching branch is rendered; subsequent matches are skipped. Children without `v-case` or `v-default` are silently ignored. These directives are built-in — no registration is required.

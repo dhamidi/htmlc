@@ -348,11 +348,9 @@
 //	    },
 //	})
 //
-// The built-in VSwitch directive is the canonical example: it replaces the
-// host element's tag with a registered component name supplied by the
-// directive's expression, enabling dynamic component dispatch. VSwitch is
-// pre-registered and requires no setup — an engine created with
-// New(Options{ComponentDir: "..."}) handles v-switch out of the box.
+// The built-in v-switch/v-case/v-default directives work like a switch
+// statement for conditional rendering — see the v-switch section of the
+// package documentation for details.
 //
 // # Tutorial
 //
