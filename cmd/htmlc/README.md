@@ -15,6 +15,8 @@ For template syntax, directives, the Go API, and the expression language, see th
    - [Render a full HTML page](#render-a-full-html-page)
    - [Wrap a page in a layout using a slot (manual composition)](#wrap-a-page-in-a-layout-using-a-slot-manual-composition)
    - [Use the `-layout` flag to apply a layout at render time](#use-the--layout-flag-to-apply-a-layout-at-render-time)
+   - [Build a static site from a page tree](#build-a-static-site-from-a-page-tree)
+   - [Apply a shared layout across all pages in a build](#apply-a-shared-layout-across-all-pages-in-a-build)
    - [Pass props to a component](#pass-props-to-a-component)
    - [Pipe props from stdin](#pipe-props-from-stdin)
    - [Inspect a component's props](#inspect-a-components-props)
@@ -35,6 +37,7 @@ For template syntax, directives, the Go API, and the expression language, see th
    - [Component name resolution](#component-name-resolution)
    - [Scoped styles in CLI output](#scoped-styles-in-cli-output)
    - [Debug mode](#debug-mode)
+   - [Page-centric build](#page-centric-build)
 
 ---
 
@@ -83,14 +86,22 @@ $ htmlc page -dir ./templates HomePage -props '{"title":"My site"}'
 </html>
 ```
 
-**4. Discover what props a component expects.**
+**4. Build a whole site.**
+
+```
+htmlc build -dir ./templates -pages ./pages -out ./dist
+```
+
+Every `.vue` file in `pages/` is rendered to a matching `.html` file in `dist/`.  Props come from sibling `.json` files.
+
+**5. Discover what props a component expects.**
 
 ```
 $ htmlc props -dir ./templates Greeting
 name
 ```
 
-You now know the three most-used subcommands: `render`, `page`, and `props`.
+You now know the four most-used subcommands: `render`, `page`, `build`, and `props`.
 
 ---
 
@@ -206,6 +217,98 @@ The layout receives:
 - named slots (`header`, `footer`) fall back to their default content because the CLI does not supply slot children when applying a layout.
 
 Use this approach when the layout is a deployment-time concern (a shared shell applied to every page) and you want page components to remain independent of it.
+
+---
+
+### Build a static site from a page tree
+
+Create a `pages/` directory with `.vue` page components and optional `.json` data files:
+
+```
+pages/
+  index.vue
+  index.json
+  about.vue
+```
+
+```json
+// pages/index.json
+{"title": "Home", "body": "Welcome!"}
+```
+
+```vue
+<!-- pages/index.vue -->
+<template>
+  <html>
+    <head><title>{{ title }}</title></head>
+    <body><h1>{{ title }}</h1><p>{{ body }}</p></body>
+  </html>
+</template>
+```
+
+Run the build:
+
+```
+$ htmlc build -dir ./templates -pages ./pages -out ./dist
+Build complete: 2 pages, 0 errors.
+```
+
+The output directory mirrors the page tree:
+
+```
+dist/
+  index.html
+  about.html
+```
+
+Spot-check the result:
+
+```
+$ grep -i title dist/index.html
+    <title>Home</title>
+```
+
+Files whose base name starts with `_` are skipped.  Use `_partial.vue` or `_data.json` for shared fragments and default data.
+
+---
+
+### Apply a shared layout across all pages in a build
+
+Create a layout component in your shared components directory that uses `v-html="content"` to inject the page HTML:
+
+```vue
+<!-- templates/AppLayout.vue -->
+<template>
+  <html>
+    <head><title>{{ title }}</title></head>
+    <body>
+      <header><nav><a href="/">Home</a></nav></header>
+      <main v-html="content"></main>
+      <footer><p>&copy; 2024 My Site</p></footer>
+    </body>
+  </html>
+</template>
+```
+
+Page components do not reference the layout at all:
+
+```vue
+<!-- pages/index.vue -->
+<template>
+  <article><h1>{{ title }}</h1><p>{{ body }}</p></article>
+</template>
+```
+
+Run the build with `-layout`:
+
+```
+$ htmlc build -dir ./templates -pages ./pages -out ./dist -layout AppLayout
+Build complete: 2 pages, 0 errors.
+```
+
+Every output file is wrapped in the layout shell.
+
+**Data flow:** page props (loaded from `.json` files) are available in both the page template and the layout template.  The `content` key is the only injected value — it holds the rendered HTML of the page component.  If a page data file contains a key named `content`, it will be overridden by the injected HTML.
 
 ---
 
@@ -386,11 +489,11 @@ htmlc build [-dir <path>] [-pages <path>] [-out <path>] [-layout <name>] [-debug
 ```
 
 | Flag | Default | Description |
-|---|---|---|
-| `-dir` | `.` | Directory containing shared `.vue` component files |
-| `-pages` | `./pages` | Root of the page tree. All `.vue` files found recursively are treated as pages. |
-| `-out` | `./out` | Output directory. The page tree hierarchy is reproduced here as `.html` files. Created if it does not exist. |
-| `-layout` | _(empty)_ | Optional layout component name (resolved from `-dir`) that wraps every page. |
+|------|---------|-------------|
+| `-dir` | `.` | Shared component directory |
+| `-pages` | `./pages` | Page tree root |
+| `-out` | `./out` | Output directory (created if absent) |
+| `-layout` | _(none)_ | Layout component to wrap every page |
 | `-debug` | false | Annotate output with diagnostic HTML comments |
 
 Files in the pages directory whose base name starts with `_` are skipped — they are treated as shared partials, not pages.
@@ -558,3 +661,15 @@ Common keys:
 | `slot` | Slot name and node count |
 
 Because comments are part of the HTML output, they survive round-trips through most HTML parsers and are visible in browser DevTools.  They are intended solely for development use.
+
+---
+
+### Page-centric build
+
+`htmlc build` treats the pages directory as a source tree where every `.vue` file is an independently renderable page.  The output hierarchy mirrors the input: `pages/posts/hello.vue` becomes `out/posts/hello.html`.
+
+Props are loaded from JSON files that sit next to the `.vue` files.  This keeps templates free of data concerns and allows the same data to be reused by other tools (APIs, tests, etc.).  Directory-level `_data.json` files provide shared defaults that are shallow-merged with page-level files.
+
+Layout wrapping is additive: a layout component receives the rendered page HTML as a `content` prop, enabling a single shell to be applied to every page without modifying any page component.
+
+Files whose base name starts with `_` are skipped during page discovery.  Use this convention for shared partials that are referenced by page components but should not produce standalone output files.

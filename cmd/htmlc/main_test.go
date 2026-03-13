@@ -951,6 +951,75 @@ func TestBuildEmpty(t *testing.T) {
 	}
 }
 
+func TestBuildWithLayout(t *testing.T) {
+	componentsDir := t.TempDir()
+	pagesDir := t.TempDir()
+	outDir := t.TempDir()
+
+	// Layout component with v-html="content"
+	os.WriteFile(filepath.Join(componentsDir, "AppLayout.vue"),
+		[]byte(`<template><html><body><div class="layout" v-html="content"></div></body></html></template>`), 0644)
+
+	// Two page components
+	os.WriteFile(filepath.Join(pagesDir, "index.vue"),
+		[]byte(`<template><h1>{{ title }}</h1></template>`), 0644)
+	os.WriteFile(filepath.Join(pagesDir, "index.json"),
+		[]byte(`{"title":"Home"}`), 0644)
+	os.WriteFile(filepath.Join(pagesDir, "about.vue"),
+		[]byte(`<template><p>About</p></template>`), 0644)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"build", "-dir", componentsDir, "-pages", pagesDir, "-out", outDir, "-layout", "AppLayout"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; stderr: %s", code, stderr.String())
+	}
+
+	// Both output files should contain the layout wrapper
+	for _, name := range []string{"index.html", "about.html"} {
+		content, err := os.ReadFile(filepath.Join(outDir, name))
+		if err != nil {
+			t.Errorf("expected %s to exist: %v", name, err)
+			continue
+		}
+		if !strings.Contains(string(content), `class="layout"`) {
+			t.Errorf("%s should contain layout wrapper, got: %s", name, content)
+		}
+	}
+
+	// index.html should contain the page content injected via layout
+	indexContent, _ := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if !strings.Contains(string(indexContent), "Home") {
+		t.Errorf("index.html should contain page content 'Home', got: %s", indexContent)
+	}
+}
+
+func TestBuildLayoutNotFound(t *testing.T) {
+	componentsDir := t.TempDir()
+	pagesDir := t.TempDir()
+	outDir := t.TempDir()
+
+	// A valid page so we can verify it is NOT rendered
+	os.WriteFile(filepath.Join(pagesDir, "index.vue"),
+		[]byte(`<template><html><body>Hello</body></html></template>`), 0644)
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"build", "-dir", componentsDir, "-pages", pagesDir, "-out", outDir, "-layout", "Missing"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
+	}
+
+	// Error should mention the missing layout
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "Missing") {
+		t.Errorf("stderr should mention missing layout name, got: %s", errOut)
+	}
+
+	// No pages should have been rendered
+	if _, err := os.Stat(filepath.Join(outDir, "index.html")); err == nil {
+		t.Error("index.html should not exist when layout is missing")
+	}
+}
+
 func TestBuildDiscoversPages(t *testing.T) {
 	pagesDir := t.TempDir()
 

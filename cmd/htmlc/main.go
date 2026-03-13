@@ -752,6 +752,14 @@ func runBuild(args []string, stdout, stderr io.Writer) error {
 		return errSilent
 	}
 
+	if *layoutFlag != "" && !engine.Has(*layoutFlag) {
+		fmt.Fprintln(stderr, cmdErrorMsg("build", fmt.Sprintf("layout component %q not found", *layoutFlag),
+			fmt.Sprintf("  No component named %q was found in %q.", *layoutFlag, *dir),
+			"  Create the layout component or check the -dir and -layout flags.",
+		))
+		return errSilent
+	}
+
 	if err := os.MkdirAll(*out, 0755); err != nil {
 		fmt.Fprintln(stderr, cmdErrorMsg("build", fmt.Sprintf("cannot create output directory %q: %v", *out, err)))
 		return errSilent
