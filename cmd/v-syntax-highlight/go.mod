@@ -1,4 +1,4 @@
-module github.com/dhamidi/htmlc/v-syntax-highlight
+module github.com/dhamidi/htmlc/cmd/v-syntax-highlight
 
 go 1.22
 
