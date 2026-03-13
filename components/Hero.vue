@@ -82,6 +82,6 @@
   border-radius: 8px;
   padding: 0.6rem 1.2rem;
   font-size: 0.85rem;
-  color: var(--accent2);
+  color: var(--accent);
 }
 </style>

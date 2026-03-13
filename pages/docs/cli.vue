@@ -167,9 +167,9 @@ htmlc help build</code></pre>
   .docs-content h1 { font-size: 2.2rem; margin-bottom: 0.75rem; color: #f0f2ff; }
   .docs-content h2 { font-size: 1.4rem; margin: 2.5rem 0 0.75rem; padding-top: 2.5rem; border-top: 1px solid var(--border); }
   .docs-content h2:first-of-type { border-top: none; padding-top: 0; }
-  .docs-content h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; color: var(--accent2); font-family: "SF Mono","Fira Code",monospace; }
+  .docs-content h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; color: var(--accent); font-family: "SF Mono","Fira Code",monospace; }
   .lead { font-size: 1.1rem; color: var(--muted); margin-bottom: 2rem; }
   .flag-row { display: flex; gap: 0.75rem; align-items: baseline; margin: 0.5rem 0; }
-  .flag-name { font-family: "SF Mono","Fira Code",monospace; font-size: 0.85rem; color: var(--accent2); white-space: nowrap; }
+  .flag-name { font-family: "SF Mono","Fira Code",monospace; font-size: 0.85rem; color: var(--accent); white-space: nowrap; }
   .flag-desc { font-size: 0.875rem; color: var(--muted); }
 </style>

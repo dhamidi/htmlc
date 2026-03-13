@@ -100,7 +100,7 @@ Build complete: 12 pages, 0 errors.</code></pre>
   .hero-title { font-size: clamp(2.2rem, 5vw, 3.6rem); font-weight: 800; line-height: 1.1; margin-bottom: 1.25rem; color: var(--text); letter-spacing: -0.04em; }
   .hero-sub { font-size: 1.1rem; color: var(--muted); margin-bottom: 2.5rem; max-width: 560px; margin-left: auto; margin-right: auto; }
   .hero-actions { display: flex; gap: 1rem; justify-content: center; margin-bottom: 2rem; flex-wrap: wrap; }
-  .hero-install { display: inline-block; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 1.2rem; font-size: 0.85rem; color: var(--accent2); }
+  .hero-install { display: inline-block; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 1.2rem; font-size: 0.85rem; color: var(--accent); }
   .hero-install code { background: none; border: none; padding: 0; border-radius: 0; }
 
   .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin: 4rem 0; }

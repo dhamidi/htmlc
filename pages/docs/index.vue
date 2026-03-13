@@ -212,6 +212,6 @@ p[data-v-3a2b1c]    { color: gray; }
 
   .lead { font-size: 1.1rem; color: var(--muted); margin-bottom: 2rem; }
 
-  .tag-supported { display: inline-block; background: rgba(91,228,155,0.12); color: #5be49b; font-size: 0.75rem; font-weight: 600; padding: 0.1em 0.5em; border-radius: 4px; }
+  .tag-supported { display: inline-block; background: var(--accent-alpha12); color: var(--accent); font-size: 0.75rem; font-weight: 600; padding: 0.1em 0.5em; border-radius: 4px; }
   .tag-no { display: inline-block; background: rgba(255,100,100,0.1); color: #ff8080; font-size: 0.75rem; font-weight: 600; padding: 0.1em 0.5em; border-radius: 4px; }
 </style>
