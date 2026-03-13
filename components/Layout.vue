@@ -6,6 +6,8 @@
       <meta name="description" :content="description ?? 'htmlc — server-side Vue component rendering in Go'" />
       <title>{{ pageTitle ?? siteTitle }}</title>
       <link rel="stylesheet" href="/fonts.css" />
+      <link rel="icon" href="/images/logo.svg" type="image/svg+xml" />
+      <link rel="icon" href="/images/logo.png" type="image/png" />
       <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -55,7 +57,7 @@
           border: 1px solid var(--border);
           border-radius: 4px;
           padding: 0.15em 0.4em;
-          color: var(--accent2);
+          color: var(--accent);
         }
 
         h1, h2, h3, h4 {
@@ -102,8 +104,6 @@
           gap: 0.4rem;
         }
 
-        .site-nav .logo span { color: var(--accent); }
-
         .site-nav .nav-links {
           display: flex;
           gap: 1.5rem;
@@ -140,10 +140,7 @@
     <body>
       <nav class="site-nav">
         <a href="/" class="logo">
-          <img src="/images/logo.webp" alt="htmlc logo" width="32" height="32"
-               style="border-radius:6px;" />
-          htmlc<span>.sh</span>
-        </a>
+          <img src="/images/logo.webp" alt="htmlc logo" width="32" height="32" style="border-radius:6px;">htmlc</a>
         <div class="nav-links">
           <a href="/docs/index.html">Docs</a>
           <a href="/docs/cli.html">CLI</a>
