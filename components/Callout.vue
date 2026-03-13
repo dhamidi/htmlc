@@ -9,8 +9,8 @@
 
 <style>
 .callout {
-  background: rgba(124,106,247,0.08);
-  border: 1px solid rgba(124,106,247,0.25);
+  background: rgba(0, 173, 216, 0.08);
+  border: 1px solid rgba(0, 173, 216, 0.25);
   border-radius: 8px;
   padding: 1rem 1.25rem;
   margin: 1.5rem 0;
@@ -19,7 +19,7 @@
 .callout p {
   margin: 0;
   font-size: 0.9rem;
-  color: #c9ccf5;
+  color: #c4c8e2;
 }
 
 .callout pre {
