@@ -15,7 +15,8 @@
       {href: '#custom-directive', label: 'Custom directive'},
       {href: '#missing-props', label: 'Missing prop handling'},
       {label: 'Static sites'},
-      {href: '#static-site', label: 'Static site with layout'}
+      {href: '#static-site', label: 'Static site with layout'},
+      {href: '#syntax-highlight', label: 'Syntax highlighting'}
     ]"
   >
     <h1>How-to Guides</h1>
@@ -312,6 +313,40 @@ if err != nil {
 // Write html to a file or http.ResponseWriter.</code></pre>
 
     <p>This approach gives you full control over which pages receive which layout and what data is passed to each layer.</p>
+
+    <!-- ═══════════════════════════════════════════════ Syntax highlighting -->
+    <h2 id="syntax-highlight">Add syntax highlighting with an external directive</h2>
+    <p class="howto-goal">You want source code blocks in your static site to be syntax-highlighted at build time using <code>htmlc build</code>.</p>
+
+    <p><code>v-syntax-highlight</code> is a ready-made external directive that wraps the <a href="https://github.com/alecthomas/chroma">Chroma</a> library. Place it in your component directory and <code>htmlc build</code> picks it up automatically.</p>
+
+    <p><strong>Prerequisites:</strong> <code>htmlc build</code> is working for your project and Go 1.22+ is installed.</p>
+
+    <h3>Step 1 — Install the directive</h3>
+    <pre v-syntax-highlight="'bash'"><code>go install github.com/dhamidi/htmlc/cmd/v-syntax-highlight@latest</code></pre>
+    <p>Then copy the binary into your component directory (the <code>-dir</code> you pass to <code>htmlc build</code>):</p>
+    <pre v-syntax-highlight="'bash'"><code>cp "$(go env GOPATH)/bin/v-syntax-highlight" ./components/</code></pre>
+
+    <h3>Step 2 — Generate a stylesheet</h3>
+    <p>The directive uses CSS classes emitted by Chroma. Generate a stylesheet for the <code>monokai</code> theme (or any other <a href="https://xyproto.github.io/splash/docs/">Chroma style</a>) and save it to your public assets directory:</p>
+    <pre v-syntax-highlight="'bash'"><code>v-syntax-highlight -print-css -style monokai &gt; public/highlight.css</code></pre>
+    <p>Link the stylesheet in your layout component:</p>
+    <pre v-syntax-highlight="'html'"><code>&lt;link rel="stylesheet" href="/highlight.css"&gt;</code></pre>
+
+    <h3>Step 3 — Mark code blocks in templates</h3>
+    <p>Add <code>v-syntax-highlight="'&lt;language&gt;'"</code> to any <code>&lt;code&gt;</code> or <code>&lt;pre&gt;</code> element. The directive replaces the element's content with highlighted HTML and adds a <code>language-*</code> class:</p>
+    <pre v-syntax-highlight="'html'"><code>&lt;pre&gt;&lt;code v-syntax-highlight="'go'"&gt;package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("hello, world")
+}
+&lt;/code&gt;&lt;/pre&gt;</code></pre>
+
+    <h3>Step 4 — Build</h3>
+    <pre v-syntax-highlight="'bash'"><code>htmlc build -dir ./components -pages ./pages -out ./dist</code></pre>
+    <p>The generated HTML will contain highlighted <code>&lt;span&gt;</code> elements styled by the Chroma CSS classes. See the <a href="/docs/cli.html#external-directives">external directives reference</a> for the full protocol and discovery rules.</p>
 
   </DocsPage>
 </template>
