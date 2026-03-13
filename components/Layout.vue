@@ -5,7 +5,13 @@
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <meta name="description" :content="description ?? 'htmlc — server-side Vue component rendering in Go'" />
       <title>{{ pageTitle ?? siteTitle }}</title>
-      <link rel="stylesheet" href="/fonts.css" />
+      <!-- Preload critical font files (non-blocking, pushed early) -->
+      <link rel="preload" href="/fonts/Outfit-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+      <link rel="preload" href="/fonts/Outfit-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+
+      <!-- Load font stylesheet asynchronously to avoid render-blocking -->
+      <link rel="preload" href="/fonts.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+      <noscript><link rel="stylesheet" href="/fonts.css" /></noscript>
       <link rel="icon" href="/images/logo.svg" type="image/svg+xml" />
       <link rel="icon" href="/images/logo.png" type="image/png" />
       <style>
