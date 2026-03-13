@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -22,36 +23,8 @@ import (
 	"golang.org/x/net/html"
 )
 
-const helpTop = `htmlc — server-side Vue.js component renderer
-
-USAGE
-  htmlc [-strict] <subcommand> [flags] [args]
-
-SUBCOMMANDS
-  render   Render a component as an HTML fragment (stdout)
-  page     Render a component as a full HTML page (stdout)
-  props    List the props expected by a component
-  ast      Print the template AST of a component (stdout)
-  help     Show help for a subcommand
-
-GLOBAL FLAGS
-  -strict   Enable strict mode (see 'htmlc help <subcommand>' for details)
-
-EXAMPLES
-  # Render a fragment with inline props
-  htmlc render -dir ./templates Card -props '{"title":"Hello"}'
-
-  # Render a full page, reading props from stdin
-  echo '{"slug":"intro"}' | htmlc page -dir ./templates PostPage -props -
-
-  # List props for a component
-  htmlc props -dir ./templates PostCard
-
-  # Print the template AST of a component
-  htmlc ast -dir ./templates PostPage
-
-Run 'htmlc help <subcommand>' for detailed flags and examples.
-`
+//go:embed README.md
+var readmeContent string
 
 const helpRender = `render — render a .vue component as an HTML fragment
 
@@ -303,7 +276,7 @@ func listComponents(dir string) []string {
 }
 
 func printHelp(w io.Writer) {
-	fmt.Fprint(w, helpTop)
+	fmt.Fprint(w, readmeContent)
 }
 
 func main() {

@@ -34,8 +34,8 @@ func TestRun_HelpFlag_Long(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
-	if !strings.Contains(stdout.String(), "SUBCOMMANDS") {
-		t.Errorf("stdout missing SUBCOMMANDS section, got: %q", stdout.String())
+	if !strings.Contains(stdout.String(), "# htmlc CLI") {
+		t.Errorf("stdout missing README content, got: %q", stdout.String())
 	}
 }
 
@@ -45,8 +45,8 @@ func TestRun_HelpFlag_Short(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
-	if !strings.Contains(stdout.String(), "SUBCOMMANDS") {
-		t.Errorf("stdout missing SUBCOMMANDS section, got: %q", stdout.String())
+	if !strings.Contains(stdout.String(), "# htmlc CLI") {
+		t.Errorf("stdout missing README content, got: %q", stdout.String())
 	}
 }
 
@@ -56,8 +56,8 @@ func TestRun_HelpSubcommand(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
-	if !strings.Contains(stdout.String(), "SUBCOMMANDS") {
-		t.Errorf("stdout missing SUBCOMMANDS section, got: %q", stdout.String())
+	if !strings.Contains(stdout.String(), "# htmlc CLI") {
+		t.Errorf("stdout missing README content, got: %q", stdout.String())
 	}
 }
 
