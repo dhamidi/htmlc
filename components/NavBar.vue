@@ -15,6 +15,7 @@
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Guides</div>
+      <a href="/docs/concepts.html" class="sidebar-link">Concepts</a>
       <a href="/docs/howto.html" class="sidebar-link">How-to guides</a>
     </div>
     <div class="sidebar-section">
