@@ -74,6 +74,8 @@
           line-height: 1.2;
           font-weight: 700;
           letter-spacing: -0.02em;
+          margin-top: 1.5em;
+          margin-bottom: 0.5em;
         }
 
         table {
