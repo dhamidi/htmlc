@@ -115,7 +115,7 @@
 
         .site-nav .nav-links {
           display: flex;
-          gap: 1.5rem;
+          gap: 1rem;
           margin-left: auto;
         }
 
@@ -155,6 +155,7 @@
           <a href="/docs/tutorial.html">Tutorial</a>
           <a href="/docs/cli.html">CLI</a>
           <a href="/docs/directives.html">Directives</a>
+          <a href="/docs/go-api.html">Go API</a>
           <a href="https://github.com/dhamidi/htmlc" target="_blank" rel="noopener">GitHub</a>
         </div>
       </nav>
