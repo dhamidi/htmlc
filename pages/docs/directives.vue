@@ -72,9 +72,9 @@
 &lt;!-- Range (integer) --&gt;
 &lt;li v-for="i in 5"&gt;{{ "{{" }} i }}&lt;/li&gt;</code></pre>
 
-        <div class="callout">
+        <Callout>
           <p><strong>Note:</strong> Map iteration order follows Go's <code>reflect.MapKeys()</code> — not insertion order. Sort your maps before passing them if order matters.</p>
-        </div>
+        </Callout>
 
         <h2 id="v-bind">v-bind / :attr</h2>
         <p>Dynamically binds an HTML attribute to an expression. The shorthand is <code>:</code>.</p>
@@ -142,9 +142,9 @@
         <p>Sets the element's inner HTML to the expression value. The value is <strong>not</strong> HTML-escaped. Only use with trusted content.</p>
         <pre><code>&lt;div v-html="renderedMarkdown"&gt;&lt;/div&gt;</code></pre>
 
-        <div class="callout">
+        <Callout>
           <p><strong>Warning:</strong> Never use <code>v-html</code> with user-supplied data — it can introduce XSS vulnerabilities.</p>
-        </div>
+        </Callout>
 
         <h2 id="v-text">v-text</h2>
         <p>Sets the element's text content to the expression value. HTML-escaped. Replaces all child nodes.</p>
@@ -252,6 +252,4 @@
   .docs-content h2:first-of-type { border-top: none; padding-top: 0; }
   .docs-content h3 { font-size: 1.1rem; margin: 2rem 0 0.5rem; color: #e2e4f0; }
   .lead { font-size: 1.1rem; color: var(--muted); margin-bottom: 2rem; }
-  .callout { background: rgba(124,106,247,0.08); border: 1px solid rgba(124,106,247,0.25); border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
-  .callout p { margin: 0; font-size: 0.9rem; color: #c9ccf5; }
 </style>

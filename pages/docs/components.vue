@@ -232,14 +232,14 @@ err = engine.RenderPage(w, "HomePage", map[string]any{
           Multiple middleware functions are applied in registration order. Use this to
           inject values shared across all routes — current user, CSRF token, etc.
         </p>
-        <div class="callout">
+        <Callout>
           <p>
             <strong>Scope note:</strong> Middleware values are available only in the
             top-level page scope. If a child component needs a middleware-supplied value,
             pass it down as an explicit prop or register it with <code>RegisterFunc</code>
             instead.
           </p>
-        </div>
+        </Callout>
         <pre><code>engine.WithDataMiddleware(func(r *http.Request, data map[string]any) map[string]any {
     data["currentUser"] = sessionUser(r)
     data["csrfToken"]   = csrf.Token(r)
@@ -329,14 +329,14 @@ engine, err := htmlc.New(htmlc.Options{
     FS:           templateFS,
     ComponentDir: "templates",
 })</code></pre>
-        <div class="callout">
+        <Callout>
           <p>
             <strong>Note:</strong> Hot-reload (<code>Reload: true</code>) only works
             when the FS also implements <code>fs.StatFS</code>. The standard
             <code>embed.FS</code> does <em>not</em> implement <code>fs.StatFS</code>, so
             reload is silently skipped for embedded filesystems.
           </p>
-        </div>
+        </Callout>
 
         <h3>Context-aware rendering</h3>
         <p>
@@ -452,6 +452,4 @@ if errors.As(err, &re) {
   .docs-content h2:first-of-type { border-top: none; padding-top: 0; }
   .docs-content h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
   .lead { font-size: 1.1rem; color: var(--muted); margin-bottom: 2rem; }
-  .callout { background: rgba(124,106,247,0.08); border: 1px solid rgba(124,106,247,0.25); border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
-  .callout p { margin: 0; font-size: 0.9rem; color: #c9ccf5; }
 </style>

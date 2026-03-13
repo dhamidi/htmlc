@@ -122,7 +122,7 @@ fmt.Println(html)</code></pre>
 
         <p>The same pattern applies to named and scoped slots — the parent component uses <code>&lt;template #name&gt;</code> syntax in the <code>.vue</code> file to target specific slots. See the <a href="/docs/components.html#slots">component system reference</a> for named and scoped slot examples.</p>
 
-        <div class="callout">
+        <Callout>
           <p><strong>Dynamic slot content from Go</strong><br>
           If you need to inject a dynamic HTML string into a component from Go, use a regular prop with <code>v-html</code> instead of a slot:</p>
           <pre><code>&lt;!-- components/Card.vue --&gt;
@@ -134,7 +134,7 @@ fmt.Println(html)</code></pre>
     "title": "Hello",
     "body":  "&lt;p&gt;Dynamic content from Go&lt;/p&gt;",
 })</code></pre>
-        </div>
+        </Callout>
 
       </div>
     </div>
@@ -218,24 +218,6 @@ export default {
   font-size: 1.1rem;
   color: #c4c8e2;
   margin-bottom: 2rem;
-}
-
-.callout {
-  background: rgba(124,106,247,0.08);
-  border: 1px solid rgba(124,106,247,0.25);
-  border-radius: 8px;
-  padding: 1rem 1.25rem;
-  margin: 1.5rem 0;
-}
-
-.callout p {
-  margin: 0 0 0.75rem;
-  font-size: 0.9rem;
-  color: #c9ccf5;
-}
-
-.callout pre {
-  margin: 0.5rem 0 0;
 }
 
 @media (max-width: 700px) {

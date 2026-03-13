@@ -31,9 +31,9 @@
         <h1 id="overview">htmlc</h1>
         <p class="lead">A server-side Go template engine that uses Vue.js Single File Component (<code>.vue</code>) syntax for authoring but renders entirely in Go with no JavaScript runtime.</p>
 
-        <div class="callout">
+        <Callout>
           <p><strong>This is a static rendering engine.</strong> There is no reactivity, virtual DOM, or client-side hydration. Templates are evaluated once per request and produce plain HTML.</p>
-        </div>
+        </Callout>
 
         <h2 id="installation">Installation</h2>
 
@@ -211,9 +211,6 @@ p[data-v-3a2b1c]    { color: gray; }
   .docs-content h3 { font-size: 1.1rem; margin: 2rem 0 0.5rem; color: #e2e4f0; }
 
   .lead { font-size: 1.1rem; color: var(--muted); margin-bottom: 2rem; }
-
-  .callout { background: rgba(124,106,247,0.08); border: 1px solid rgba(124,106,247,0.25); border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
-  .callout p { margin: 0; font-size: 0.9rem; color: #c9ccf5; }
 
   .tag-supported { display: inline-block; background: rgba(91,228,155,0.12); color: #5be49b; font-size: 0.75rem; font-weight: 600; padding: 0.1em 0.5em; border-radius: 4px; }
   .tag-no { display: inline-block; background: rgba(255,100,100,0.1); color: #ff8080; font-size: 0.75rem; font-weight: 600; padding: 0.1em 0.5em; border-radius: 4px; }

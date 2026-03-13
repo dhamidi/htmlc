@@ -57,9 +57,9 @@
 
         <p>No JavaScript engine is involved at any point. The expression evaluator is a purpose-built Go library (the <code>expr</code> package) that understands a subset of JavaScript-like expression syntax and evaluates it directly against a <code>map[string]any</code>.</p>
 
-        <div class="callout">
+        <Callout type="info">
           <strong>Key insight:</strong> Because the AST is built once and reused, and because evaluation is a pure in-memory traversal with no I/O, rendering a component is fast even under concurrent load. The only shared state is read-only (the parsed AST); the scope map is private to each render call.
-        </div>
+        </Callout>
 
         <!-- ═══════════════════════════════════════════════ Components as Templates -->
         <h2 id="components-as-templates">Components as Templates, Not Objects</h2>
@@ -143,9 +143,9 @@
 
         <p>Functions registered via <code>RegisterFunc</code> are scoped to a single engine instance. For truly global functions (available to all engines in a process), use <code>expr.RegisterBuiltin</code> from the <code>htmlc/expr</code> package directly — but note that it modifies global state and must be called before any concurrent evaluation begins.</p>
 
-        <div class="callout">
+        <Callout type="info">
           <strong>Identifiers and scope resolution:</strong> When the evaluator encounters an identifier, it checks the scope map first, then the engine's registered functions, then the global built-in table. If the name is absent from all three, it evaluates to <code>undefined</code> (a Go sentinel value, <code>expr.UndefinedValue</code>), not to an error. Missing props surface as <code>undefined</code> values and are handled by the configured <code>MissingPropHandler</code>.
-        </div>
+        </Callout>
 
         <!-- ═══════════════════════════════════════════════ Scoped Styles -->
         <h2 id="scoped-styles">Scoped Styles</h2>
@@ -251,9 +251,9 @@ if err != nil {
 
         <p>Most application code should use <code>Engine</code>. <code>Renderer</code> is an implementation detail and an escape hatch — it is what <code>Engine</code> uses internally for each render call, but you rarely need to instantiate one directly.</p>
 
-        <div class="callout">
+        <Callout type="info">
           <strong>Summary:</strong> <code>Engine</code> = file discovery + caching + HTTP helpers + concurrency management. <code>Renderer</code> = one component + one registry + one render call. Start with <code>Engine</code>; reach for <code>Renderer</code> only in tests or when you need to control the registry yourself.
-        </div>
+        </Callout>
 
         <!-- ═══════════════════════════════════════════════ SSR vs CSR Vue -->
         <h2 id="ssr-vs-csr">Server-Side vs. Client-Side Vue</h2>
@@ -392,16 +392,6 @@ export default {
   font-size: 1.1rem;
   color: #c4c8e2;
   margin-bottom: 2rem;
-}
-
-.callout {
-  background: rgba(0, 173, 216, 0.08);
-  border-left: 3px solid #00ADD8;
-  border-radius: 0 6px 6px 0;
-  padding: 1rem 1.25rem;
-  margin: 1.5rem 0;
-  color: #c4c8e2;
-  font-size: 0.95rem;
 }
 
 .data-flow {
