@@ -18,6 +18,9 @@
           --text: #e2e4f0;
           --muted: #8b8fa8;
           --accent: #00ADD8;
+          --accent-hover: #0099bf;
+          --accent-alpha12: rgba(0, 173, 216, 0.12);
+          --accent-alpha35: rgba(0, 173, 216, 0.35);
           --accent2: #5be49b;
           --code-bg: #161822;
           --nav-height: 60px;
