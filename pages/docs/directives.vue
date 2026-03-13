@@ -18,10 +18,12 @@
           <a href="#v-bind" class="sidebar-link">v-bind / :attr</a>
           <a href="#v-html" class="sidebar-link">v-html</a>
           <a href="#v-text" class="sidebar-link">v-text</a>
+          <a href="#v-pre" class="sidebar-link">v-pre</a>
         </div>
         <div class="sidebar-section">
           <div class="sidebar-label">Components</div>
           <a href="#v-slot" class="sidebar-link">v-slot / #slot</a>
+          <a href="#dynamic-component" class="sidebar-link">component :is</a>
         </div>
         <div class="sidebar-section">
           <div class="sidebar-label">Not supported</div>
@@ -97,6 +99,50 @@
         <p>When passing props to a component, <code>:propName</code> evaluates the expression:</p>
         <pre><code>&lt;Card :title="post.title" :author="post.author" /&gt;</code></pre>
 
+        <h3>:class — object and array syntax</h3>
+        <pre><code>&lt;!-- Object: keys with truthy values are included --&gt;
+&lt;div :class="{ active: isActive, disabled: !isEnabled }"&gt;...&lt;/div&gt;
+
+&lt;!-- Array: non-empty string elements are included --&gt;
+&lt;div :class="['btn', isPrimary ? 'primary' : '']"&gt;...&lt;/div&gt;
+
+&lt;!-- Static class and :class are merged --&gt;
+&lt;div class="card" :class="{ featured: post.featured }"&gt;...&lt;/div&gt;</code></pre>
+
+        <h3>:style — object syntax</h3>
+        <pre><code>&lt;!-- camelCase keys are converted to kebab-case in output --&gt;
+&lt;p :style="{ fontSize: '14px', backgroundColor: theme.bg }"&gt;...&lt;/p&gt;</code></pre>
+
+        <h3>Boolean attributes</h3>
+        <p>
+          When a bound attribute name is a recognised boolean attribute
+          (<code>disabled</code>, <code>checked</code>, <code>selected</code>,
+          <code>readonly</code>, <code>required</code>, <code>multiple</code>,
+          <code>autofocus</code>, <code>open</code>), it is <strong>omitted
+          entirely</strong> when the value is falsy, and rendered without a value
+          when truthy.
+        </p>
+        <pre><code>&lt;button :disabled="isLoading"&gt;Submit&lt;/button&gt;
+&lt;!-- renders as &lt;button&gt; when isLoading is false --&gt;
+&lt;!-- renders as &lt;button disabled&gt; when isLoading is true --&gt;</code></pre>
+
+        <h3>v-bind="obj" — attribute spreading</h3>
+        <p>
+          When <code>v-bind</code> is used without an attribute name its value must
+          evaluate to a <code>map[string]any</code>. Each entry is spread as an HTML
+          attribute. <code>class</code> and <code>style</code> keys follow the same
+          merge rules. Boolean attribute semantics apply per key.
+        </p>
+        <pre><code>&lt;!-- Spread HTMX attributes --&gt;
+&lt;button v-bind="htmxAttrs"&gt;Delete&lt;/button&gt;
+
+&lt;!-- Spread props into a child component --&gt;
+&lt;Card v-bind="cardProps" :title="override" /&gt;</code></pre>
+        <p>
+          On child components, explicit <code>:prop</code> bindings take precedence
+          over keys in the spread map.
+        </p>
+
         <h2 id="v-html">v-html</h2>
         <p>Sets the element's inner HTML to the expression value. The value is <strong>not</strong> HTML-escaped. Only use with trusted content.</p>
         <pre><code>&lt;div v-html="renderedMarkdown"&gt;&lt;/div&gt;</code></pre>
@@ -110,6 +156,20 @@
         <pre><code>&lt;span v-text="message"&gt;&lt;/span&gt;
 &lt;!-- equivalent to --&gt;
 &lt;span&gt;{{ "{{" }} message }}&lt;/span&gt;</code></pre>
+
+        <h2 id="v-pre">v-pre</h2>
+        <p>
+          Skips all interpolation and directive processing for the element and all
+          its descendants. Mustache syntax (<code>{{ "{{" }} }}</code>) is emitted literally.
+          The <code>v-pre</code> attribute itself is stripped from the output.
+        </p>
+        <pre><code>&lt;!-- This renders literally: {{ "{{" }} raw }} --&gt;
+&lt;code v-pre&gt;{{ "{{" }} raw }}&lt;/code&gt;</code></pre>
+
+        <p>
+          Use <code>v-pre</code> to show template syntax as documentation or source
+          examples without the engine treating it as an expression.
+        </p>
 
         <h2 id="v-slot">v-slot / #slot</h2>
         <p>Passes content into a named slot of a child component.</p>
@@ -139,6 +199,34 @@
     &lt;a :href="item.url"&gt;{{ "{{" }} item.title }}&lt;/a&gt;
   &lt;/template&gt;
 &lt;/List&gt;</code></pre>
+
+        <h2 id="dynamic-component">&lt;component :is&gt;</h2>
+        <p>
+          Renders a component whose name is determined at runtime. The <code>:is</code>
+          expression must evaluate to a non-empty string naming a registered component
+          or a standard HTML element.
+        </p>
+        <pre><code>&lt;!-- Resolve from a variable --&gt;
+&lt;component :is="activeView" /&gt;
+
+&lt;!-- Inline string literal --&gt;
+&lt;component :is="'Card'" :title="pageTitle"&gt;
+  &lt;p&gt;slot content&lt;/p&gt;
+&lt;/component&gt;
+
+&lt;!-- Switch between components in a loop --&gt;
+&lt;div v-for="item in items"&gt;
+  &lt;component :is="item.type" :data="item" /&gt;
+&lt;/div&gt;</code></pre>
+        <ul>
+          <li>All attributes other than <code>:is</code> are forwarded as props.</li>
+          <li>Default and named slots work exactly as with static component tags.</li>
+          <li>
+            If the resolved name is a standard HTML element (e.g. <code>"div"</code>),
+            it is rendered as a plain tag, not looked up in the component registry.
+          </li>
+          <li><code>:is</code> is required; omitting it is a render error.</li>
+        </ul>
 
         <h2 id="not-supported">Stripped directives</h2>
         <p>These directives are parsed but produce no output — they are client-side only and have no meaning in a server-side renderer:</p>
@@ -171,6 +259,7 @@
   .docs-content h1 { font-size: 2.2rem; margin-bottom: 0.75rem; color: #f0f2ff; }
   .docs-content h2 { font-size: 1.4rem; margin: 2.5rem 0 0.75rem; padding-top: 2.5rem; border-top: 1px solid var(--border); }
   .docs-content h2:first-of-type { border-top: none; padding-top: 0; }
+  .docs-content h3 { font-size: 1.1rem; margin: 2rem 0 0.5rem; color: #e2e4f0; }
   .lead { font-size: 1.1rem; color: var(--muted); margin-bottom: 2rem; }
   .callout { background: rgba(124,106,247,0.08); border: 1px solid rgba(124,106,247,0.25); border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
   .callout p { margin: 0; font-size: 0.9rem; color: #c9ccf5; }

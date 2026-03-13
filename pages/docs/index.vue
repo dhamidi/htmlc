@@ -107,7 +107,8 @@
             <tr><td><code>v-bind</code></td><td><span class="tag-supported">Yes</span></td><td>Dynamically binds attribute or prop</td></tr>
             <tr><td><code>v-html</code></td><td><span class="tag-supported">Yes</span></td><td>Sets inner HTML (unescaped)</td></tr>
             <tr><td><code>v-text</code></td><td><span class="tag-supported">Yes</span></td><td>Sets text content (HTML-escaped)</td></tr>
-            <tr><td><code>v-switch / v-case</code></td><td><span class="tag-supported">Yes</span></td><td>Switch/case conditional (Vue RFC #482)</td></tr>
+            <tr><td><code>v-pre</code></td><td><span class="tag-supported">Yes</span></td><td>Skips interpolation and directives for element and descendants</td></tr>
+            <tr><td><code>v-switch / v-case</code></td><td><span class="tag-supported">Yes</span></td><td>Switch/case conditional; use with <code>v-case</code> and <code>v-default</code> on child elements</td></tr>
             <tr><td><code>v-slot</code></td><td><span class="tag-supported">Yes</span></td><td>Named and scoped slots</td></tr>
             <tr><td><code>v-model</code></td><td><span class="tag-no">Stripped</span></td><td>Client-side only; removed from output</td></tr>
             <tr><td><code>@event</code></td><td><span class="tag-no">Stripped</span></td><td>Client-side only; removed from output</td></tr>
