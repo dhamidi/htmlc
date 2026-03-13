@@ -56,7 +56,7 @@
 
         <h2 id="sfc-format">SFC format</h2>
         <p>A component file has up to three sections:</p>
-        <pre><code>&lt;!-- components/Card.vue --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- components/Card.vue --&gt;
 &lt;template&gt;
   &lt;div class="card"&gt;
     &lt;h2&gt;{{ "{{" }} title }}&lt;/h2&gt;
@@ -86,7 +86,7 @@ export default { props: ['title'] }
 
         <h2 id="registration">Component registration</h2>
         <p>The engine automatically discovers all <code>.vue</code> files in the component directory. Components are referenced by their filename without the extension.</p>
-        <pre><code>// Go API
+        <pre v-syntax-highlight="'go'"><code>// Go API
 engine, err := htmlc.New(htmlc.Options{
     ComponentDir: "./components",
 })
@@ -95,14 +95,14 @@ engine, err := htmlc.New(htmlc.Options{
 engine.Register("MyCard", "/path/to/MyCard.vue")</code></pre>
 
         <p>In templates, component names follow PascalCase:</p>
-        <pre><code>&lt;!-- Card.vue in the component dir --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- Card.vue in the component dir --&gt;
 &lt;Card :title="post.title"&gt;
   &lt;p&gt;{{ "{{" }} post.body }}&lt;/p&gt;
 &lt;/Card&gt;</code></pre>
 
         <h2 id="composition">Component composition</h2>
         <p>Components can nest other components from the same registry. Props are passed as attributes; expressions use <code>:</code> shorthand.</p>
-        <pre><code>&lt;!-- templates/PostPage.vue --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- templates/PostPage.vue --&gt;
 &lt;template&gt;
   &lt;Layout :title="title"&gt;
     &lt;Card :title="post.title"&gt;
@@ -114,7 +114,7 @@ engine.Register("MyCard", "/path/to/MyCard.vue")</code></pre>
 
         <h2 id="props">Props</h2>
         <p>Props are any data passed to a component. In templates, static props are strings; dynamic props use <code>:</code>.</p>
-        <pre><code>&lt;!-- Static: value is the literal string "Hello" --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- Static: value is the literal string "Hello" --&gt;
 &lt;Card title="Hello" /&gt;
 
 &lt;!-- Dynamic: value is the result of the expression --&gt;
@@ -124,7 +124,7 @@ engine.Register("MyCard", "/path/to/MyCard.vue")</code></pre>
 &lt;Card v-bind="post" /&gt;</code></pre>
 
         <p>Discover what props a component uses:</p>
-        <pre><code>$ htmlc props -dir ./templates Card
+        <pre v-syntax-highlight="'bash'"><code>$ htmlc props -dir ./templates Card
 title
 author
 body</code></pre>
@@ -132,7 +132,7 @@ body</code></pre>
         <h2 id="slots">Slots</h2>
 
         <h3>Default slot</h3>
-        <pre><code>&lt;!-- In Card.vue --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- In Card.vue --&gt;
 &lt;div class="card"&gt;
   &lt;slot&gt;Fallback when no content is provided&lt;/slot&gt;
 &lt;/div&gt;
@@ -143,7 +143,7 @@ body</code></pre>
 &lt;/Card&gt;</code></pre>
 
         <h3>Named slots</h3>
-        <pre><code>&lt;!-- In Layout.vue --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- In Layout.vue --&gt;
 &lt;header&gt;&lt;slot name="header" /&gt;&lt;/header&gt;
 &lt;main&gt;&lt;slot /&gt;&lt;/main&gt;
 &lt;footer&gt;&lt;slot name="footer" /&gt;&lt;/footer&gt;
@@ -158,7 +158,7 @@ body</code></pre>
 &lt;/Layout&gt;</code></pre>
 
         <h3>Scoped slots</h3>
-        <pre><code>&lt;!-- In List.vue --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- In List.vue --&gt;
 &lt;ul&gt;
   &lt;li v-for="item in items"&gt;
     &lt;slot :item="item"&gt;{{ "{{" }} item }}&lt;/slot&gt;
@@ -174,18 +174,18 @@ body</code></pre>
 
         <h2 id="scoped-styles">Scoped styles</h2>
         <p>Add <code>scoped</code> to <code>&lt;style&gt;</code> to confine styles to the component. The engine rewrites selectors and adds a unique scope attribute to matching elements.</p>
-        <pre><code>&lt;style scoped&gt;
+        <pre v-syntax-highlight="'css'"><code>&lt;style scoped&gt;
 .card   { background: white; border-radius: 8px; }
 h2      { color: #333; }
 &lt;/style&gt;</code></pre>
         <p>Output (approximately):</p>
-        <pre><code>&lt;style&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;style&gt;
 .card[data-v-a1b2c3]   { background: white; border-radius: 8px; }
 h2[data-v-a1b2c3]      { color: #333; }
 &lt;/style&gt;</code></pre>
 
         <h2 id="go-api">Go API</h2>
-        <pre><code>import "github.com/dhamidi/htmlc"
+        <pre v-syntax-highlight="'go'"><code>import "github.com/dhamidi/htmlc"
 
 // Create an engine that loads components from a directory
 engine, err := htmlc.New(htmlc.Options{
@@ -197,7 +197,7 @@ if err != nil {
 }</code></pre>
 
         <h2 id="rendering">Rendering</h2>
-        <pre><code>// Render a fragment (no &lt;!DOCTYPE&gt;)
+        <pre v-syntax-highlight="'go'"><code>// Render a fragment (no &lt;!DOCTYPE&gt;)
 html, err := engine.RenderFragmentString("Card", map[string]any{
     "title": "Hello",
     "body":  "World",
@@ -217,7 +217,7 @@ err = engine.RenderPage(w, "HomePage", map[string]any{
           The data function is called on every request; pass <code>nil</code> if no data
           is needed.
         </p>
-        <pre><code>http.Handle("/widget", engine.ServeComponent("Widget", func(r *http.Request) map[string]any {
+        <pre v-syntax-highlight="'go'"><code>http.Handle("/widget", engine.ServeComponent("Widget", func(r *http.Request) map[string]any {
     return map[string]any{"id": r.URL.Query().Get("id")}
 }))</code></pre>
 
@@ -227,7 +227,7 @@ err = engine.RenderPage(w, "HomePage", map[string]any{
           styles into <code>&lt;/head&gt;</code>) and lets the data function return an HTTP
           status code alongside the data map. A status code of 0 is treated as 200.
         </p>
-        <pre><code>http.Handle("/post", engine.ServePageComponent("PostPage",
+        <pre v-syntax-highlight="'go'"><code>http.Handle("/post", engine.ServePageComponent("PostPage",
     func(r *http.Request) (map[string]any, int) {
         post, err := db.GetPost(r.URL.Query().Get("slug"))
         if err != nil {
@@ -243,7 +243,7 @@ err = engine.RenderPage(w, "HomePage", map[string]any{
           call. Each component is served as a full HTML page. Keys are
           <code>http.ServeMux</code> patterns (e.g. <code>"GET /{$}"</code>).
         </p>
-        <pre><code>engine.Mount(mux, map[string]string{
+        <pre v-syntax-highlight="'go'"><code>engine.Mount(mux, map[string]string{
     "GET /{$}":   "HomePage",
     "GET /about": "AboutPage",
     "GET /posts": "PostsPage",
@@ -263,7 +263,7 @@ err = engine.RenderPage(w, "HomePage", map[string]any{
             instead.
           </p>
         </Callout>
-        <pre><code>engine.WithDataMiddleware(func(r *http.Request, data map[string]any) map[string]any {
+        <pre v-syntax-highlight="'go'"><code>engine.WithDataMiddleware(func(r *http.Request, data map[string]any) map[string]any {
     data["currentUser"] = sessionUser(r)
     data["csrfToken"]   = csrf.Token(r)
     return data
@@ -277,7 +277,7 @@ err = engine.RenderPage(w, "HomePage", map[string]any{
           Returns a slice of <code>ValidationError</code> (one per problem). Call once
           at startup to surface missing-component problems before the first request.
         </p>
-        <pre><code>if errs := engine.ValidateAll(); len(errs) > 0 {
+        <pre v-syntax-highlight="'go'"><code>if errs := engine.ValidateAll(); len(errs) > 0 {
     for _, e := range errs {
         log.Printf("component error: %v", e)
     }
@@ -291,7 +291,7 @@ err = engine.RenderPage(w, "HomePage", map[string]any{
           absent prop is immediately obvious. Override this behaviour with
           <code>WithMissingPropHandler</code>:
         </p>
-        <pre><code>// Abort the render with an error on any missing prop
+        <pre v-syntax-highlight="'go'"><code>// Abort the render with an error on any missing prop
 engine.WithMissingPropHandler(htmlc.ErrorOnMissingProp)
 
 // Silently substitute an empty string
@@ -309,7 +309,7 @@ engine.WithMissingPropHandler(func(name string) (any, error) {
           Engine functions act as lower-priority builtins: the render data scope
           overrides them.
         </p>
-        <pre><code>engine.RegisterFunc("formatDate", func(args ...any) (any, error) {
+        <pre v-syntax-highlight="'go'"><code>engine.RegisterFunc("formatDate", func(args ...any) (any, error) {
     t, _ := args[0].(time.Time)
     return t.Format("2 Jan 2006"), nil
 })
@@ -320,7 +320,7 @@ engine.RegisterFunc("url", func(args ...any) (any, error) {
 })</code></pre>
 
         <p>Use them directly in templates:</p>
-        <pre><code>&lt;span&gt;{{ "{{" }} formatDate(post.CreatedAt) }}&lt;/span&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;span&gt;{{ "{{" }} formatDate(post.CreatedAt) }}&lt;/span&gt;
 &lt;a :href="url('home')"&gt;Home&lt;/a&gt;</code></pre>
 
         <h2 id="advanced-options">Advanced options</h2>
@@ -331,7 +331,7 @@ engine.RegisterFunc("url", func(args ...any) (any, error) {
           automatically before each render — no server restart required. Disable in
           production.
         </p>
-        <pre><code>engine, err := htmlc.New(htmlc.Options{
+        <pre v-syntax-highlight="'go'"><code>engine, err := htmlc.New(htmlc.Options{
     ComponentDir: "templates/",
     Reload:       true,
 })</code></pre>
@@ -343,7 +343,7 @@ engine.RegisterFunc("url", func(args ...any) (any, error) {
           filesystem instead of the OS filesystem. <code>ComponentDir</code> is then
           interpreted as a path inside the FS.
         </p>
-        <pre><code>import "embed"
+        <pre v-syntax-highlight="'go'"><code>import "embed"
 
 //go:embed templates
 var templateFS embed.FS
@@ -368,7 +368,7 @@ engine, err := htmlc.New(htmlc.Options{
           <code>ServeComponent</code> and <code>ServePageComponent</code> forward
           <code>r.Context()</code> automatically.
         </p>
-        <pre><code>ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+        <pre v-syntax-highlight="'go'"><code>ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 defer cancel()
 
 err = engine.RenderPageContext(ctx, w, "Page", data)
@@ -379,7 +379,7 @@ err = engine.RenderFragmentContext(ctx, w, "Card", data)</code></pre>
           Parse and render failures carry structured location information.
           Use <code>errors.As</code> to inspect them:
         </p>
-        <pre><code>_, err := htmlc.ParseFile("Card.vue", src)
+        <pre v-syntax-highlight="'go'"><code>_, err := htmlc.ParseFile("Card.vue", src)
 var pe *htmlc.ParseError
 if errors.As(err, &pe) {
     fmt.Println(pe.Path)             // "Card.vue"
@@ -401,7 +401,7 @@ if errors.As(err, &re) {
 }</code></pre>
 
         <p>When location is available, <code>err.Error()</code> produces a compiler-style message:</p>
-        <pre><code>Card.vue:14:5: render Card.vue: expr "post.Title": cannot access property "Title" of null
+        <pre v-syntax-highlight="'text'"><code>Card.vue:14:5: render Card.vue: expr "post.Title": cannot access property "Title" of null
   13 |   &lt;div class="card"&gt;
 &gt; 14 |     {{ "{{" }} post.Title }}
   15 |   &lt;/div&gt;</code></pre>
@@ -446,7 +446,7 @@ if errors.As(err, &re) {
         </table>
 
         <h2 id="custom-directives">Custom directives</h2>
-        <pre><code>engine.RegisterDirective("v-highlight", func(ctx *htmlc.DirectiveContext) error {
+        <pre v-syntax-highlight="'go'"><code>engine.RegisterDirective("v-highlight", func(ctx *htmlc.DirectiveContext) error {
     // ctx.Node  — the HTML node being rendered
     // ctx.Value — the directive value expression result
     // ctx.Scope — the current render scope

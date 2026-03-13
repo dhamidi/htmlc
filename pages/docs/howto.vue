@@ -53,7 +53,7 @@
 
         <p>Use <code>ServeComponent</code> for partial HTML responses (HTMX, turbo frames) and <code>ServePageComponent</code> for full HTML pages. Both return an <code>http.HandlerFunc</code> you register on any <code>*http.ServeMux</code>.</p>
 
-        <pre><code>package main
+        <pre v-syntax-highlight="'go'"><code>package main
 
 import (
     &#34;log&#34;
@@ -105,7 +105,7 @@ func main() {
 
         <p>Use <code>//go:embed</code> to bundle the <code>components/</code> directory into the binary, then pass the resulting <code>embed.FS</code> as <code>Options.FS</code>. When <code>FS</code> is set, all directory walks and file reads use it instead of the OS filesystem.</p>
 
-        <pre><code>package main
+        <pre v-syntax-highlight="'go'"><code>package main
 
 import (
     &#34;embed&#34;
@@ -136,7 +136,7 @@ func main() {
 }</code></pre>
 
         <p>Expected directory layout:</p>
-        <pre><code>myapp/
+        <pre v-syntax-highlight="'text'"><code>myapp/
 ├── main.go
 └── components/
     ├── Layout.vue
@@ -151,14 +151,14 @@ func main() {
 
         <p>Set <code>Options.Reload = true</code>. The engine will stat every registered file before each render and re-parse any that have changed.</p>
 
-        <pre><code>engine, err := htmlc.New(htmlc.Options{
+        <pre v-syntax-highlight="'go'"><code>engine, err := htmlc.New(htmlc.Options{
     ComponentDir: &#34;./components&#34;,
     Reload:       true,
 })</code></pre>
 
         <p><strong>Tradeoff:</strong> <code>Reload</code> adds a <code>stat</code> syscall per component file on every render. Leave it <code>false</code> in production. A common pattern is to gate it behind a flag:</p>
 
-        <pre><code>import &#34;flag&#34;
+        <pre v-syntax-highlight="'go'"><code>import &#34;flag&#34;
 
 var dev = flag.Bool(&#34;dev&#34;, false, &#34;enable hot reload&#34;)
 
@@ -182,7 +182,7 @@ func main() {
 
         <p>Example: a <code>v-uppercase</code> directive that uppercases all direct text children of the element.</p>
 
-        <pre><code>package main
+        <pre v-syntax-highlight="'go'"><code>package main
 
 import (
     &#34;io&#34;
@@ -232,7 +232,7 @@ func main() {
 
         <p>Use in a template:</p>
 
-        <pre><code>&lt;p v-uppercase&gt;hello world&lt;/p&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;p v-uppercase&gt;hello world&lt;/p&gt;
 &lt;!-- renders: &lt;p&gt;HELLO WORLD&lt;/p&gt; --&gt;</code></pre>
 
         <p>See <a href="/docs/go-api.html#directive-types"><code>DirectiveBinding</code> and <code>DirectiveContext</code></a> in the Go API reference for the full set of fields available to directive implementations.</p>
@@ -243,7 +243,7 @@ func main() {
 
         <p>By default, a missing prop renders a visible <code>[missing: &lt;name&gt;]</code> placeholder in the HTML. Use <code>WithMissingPropHandler</code> to choose a different behaviour.</p>
 
-        <pre><code>// Abort the render and return an error — recommended for production.
+        <pre v-syntax-highlight="'go'"><code>// Abort the render and return an error — recommended for production.
 // Any missing prop causes the entire response to fail, making omissions visible
 // during development and CI rather than in rendered HTML.
 engine.WithMissingPropHandler(htmlc.ErrorOnMissingProp)
@@ -254,7 +254,7 @@ engine.WithMissingPropHandler(htmlc.SubstituteMissingProp)</code></pre>
 
         <p>Both are package-level functions with the <code>MissingPropFunc</code> signature — you can write your own to log, metric-count, or substitute a default value:</p>
 
-        <pre><code>engine.WithMissingPropHandler(func(name string) (any, error) {
+        <pre v-syntax-highlight="'go'"><code>engine.WithMissingPropHandler(func(name string) (any, error) {
     slog.Warn(&#34;missing prop&#34;, &#34;name&#34;, name)
     return &#34;&#34;, nil // silently substitute empty string
 })</code></pre>
@@ -265,7 +265,7 @@ engine.WithMissingPropHandler(htmlc.SubstituteMissingProp)</code></pre>
 
         <p>Call <code>ValidateAll</code> after creating the engine. It checks every registered component for child component references that cannot be resolved and returns one <code>ValidationError</code> per problem. An empty slice means all components are valid.</p>
 
-        <pre><code>package main
+        <pre v-syntax-highlight="'go'"><code>package main
 
 import (
     &#34;log&#34;
@@ -305,7 +305,7 @@ func main() {
         <h3>Using the CLI</h3>
         <p>Pass <code>-layout</code> to <code>htmlc build</code>. The named component is used as the outer wrapper for every page in the <code>-pages</code> directory.</p>
 
-        <pre><code>htmlc build \
+        <pre v-syntax-highlight="'bash'"><code>htmlc build \
   -dir   ./components \
   -pages ./pages \
   -out   ./dist \
@@ -316,7 +316,7 @@ func main() {
         <h3>Using the Go API</h3>
         <p>Call <code>RenderFragment</code> for the inner page, then pass the result as data to <code>RenderPage</code> on the layout:</p>
 
-        <pre><code>// Render the inner page as a fragment (no full &lt;html&gt; document).
+        <pre v-syntax-highlight="'go'"><code>// Render the inner page as a fragment (no full &lt;html&gt; document).
 inner, err := engine.RenderFragmentString(&#34;BlogPost&#34;, map[string]any{
     &#34;title&#34;:   post.Title,
     &#34;content&#34;: post.Body,

@@ -60,32 +60,32 @@
         <h2 id="installation">Installation</h2>
 
         <h3>CLI</h3>
-        <pre><code>go install github.com/dhamidi/htmlc/cmd/htmlc@latest</code></pre>
+        <pre v-syntax-highlight="'bash'"><code>go install github.com/dhamidi/htmlc/cmd/htmlc@latest</code></pre>
 
         <h3>Go package</h3>
-        <pre><code>go get github.com/dhamidi/htmlc</code></pre>
+        <pre v-syntax-highlight="'bash'"><code>go get github.com/dhamidi/htmlc</code></pre>
 
         <h2 id="quick-start">Quick start</h2>
 
         <p>Create a component file:</p>
-        <pre><code>&lt;!-- templates/Greeting.vue --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- templates/Greeting.vue --&gt;
 &lt;template&gt;
   &lt;p&gt;Hello, {{ "{{" }} name }}!&lt;/p&gt;
 &lt;/template&gt;</code></pre>
 
         <p>Render it:</p>
-        <pre><code>$ htmlc render -dir ./templates Greeting -props '{"name":"world"}'
+        <pre v-syntax-highlight="'bash'"><code>$ htmlc render -dir ./templates Greeting -props '{"name":"world"}'
 &lt;p&gt;Hello, world!&lt;/p&gt;</code></pre>
 
         <p>Render as a full HTML page:</p>
-        <pre><code>$ htmlc page -dir ./templates Greeting -props '{"name":"world"}'
+        <pre v-syntax-highlight="'bash'"><code>$ htmlc page -dir ./templates Greeting -props '{"name":"world"}'
 &lt;!DOCTYPE html&gt;
 &lt;p&gt;Hello, world!&lt;/p&gt;</code></pre>
 
         <h2 id="interpolation">Text interpolation</h2>
 
         <p><code>{{ "{{" }} expr }}</code> evaluates the expression against the current render scope and HTML-escapes the result.</p>
-        <pre><code>&lt;p&gt;Hello, {{ "{{" }} name }}!&lt;/p&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;p&gt;Hello, {{ "{{" }} name }}!&lt;/p&gt;
 &lt;p&gt;{{ "{{" }} a }} + {{ "{{" }} b }} = {{ "{{" }} a + b }}&lt;/p&gt;</code></pre>
 
         <h2 id="expressions">Expression language</h2>
@@ -109,7 +109,7 @@
         </table>
 
         <p>Use <code>.length</code> to measure collections — it works on strings, slices, arrays, and maps:</p>
-        <pre><code>&lt;span&gt;{{ "{{" }} items.length }}&lt;/span&gt;</code></pre>
+        <pre v-syntax-highlight="'html'"><code>&lt;span&gt;{{ "{{" }} items.length }}&lt;/span&gt;</code></pre>
 
         <h2 id="directives">Directives overview</h2>
 
@@ -145,7 +145,7 @@
           <li><code>&lt;style&gt;</code> — optional; global or scoped CSS</li>
         </ul>
 
-        <pre><code>&lt;!-- templates/Card.vue --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- templates/Card.vue --&gt;
 &lt;template&gt;
   &lt;div class="card"&gt;
     &lt;h2&gt;{{ "{{" }} title }}&lt;/h2&gt;
@@ -165,9 +165,9 @@
 
         <p>Props are passed as a JSON map at render time. In <code>htmlc build</code>, props come from sibling <code>.json</code> files and <code>_data.json</code> files in parent directories.</p>
 
-        <pre><code>$ htmlc render -dir ./templates Card -props '{"title":"Hello"}'</code></pre>
+        <pre v-syntax-highlight="'bash'"><code>$ htmlc render -dir ./templates Card -props '{"title":"Hello"}'</code></pre>
 
-        <pre><code>// In Go
+        <pre v-syntax-highlight="'go'"><code>// In Go
 html, err := engine.RenderFragmentString("Card", map[string]any{
     "title": "Hello",
 })</code></pre>
@@ -175,7 +175,7 @@ html, err := engine.RenderFragmentString("Card", map[string]any{
         <h2 id="slots">Slots</h2>
 
         <p>Default slot:</p>
-        <pre><code>&lt;!-- In Card.vue --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- In Card.vue --&gt;
 &lt;slot&gt;Fallback content&lt;/slot&gt;
 
 &lt;!-- Usage --&gt;
@@ -184,7 +184,7 @@ html, err := engine.RenderFragmentString("Card", map[string]any{
 &lt;/Card&gt;</code></pre>
 
         <p>Named slots:</p>
-        <pre><code>&lt;!-- In Layout.vue --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- In Layout.vue --&gt;
 &lt;header&gt;&lt;slot name="header" /&gt;&lt;/header&gt;
 &lt;main&gt;&lt;slot /&gt;&lt;/main&gt;
 &lt;footer&gt;&lt;slot name="footer" /&gt;&lt;/footer&gt;
@@ -200,13 +200,13 @@ html, err := engine.RenderFragmentString("Card", map[string]any{
 
         <p>Add <code>scoped</code> to <code>&lt;style&gt;</code> to keep styles contained to the component. The engine rewrites CSS selectors and adds a scope attribute to matching elements automatically.</p>
 
-        <pre><code>&lt;style scoped&gt;
+        <pre v-syntax-highlight="'css'"><code>&lt;style scoped&gt;
 .card { background: white; }
 p    { color: gray; }
 &lt;/style&gt;</code></pre>
 
         <p>Becomes (approximately):</p>
-        <pre><code>&lt;style&gt;
+        <pre v-syntax-highlight="'css'"><code>&lt;style&gt;
 .card[data-v-3a2b1c] { background: white; }
 p[data-v-3a2b1c]    { color: gray; }
 &lt;/style&gt;</code></pre>

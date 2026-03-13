@@ -83,7 +83,7 @@
 
         <p>Each call to <code>RenderPage</code> or <code>RenderFragment</code> is a pure function call:</p>
 
-        <pre><code>f(name string, data map[string]any) → (HTML string, error)</code></pre>
+        <pre v-syntax-highlight="'go'"><code>f(name string, data map[string]any) → (HTML string, error)</code></pre>
 
         <p>The same component can be rendered a thousand times concurrently with different data maps and it will produce independent, deterministic output each time. There is no shared mutable state between renders.</p>
 
@@ -141,7 +141,7 @@
 
         <p>The <code>Engine.RegisterFunc</code> method is the bridge between Go and the expression language. Any function registered this way becomes available by name in every expression evaluated by that engine:</p>
 
-        <pre><code>engine.RegisterFunc("formatDate", func(args ...any) (any, error) {
+        <pre v-syntax-highlight="'go'"><code>engine.RegisterFunc("formatDate", func(args ...any) (any, error) {
     if len(args) != 1 {
         return nil, fmt.Errorf("formatDate: want 1 arg")
     }
@@ -154,7 +154,7 @@
 
         <p>Once registered, templates can call it like any other expression:</p>
 
-        <pre><code>&lt;span&gt;{{ "{{" }} formatDate(post.publishedAt) }}&lt;/span&gt;</code></pre>
+        <pre v-syntax-highlight="'html'"><code>&lt;span&gt;{{ "{{" }} formatDate(post.publishedAt) }}&lt;/span&gt;</code></pre>
 
         <p>Functions registered via <code>RegisterFunc</code> are scoped to a single engine instance. For truly global functions (available to all engines in a process), use <code>expr.RegisterBuiltin</code> from the <code>htmlc/expr</code> package directly — but note that it modifies global state and must be called before any concurrent evaluation begins.</p>
 
@@ -171,7 +171,7 @@
 
         <p>Each component gets a stable, unique scope identifier derived from its file path. The <code>ScopeID</code> function computes an FNV-1a 32-bit hash of the path and formats it as an 8-character lowercase hex string:</p>
 
-        <pre><code>// Result: "data-v-a1b2c3d4" (the exact value depends on the file path)
+        <pre v-syntax-highlight="'go'"><code>// Result: "data-v-a1b2c3d4" (the exact value depends on the file path)
 id := htmlc.ScopeID("./components/Button.vue")</code></pre>
 
         <p>The scope ID is stable across restarts as long as the component file path does not change. Because it is derived purely from the path, no state is needed — any process that loads the same file will generate the same ID.</p>
@@ -180,7 +180,7 @@ id := htmlc.ScopeID("./components/Button.vue")</code></pre>
 
         <p>The <code>ScopeCSS</code> function rewrites every CSS selector in a scoped style block by appending an attribute selector to the last compound selector in each rule:</p>
 
-        <pre><code>/* Before scoping */
+        <pre v-syntax-highlight="'css'"><code>/* Before scoping */
 p { color: red; }
 .title h2 { font-size: 1.5rem; }
 
@@ -194,7 +194,7 @@ p[data-v-a1b2c3d4] { color: red; }
 
         <p>At render time, every HTML element produced by a scoped component receives the scope attribute as an additional HTML attribute. For a component with scope ID <code>data-v-a1b2c3d4</code>:</p>
 
-        <pre><code>&lt;!-- Template --&gt;
+        <pre v-syntax-highlight="'html'"><code>&lt;!-- Template --&gt;
 &lt;p class="intro"&gt;Hello&lt;/p&gt;
 
 &lt;!-- Rendered output --&gt;
@@ -247,7 +247,7 @@ p[data-v-a1b2c3d4] { color: red; }
 
         <p>Create one <code>Engine</code> at application startup and share it across all handlers:</p>
 
-        <pre><code>engine, err := htmlc.New(htmlc.Options{
+        <pre v-syntax-highlight="'go'"><code>engine, err := htmlc.New(htmlc.Options{
     ComponentDir: "./components",
 })
 if err != nil {
