@@ -377,6 +377,12 @@ func (r *Renderer) renderNode(w io.Writer, n *html.Node, scope map[string]any) e
 		}
 
 	case html.TextNode:
+		// <style> and <script> are raw text elements — browsers never
+		// HTML-decode their content, so we must not HTML-escape it.
+		if n.Parent != nil && isRawTextElement(n.Parent.Data) {
+			io.WriteString(w, n.Data)
+			return nil
+		}
 		if err := r.interpolate(w, n.Data, scope); err != nil {
 			return err
 		}
@@ -400,6 +406,12 @@ func (r *Renderer) renderNode(w io.Writer, n *html.Node, scope map[string]any) e
 }
 
 // interpolate processes mustache expressions within text and writes the result to w.
+// isRawTextElement reports whether tag is an HTML raw text element whose
+// content browsers never HTML-decode (<style>, <script>).
+func isRawTextElement(tag string) bool {
+	return tag == "style" || tag == "script"
+}
+
 // Literal segments are HTML-escaped; {{ expr }} segments are evaluated and escaped.
 // If a value is of type html/template.HTML it is emitted verbatim (already safe),
 // matching the behaviour of v-html for pre-escaped content.
@@ -616,7 +628,11 @@ type outAttr struct {
 func (r *Renderer) renderRaw(w io.Writer, n *html.Node) {
 	switch n.Type {
 	case html.TextNode:
-		io.WriteString(w, stdhtml.EscapeString(n.Data))
+		if n.Parent != nil && isRawTextElement(n.Parent.Data) {
+			io.WriteString(w, n.Data)
+		} else {
+			io.WriteString(w, stdhtml.EscapeString(n.Data))
+		}
 
 	case html.ElementNode:
 		w.Write([]byte{'<'})

@@ -1993,3 +1993,46 @@ func TestRender_VBindSpreadNonMapError(t *testing.T) {
 		t.Errorf("error %q should mention 'v-bind'", err.Error())
 	}
 }
+
+// TestRenderNode_StyleBlockVerbatim checks that a <style> element nested
+// inside a template (e.g. in <head>) has its text content emitted verbatim,
+// without HTML-escaping quotes or > characters.
+func TestRenderNode_StyleBlockVerbatim(t *testing.T) {
+	src := `<template>
+<html>
+  <head>
+    <style>
+      body { font-family: 'Outfit', sans-serif; }
+      code { font-family: "SF Mono", monospace; }
+      :not(pre) > code { color: red; }
+    </style>
+  </head>
+  <body></body>
+</html>
+</template>`
+
+	comp, err := ParseFile("test.vue", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf strings.Builder
+	if err := NewRenderer(comp).Render(&buf, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+
+	for _, want := range []string{
+		`font-family: 'Outfit'`,
+		`font-family: "SF Mono"`,
+		`:not(pre) > code`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q\ngot:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{"&#39;", "&#34;", "&gt;"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("output contains escaped entity %q in CSS; got:\n%s", bad, got)
+		}
+	}
+}
