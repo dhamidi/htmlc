@@ -24,11 +24,13 @@ For template syntax, directives, the Go API, and the expression language, see th
    - [Debug a rendering problem](#debug-a-rendering-problem)
    - [Inspect the parsed template AST](#inspect-the-parsed-template-ast)
    - [Use components from a different directory](#use-components-from-a-different-directory)
+   - [Add an external directive to the build](#add-an-external-directive-to-the-build)
 3. [Reference](#reference)
    - [Subcommands at a glance](#subcommands-at-a-glance)
    - [render](#render)
    - [page](#page)
    - [build](#build)
+   - [External directives](#external-directives)
    - [props](#props)
    - [ast](#ast)
    - [help](#help)
@@ -430,6 +432,118 @@ htmlc render -dir /var/www/templates/components Hero -props '{}'
 
 ---
 
+### Add an external directive to the build
+
+Use external directives to transform specific elements during a `build` run
+without modifying `htmlc` itself — for example, to apply syntax highlighting,
+generate table-of-contents entries, or call an external tool.
+
+**Prerequisites:** `htmlc build` is working for your project.
+
+---
+
+**Step 1 — Create a directive executable.**
+
+Place an executable file whose base name (without extension) matches
+`v-<directive-name>` anywhere inside the component directory (`-dir`).
+The directive name must be lower-kebab-case.
+
+```
+templates/
+  directives/
+    v-syntax-highlight        ← registered as "syntax-highlight"
+```
+
+A minimal shell skeleton (replace the highlighted logic with your own):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+while IFS= read -r line; do
+    hook=$(printf '%s' "$line" | python3 -c "import sys,json; print(json.load(sys.stdin)['hook'])")
+    id=$(printf '%s'   "$line" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+    if [ "$hook" = "created" ]; then
+        printf '{"id":"%s","inner_html":"<b>replaced</b>"}\n' "$id"
+    else
+        printf '{"id":"%s","html":""}\n' "$id"
+    fi
+done
+```
+
+A minimal Node.js skeleton:
+
+```js
+#!/usr/bin/env node
+const rl = require('readline').createInterface({ input: process.stdin, terminal: false });
+rl.on('line', line => {
+    const req = JSON.parse(line);
+    if (req.hook === 'created') {
+        process.stdout.write(JSON.stringify({
+            id: req.id,
+            inner_html: `<b>${req.text}</b>`,
+        }) + '\n');
+    } else {
+        process.stdout.write(JSON.stringify({ id: req.id }) + '\n');
+    }
+});
+```
+
+Make the file executable:
+
+```
+chmod +x templates/directives/v-syntax-highlight
+```
+
+---
+
+**Step 2 — Reference the directive in a template.**
+
+Use the directive as a Vue-style attribute on any element:
+
+```vue
+<template>
+  <pre v-syntax-highlight="'go'">
+func main() {
+    fmt.Println("hello")
+}
+  </pre>
+</template>
+```
+
+The expression (`'go'`) becomes `binding.value` in the request JSON.
+
+---
+
+**Step 3 — Run the build.**
+
+```
+htmlc build -dir ./templates -pages ./pages -out ./dist
+```
+
+`htmlc` discovers, starts, and communicates with the directive automatically.
+Any text written by the directive to stderr is forwarded to the terminal.
+
+---
+
+**Step 4 — Verify the output.**
+
+```
+grep -A3 'syntax-highlight' dist/index.html
+```
+
+---
+
+**Troubleshooting**
+
+| Symptom | Likely cause |
+|---------|--------------|
+| Directive is silently skipped | File is not executable (`chmod +x`) |
+| Directive is not discovered | Name does not match `v-[a-z][a-z0-9-]*` |
+| Warning: `invalid JSON from directive` | Response line is malformed; check stderr |
+| Element unchanged | Directive returned empty `inner_html` or `html` |
+
+---
+
 ## Reference
 
 ### Subcommands at a glance
@@ -543,6 +657,165 @@ Build complete: 5 pages, 0 errors.
 **Output directory**
 
 The `-out` directory is created automatically with `mkdir -p` semantics if it does not already exist.  Intermediate subdirectories for nested pages are also created as needed.
+
+---
+
+### External directives
+
+External directives extend `htmlc build` with custom element transformations.
+They are independent executables that communicate with the build via
+newline-delimited JSON (NDJSON) over stdin/stdout.
+
+---
+
+#### Discovery
+
+During `build`, `htmlc` walks the entire component directory tree (`-dir`)
+and registers every file that satisfies all three conditions:
+
+| Condition | Rule |
+|-----------|------|
+| Name | Base name without extension matches `v-<directive-name>` |
+| Directive name format | Lower-kebab-case: `[a-z][a-z0-9-]*` |
+| Executable | File mode has at least one executable bit set (`mode & 0111 != 0`) |
+
+Hidden directories (names starting with `.`) are skipped.  Extensions are
+ignored, so `v-foo`, `v-foo.sh`, and `v-foo.py` all register as `foo`.
+If multiple files resolve to the same directive name, the last one found
+in the directory walk wins.
+
+**Examples of valid file names**
+
+```
+v-syntax-highlight      → directive name: syntax-highlight
+v-upper.sh              → directive name: upper
+v-toc-builder.py        → directive name: toc-builder
+```
+
+**Examples of invalid file names** (not registered)
+
+```
+syntax-highlight        ← missing "v-" prefix
+v-Syntax-Highlight      ← uppercase letters not allowed
+v-123                   ← must start with a letter
+```
+
+---
+
+#### Lifecycle
+
+Each discovered directive is started **once** at the beginning of `build`
+and stopped (stdin closed, process awaited) at the end.  If a directive
+fails to start, a warning is printed and the build continues without it.
+
+A non-zero exit code from the directive process is treated as a warning;
+the build is not aborted.
+
+---
+
+#### Protocol
+
+Communication is newline-delimited JSON (NDJSON): one JSON object per line,
+with no pretty-printing.  Requests flow from `htmlc` to the directive on
+stdin; responses flow from the directive to `htmlc` on stdout.  Requests are
+sent sequentially — `htmlc` sends the next request only after receiving a
+valid response for the current one.
+
+The directive's stderr is forwarded verbatim to `htmlc`'s stderr.
+
+---
+
+#### Request envelope
+
+Sent by `htmlc` for every element that carries the directive's attribute.
+
+```json
+{
+  "hook":    "created" | "mounted",
+  "id":      "<opaque string>",
+  "tag":     "<element tag name>",
+  "attrs":   { "<name>": "<value>", ... },
+  "text":    "<concatenated text content of all child text nodes>",
+  "binding": {
+    "value":     <evaluated expression>,
+    "raw_expr":  "<unevaluated expression string>",
+    "arg":       "<directive argument, or empty string>",
+    "modifiers": { "<modifier>": true, ... }
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hook` | string | `"created"` (before render) or `"mounted"` (after closing tag) |
+| `id` | string | Opaque unique identifier; **must** be echoed in the response |
+| `tag` | string | HTML element tag name, e.g. `"pre"`, `"div"` |
+| `attrs` | object | All HTML attributes present on the element |
+| `text` | string | Concatenated text content of all descendant text nodes |
+| `binding.value` | any | Result of evaluating the directive expression |
+| `binding.raw_expr` | string | Unevaluated expression string as written in the template |
+| `binding.arg` | string | Directive argument after `:` (e.g. `"href"` from `v-bind:href`), or `""` |
+| `binding.modifiers` | object | Modifier flags (e.g. `{"prevent": true}` from `.prevent`) |
+
+---
+
+#### `created` hook response
+
+Called **before** the element is rendered.  The response may mutate the
+element's tag, attributes, or inner content.
+
+```json
+{
+  "id":         "<same id as request>",
+  "tag":        "<optional: replacement tag name>",
+  "attrs":      { "<name>": "<value>", ... },
+  "inner_html": "<optional: verbatim HTML to use as element content>",
+  "error":      "<optional: non-empty string aborts rendering of this element>"
+}
+```
+
+| Field | Type | Effect |
+|-------|------|--------|
+| `id` | string | **Required.** Must match the request `id`; mismatches are ignored with a warning. |
+| `tag` | string | If non-empty, replaces the element's tag name. |
+| `attrs` | object | If present, replaces all element attributes with this map. |
+| `inner_html` | string | If non-empty, replaces the element's children with this HTML verbatim (not escaped). Template children are discarded. |
+| `error` | string | If non-empty, aborts rendering of this element and logs the message. |
+
+When `inner_html` is provided, it takes precedence over `v-text`, `v-html`,
+and all template children.
+
+---
+
+#### `mounted` hook response
+
+Called **after** the element's closing tag has been written.
+
+```json
+{
+  "id":    "<same id as request>",
+  "html":  "<optional: HTML injected immediately after the closing tag>",
+  "error": "<optional: non-empty string aborts rendering>"
+}
+```
+
+| Field | Type | Effect |
+|-------|------|--------|
+| `id` | string | **Required.** Must match the request `id`. |
+| `html` | string | If non-empty, this HTML is written verbatim after the closing tag. |
+| `error` | string | If non-empty, aborts rendering and logs the message. |
+
+---
+
+#### Error handling summary
+
+| Situation | Behaviour |
+|-----------|-----------|
+| Response is not valid JSON | Warning printed to stderr; request treated as no-op |
+| Response `id` does not match request `id` | Warning printed to stderr; request treated as no-op |
+| `error` field is non-empty | Element rendering aborted; error logged |
+| Directive fails to start | Warning printed; build continues without that directive |
+| Directive exits non-zero | Warning printed; does not abort the build |
 
 ---
 
