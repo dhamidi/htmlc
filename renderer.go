@@ -813,6 +813,11 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		return r.renderChildren(w, n, scope)
 	}
 
+	// v-switch is only valid on <template> elements.
+	if _, ok := attrValue(n, "v-switch"); ok {
+		return fmt.Errorf("v-switch is only valid on <template> elements, got <%s>", n.Data)
+	}
+
 	// <slot>: emit slot content from the caller's SlotDefinition, or fallback children.
 	if n.Data == "slot" {
 		slotName := "default"
