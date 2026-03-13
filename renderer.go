@@ -3,6 +3,7 @@ package htmlc
 import (
 	stdhtml "html"
 	htmltemplate "html/template"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -750,7 +751,7 @@ type invokedDirective struct {
 // expressions, calls Created on each matching Directive, and removes the
 // directive attribute from node.Attr afterwards. Returns the list of invoked
 // directives so their Mounted hooks can be called later.
-func (r *Renderer) applyCreatedHooks(node *html.Node, scope map[string]any) ([]invokedDirective, error) {
+func (r *Renderer) applyCreatedHooks(node *html.Node, scope map[string]any, ctx DirectiveContext) ([]invokedDirective, error) {
 	builtinNames := map[string]bool{
 		"text": true, "html": true, "show": true, "once": true, "model": true,
 		"if": true, "else-if": true, "else": true, "for": true, "pre": true,
@@ -799,7 +800,6 @@ func (r *Renderer) applyCreatedHooks(node *html.Node, scope map[string]any) ([]i
 
 	// Second pass: call Created hooks.
 	var invoked []invokedDirective
-	ctx := DirectiveContext{Registry: r.registry}
 	for _, pd := range pending {
 		if err := pd.dir.Created(node, pd.binding, ctx); err != nil {
 			return nil, fmt.Errorf("directive v-%s Created: %w", pd.name, err)
@@ -946,10 +946,38 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 	// renderComponentElement can traverse them for slot definitions.
 	working := shallowCloneNode(n)
 	working.FirstChild = n.FirstChild
+
+	// Pre-render children into a buffer so directives can inspect the fully
+	// evaluated inner HTML (template expressions resolved, components expanded).
+	// Skip pre-rendering for:
+	//   - void elements (no children)
+	//   - elements using v-text/v-html (content comes from expressions)
+	//   - component elements and dynamic <component :is="..."> (children are
+	//     slot content; their scope is set up by the component, not here)
+	// preRendered tracks whether childBuf was populated; if false the default
+	// content branch falls back to calling renderChildren directly.
+	var childBuf bytes.Buffer
+	var preRendered bool
+	_, hasVText := attrValue(n, "v-text")
+	_, hasVHTML := attrValue(n, "v-html")
+	isComponentElement := n.Data == "component" || r.resolveComponent(n.Data) != nil
+	if !isVoidElement(n.Data) && !hasVText && !hasVHTML && !isComponentElement {
+		if err := r.renderChildren(&childBuf, n, scope); err != nil {
+			return err
+		}
+		preRendered = true
+	}
+	renderedChildHTML := childBuf.String()
+
+	ctx := DirectiveContext{
+		Registry:          r.registry,
+		RenderedChildHTML: renderedChildHTML,
+	}
+
 	var invoked []invokedDirective
 	if len(r.directives) > 0 {
 		var err error
-		invoked, err = r.applyCreatedHooks(working, scope)
+		invoked, err = r.applyCreatedHooks(working, scope, ctx)
 		if err != nil {
 			return err
 		}
@@ -1152,7 +1180,6 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 	if isVoidElement(working.Data) {
 		w.Write([]byte{'>'})
 		// Mounted hooks (void element has no children, but Mounted still fires).
-		ctx := DirectiveContext{Registry: r.registry}
 		for _, inv := range invoked {
 			if err := inv.dir.Mounted(w, working, inv.binding, ctx); err != nil {
 				return fmt.Errorf("directive v-%s Mounted: %w", inv.name, err)
@@ -1193,8 +1220,13 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		io.WriteString(w, valueToString(val))
 
 	default:
-		if err := r.renderChildren(w, n, scope); err != nil {
-			return err
+		if preRendered {
+			// Children were already rendered into renderedChildHTML above.
+			io.WriteString(w, renderedChildHTML)
+		} else {
+			if err := r.renderChildren(w, n, scope); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1204,7 +1236,6 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 	w.Write([]byte{'>'})
 
 	// Mounted hooks: called after the closing tag has been written.
-	ctx := DirectiveContext{Registry: r.registry}
 	for _, inv := range invoked {
 		if err := inv.dir.Mounted(w, working, inv.binding, ctx); err != nil {
 			return fmt.Errorf("directive v-%s Mounted: %w", inv.name, err)

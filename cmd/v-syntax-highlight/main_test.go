@@ -154,6 +154,22 @@ func TestHighlightsHTMLWithMustacheSyntax(t *testing.T) {
 	}
 }
 
+// TestRequestParsesInnerHTML verifies that the inner_html field is correctly
+// unmarshalled from a request JSON object into the InnerHTML field.
+func TestRequestParsesInnerHTML(t *testing.T) {
+	input := `{"hook":"created","id":"5","tag":"pre","text":"func main(){}","inner_html":"<code>func main(){}</code>","binding":{"value":"go"}}`
+	var req request
+	if err := json.Unmarshal([]byte(input), &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if req.InnerHTML != "<code>func main(){}</code>" {
+		t.Errorf("InnerHTML = %q, want %q", req.InnerHTML, "<code>func main(){}</code>")
+	}
+	if req.Text != "func main(){}" {
+		t.Errorf("Text = %q, want %q", req.Text, "func main(){}")
+	}
+}
+
 // TestMalformedInputContinues verifies that a bad JSON line is skipped with a
 // warning on stderr and that the process continues to handle valid lines.
 func TestMalformedInputContinues(t *testing.T) {

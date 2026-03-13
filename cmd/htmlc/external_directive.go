@@ -136,6 +136,24 @@ func attrsToMap(attrs []html.Attribute) map[string]any {
 	return m
 }
 
+// renderedText returns the plain-text content of an HTML fragment string by
+// extracting all text tokens, HTML-unescaping them.  It is used to populate
+// the "text" field in directive requests from the fully rendered inner HTML.
+func renderedText(renderedHTML string) string {
+	var b strings.Builder
+	z := html.NewTokenizer(strings.NewReader(renderedHTML))
+	for {
+		tt := z.Next()
+		if tt == html.ErrorToken {
+			break
+		}
+		if tt == html.TextToken {
+			b.Write(z.Text())
+		}
+	}
+	return b.String()
+}
+
 // Created implements htmlc.Directive.
 func (ed *externalDirective) Created(node *html.Node, binding htmlc.DirectiveBinding, ctx htmlc.DirectiveContext) error {
 	modifiers := make(map[string]any, len(binding.Modifiers))
@@ -144,10 +162,11 @@ func (ed *externalDirective) Created(node *html.Node, binding htmlc.DirectiveBin
 	}
 
 	req := map[string]any{
-		"hook":  "created",
-		"tag":   node.Data,
-		"attrs": attrsToMap(node.Attr),
-		"text":  extractTextContent(node),
+		"hook":       "created",
+		"tag":        node.Data,
+		"attrs":      attrsToMap(node.Attr),
+		"text":       renderedText(ctx.RenderedChildHTML),
+		"inner_html": ctx.RenderedChildHTML,
 		"binding": map[string]any{
 			"value":     binding.Value,
 			"raw_expr":  binding.RawExpr,
@@ -197,10 +216,11 @@ func (ed *externalDirective) Mounted(w io.Writer, node *html.Node, binding htmlc
 	}
 
 	req := map[string]any{
-		"hook":  "mounted",
-		"tag":   node.Data,
-		"attrs": attrsToMap(node.Attr),
-		"text":  extractTextContent(node),
+		"hook":       "mounted",
+		"tag":        node.Data,
+		"attrs":      attrsToMap(node.Attr),
+		"text":       renderedText(ctx.RenderedChildHTML),
+		"inner_html": ctx.RenderedChildHTML,
 		"binding": map[string]any{
 			"value":     binding.Value,
 			"raw_expr":  binding.RawExpr,

@@ -86,16 +86,18 @@ Communication uses **newline-delimited JSON** (NDJSON):
 ### `created` hook
 
 The `created` hook is called when the renderer encounters an element that
-carries the directive, before the element's children are rendered.
+carries the directive.  The element's children are pre-rendered so that the
+`text` and `inner_html` request fields contain fully evaluated content
+(template expressions resolved, child components expanded).
 
 The directive may:
 
 - Replace the element's HTML tag (via `tag`).
 - Replace or augment the element's attributes (via `attrs`).
-- Replace the element's inner HTML (via `inner_html`).
+- Replace the element's inner HTML (via `inner_html` in the **response**).
 
-If `inner_html` is returned the element's template children are discarded and
-the supplied HTML is used verbatim.
+If `inner_html` is returned in the response, the pre-rendered children are
+discarded and the supplied HTML is used verbatim.
 
 ### `mounted` hook
 
@@ -121,7 +123,8 @@ All requests include the following fields:
 | `id` | string | Unique request identifier; must be echoed in the response |
 | `tag` | string | HTML tag name of the directive's host element (e.g. `"pre"`) |
 | `attrs` | object | Current attributes of the element as `{"name": "value"}` |
-| `text` | string | Concatenated text-node content of the element's children |
+| `text` | string | Plain-text content of the element's children (template expressions evaluated) |
+| `inner_html` | string | Fully rendered inner HTML of the element's children (new in v0.6) |
 | `binding` | object | Directive binding (see below) |
 
 **Binding sub-object:**
@@ -186,8 +189,8 @@ directive applied to two `<pre>` elements.
 **stdin (requests sent by htmlc):**
 
 ```
-{"hook":"created","id":"1","tag":"pre","attrs":{},"text":"func main() {}","binding":{"value":"go","raw_expr":"'go'","arg":"","modifiers":{}}}
-{"hook":"mounted","id":"2","tag":"pre","attrs":{"class":"language-go"},"text":"func main() {}","binding":{"value":"go","raw_expr":"'go'","arg":"","modifiers":{}}}
+{"hook":"created","id":"1","tag":"pre","attrs":{},"text":"func main() {}","inner_html":"func main() {}","binding":{"value":"go","raw_expr":"'go'","arg":"","modifiers":{}}}
+{"hook":"mounted","id":"2","tag":"pre","attrs":{"class":"language-go"},"text":"func main() {}","inner_html":"func main() {}","binding":{"value":"go","raw_expr":"'go'","arg":"","modifiers":{}}}
 ```
 
 **stdout (responses written by the directive):**

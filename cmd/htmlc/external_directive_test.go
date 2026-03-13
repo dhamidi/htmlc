@@ -144,6 +144,68 @@ func TestExternalDirective_InvalidJSONResponse(t *testing.T) {
 	}
 }
 
+// TestExternalDirective_InnerHTMLSentInRequest verifies that the Created hook
+// sends the ctx.RenderedChildHTML value as the "inner_html" request field.
+// The test uses a temporary Node.js script that echoes the request's inner_html
+// back as the response inner_html, so we can observe what was sent.
+func TestExternalDirective_InnerHTMLSentInRequest(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "v-dump")
+	scriptContent := []byte("#!/usr/bin/env node\n" +
+		"const readline = require('readline');\n" +
+		"const rl = readline.createInterface({ input: process.stdin, terminal: false });\n" +
+		"rl.on('line', (line) => {\n" +
+		"    const req = JSON.parse(line);\n" +
+		"    process.stdout.write(JSON.stringify({id: req.id, inner_html: req.inner_html || ''}) + '\\n');\n" +
+		"});\n")
+	if err := os.WriteFile(script, scriptContent, 0755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var stderrBuf bytes.Buffer
+	ed := &externalDirective{name: "dump", path: script, stderr: &stderrBuf}
+	if err := ed.start(); err != nil {
+		t.Skipf("start directive (node not available?): %v", err)
+	}
+	defer ed.stop()
+
+	node := makeNode("pre")
+	binding := htmlc.DirectiveBinding{Value: "go"}
+	ctx := htmlc.DirectiveContext{RenderedChildHTML: "<b>rendered</b>"}
+
+	if err := ed.Created(node, binding, ctx); err != nil {
+		t.Fatalf("Created: %v", err)
+	}
+
+	inner, ok := ed.InnerHTML()
+	if !ok {
+		t.Fatal("InnerHTML() should return ok=true after Created echoed inner_html")
+	}
+	if inner != "<b>rendered</b>" {
+		t.Errorf("InnerHTML() = %q, want %q (inner_html from request not echoed back correctly)", inner, "<b>rendered</b>")
+	}
+}
+
+// TestRenderedText verifies that renderedText strips HTML tags and returns
+// plain text from a rendered HTML fragment.
+func TestRenderedText(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"<b>hello</b>", "hello"},
+		{"func main(){}", "func main(){}"},
+		{"<span>foo</span> <span>bar</span>", "foo bar"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		got := renderedText(tc.in)
+		if got != tc.want {
+			t.Errorf("renderedText(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestExternalDirective_ExtractTextContent(t *testing.T) {
 	parent := makeNodeWithText("pre", "hello world")
 	text := extractTextContent(parent)

@@ -197,6 +197,40 @@ func (d *captureValueDirective) Mounted(_ io.Writer, _ *html.Node, _ DirectiveBi
 	return nil
 }
 
+// captureContextDirective captures the DirectiveContext for inspection.
+type captureContextDirective struct {
+	ctxOut *DirectiveContext
+}
+
+func (d *captureContextDirective) Created(_ *html.Node, _ DirectiveBinding, ctx DirectiveContext) error {
+	*d.ctxOut = ctx
+	return nil
+}
+
+func (d *captureContextDirective) Mounted(_ io.Writer, _ *html.Node, _ DirectiveBinding, _ DirectiveContext) error {
+	return nil
+}
+
+// TestDirective_RenderedChildHTMLContainsEvaluatedExpressions verifies that
+// ctx.RenderedChildHTML received by a directive contains the evaluated value
+// of template expressions, not the raw mustache source.
+func TestDirective_RenderedChildHTMLContainsEvaluatedExpressions(t *testing.T) {
+	var gotCtx DirectiveContext
+	dr := DirectiveRegistry{"inspect": &captureContextDirective{ctxOut: &gotCtx}}
+
+	scope := map[string]any{"code": "func main(){}"}
+	_, err := renderWithDirectives(t, `<pre v-inspect="'go'">{{ code }}</pre>`, scope, dr)
+	if err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	if !strings.Contains(gotCtx.RenderedChildHTML, "func main(){}") {
+		t.Errorf("RenderedChildHTML = %q, want it to contain %q", gotCtx.RenderedChildHTML, "func main(){}")
+	}
+	if strings.Contains(gotCtx.RenderedChildHTML, "{{ code }}") {
+		t.Errorf("RenderedChildHTML = %q, must not contain raw mustache expression", gotCtx.RenderedChildHTML)
+	}
+}
+
 // TestParseDirectiveKey_Basic verifies the basic parsing of v-name:arg.mod.
 func TestParseDirectiveKey_Basic(t *testing.T) {
 	tests := []struct {

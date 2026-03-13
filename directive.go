@@ -30,6 +30,12 @@ type DirectiveContext struct {
 	// Registry is the component registry the renderer is using. Directives
 	// can use this to verify or resolve component names.
 	Registry Registry
+
+	// RenderedChildHTML is the fully rendered inner HTML of the directive's
+	// host element, with all template expressions evaluated and child
+	// components expanded. It is empty for void elements.
+	// Available in both Created and Mounted hooks.
+	RenderedChildHTML string
 }
 
 // Directive is the interface implemented by custom directive types.

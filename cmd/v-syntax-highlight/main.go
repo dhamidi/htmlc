@@ -53,12 +53,13 @@ import (
 )
 
 type request struct {
-	Hook  string            `json:"hook"`
-	ID    string            `json:"id"`
-	Tag   string            `json:"tag"`
-	Attrs map[string]string `json:"attrs"`
-	Text  string            `json:"text"`
-	Binding struct {
+	Hook      string            `json:"hook"`
+	ID        string            `json:"id"`
+	Tag       string            `json:"tag"`
+	Attrs     map[string]string `json:"attrs"`
+	Text      string            `json:"text"`
+	InnerHTML string            `json:"inner_html"`
+	Binding   struct {
 		Value   any    `json:"value"`
 		RawExpr string `json:"raw_expr"`
 		Arg     string `json:"arg"`
