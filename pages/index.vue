@@ -58,19 +58,19 @@
       <h2 class="section-title">Embed in any Go application</h2>
       <p class="section-desc">Import the package, create an engine, and render components directly from your HTTP handlers.</p>
 
-      <div class="two-col">
-        <div>
+      <div class="qs-steps">
+        <div class="qs-step">
           <div class="col-label">1. Add the dependency</div>
           <pre><code>go get github.com/dhamidi/htmlc</code></pre>
         </div>
-        <div>
+        <div class="qs-step">
           <div class="col-label">2. Write a component</div>
           <pre><code>&lt;!-- templates/Greeting.vue --&gt;
 &lt;template&gt;
   &lt;p&gt;Hello, {{ "{{" }} name }}!&lt;/p&gt;
 &lt;/template&gt;</code></pre>
         </div>
-        <div>
+        <div class="qs-step">
           <div class="col-label">3. Create an engine &amp; render</div>
           <pre><code>engine, err := htmlc.New(htmlc.Options{
     ComponentDir: "templates/",
@@ -82,7 +82,7 @@ html, err := engine.RenderFragmentString(
 )
 // html == "&lt;p&gt;Hello, world!&lt;/p&gt;"</code></pre>
         </div>
-        <div>
+        <div class="qs-step">
           <div class="col-label">4. Serve over HTTP</div>
           <pre><code>http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -118,8 +118,8 @@ html, err := engine.RenderFragmentString(
   .section-title { font-size: 1.8rem; font-weight: 800; margin-bottom: 1rem; letter-spacing: -0.03em; }
   .section-desc { color: var(--muted); max-width: 560px; margin-bottom: 2rem; }
 
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-  @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+  .qs-steps { display: flex; flex-direction: column; gap: 1.25rem; }
+  .qs-step pre { margin-top: 0.4rem; }
 
   .col-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.5rem; }
   .col-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.4rem; }
