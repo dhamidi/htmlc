@@ -966,10 +966,148 @@ merging with any existing inline styles.
 there is no DOM `mounted` event. This is the htmlc equivalent of Vue's
 `mounted` hook on a custom directive.
 
+### DirectiveWithContent
+
+A directive that wants to replace the element's children with custom HTML can
+implement the optional `DirectiveWithContent` interface:
+
+```go
+type DirectiveWithContent interface {
+    Directive
+    // InnerHTML returns the raw HTML to use as the element's inner content.
+    // Return ("", false) to fall back to normal child rendering.
+    InnerHTML() (html string, ok bool)
+}
+```
+
+After `Created` is called, the renderer checks whether the directive implements
+`DirectiveWithContent`.  If `InnerHTML()` returns `(s, true)` the string `s` is
+written verbatim between the element's opening and closing tags — the template
+children are skipped.  This is how external directives like `v-syntax-highlight`
+inject processed markup without modifying the Go code.
+
 > **Note:** The old `v-switch` component-dispatch directive (which replaced
 > the host element's tag at runtime) has been removed. Use
 > `<component :is="expr">` for dynamic component dispatch, or the new built-in
 > `v-switch`/`v-case`/`v-default` for switch-style conditional rendering.
+
+### External Directives
+
+`htmlc build` can discover and invoke **external directives** — plain
+executables living in the component file tree.  No recompilation of `htmlc` is
+required.
+
+#### Discovery
+
+When `htmlc build` starts it walks the `-dir` component tree.  Any file whose
+base name (without extension) matches `v-<directive-name>` **and** has at least
+one executable bit set is registered as an external directive under the name
+`<directive-name>` (the `v-` prefix is stripped).  Files inside hidden
+directories (names starting with `.`) are skipped.  The directive name must be
+lower-kebab-case (`[a-z][a-z0-9-]*`).
+
+```
+templates/
+  directives/
+    v-syntax-highlight    ← registered as "syntax-highlight"
+    v-upper.sh            ← registered as "upper"
+```
+
+Convention: place directive executables alongside the components that use them
+or in a dedicated `directives/` subdirectory.
+
+#### Protocol
+
+Each directive executable is spawned **once** at the start of a build.
+`htmlc` communicates with it over **newline-delimited JSON** (NDJSON) on
+stdin/stdout.  Stderr from the subprocess is forwarded verbatim to `htmlc`'s
+stderr.  When the build finishes `htmlc` closes the subprocess's stdin; the
+subprocess should drain its input and exit cleanly.
+
+**Request envelope** (htmlc → directive):
+
+```json
+{
+  "hook":    "created" | "mounted",
+  "id":      "<opaque string echoed in response>",
+  "tag":     "<element tag name>",
+  "attrs":   { "<name>": "<value>", ... },
+  "text":    "<concatenated text content of element's children>",
+  "binding": {
+    "value":     <evaluated expression>,
+    "raw_expr":  "<unevaluated expression string>",
+    "arg":       "<directive argument or ''>",
+    "modifiers": { "<mod>": true, ... }
+  }
+}
+```
+
+**`created` response** (directive → htmlc):
+
+```json
+{
+  "id":         "<same id as request>",
+  "tag":        "<optional: new tag name>",
+  "attrs":      { "<name>": "<value>", ... },
+  "inner_html": "<optional: replacement inner HTML>",
+  "error":      "<optional: non-empty aborts rendering of this element>"
+}
+```
+
+- `inner_html` — if present and non-empty, replaces the element's children
+  verbatim (not escaped).
+
+**`mounted` response** (directive → htmlc):
+
+```json
+{
+  "id":    "<same id as request>",
+  "html":  "<optional: HTML injected after the element's closing tag>",
+  "error": "<optional: non-empty aborts rendering>"
+}
+```
+
+If the directive outputs a line that is not valid JSON or echoes the wrong
+`id`, `htmlc` logs a warning to stderr and treats the hook as a no-op.
+
+#### Example: syntax highlighting
+
+```vue
+<template>
+  <pre v-syntax-highlight="'go'">
+func main() {
+    fmt.Println("hello")
+}
+  </pre>
+</template>
+```
+
+A minimal `v-syntax-highlight` shell script skeleton:
+
+```sh
+#!/usr/bin/env node
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on('line', (line) => {
+    const req = JSON.parse(line);
+    if (req.hook === 'created') {
+        const highlighted = highlight(req.binding.value, req.text); // your highlighter
+        process.stdout.write(JSON.stringify({
+            id: req.id,
+            inner_html: highlighted,
+        }) + '\n');
+    } else {
+        process.stdout.write(JSON.stringify({ id: req.id, html: '' }) + '\n');
+    }
+});
+```
+
+Test the directive interactively:
+
+```sh
+echo '{"hook":"created","id":"1","tag":"pre","attrs":{},"text":"fmt.Println(1)","binding":{"value":"go","raw_expr":"'\''go'\''","arg":"","modifiers":{}}}' \
+  | ./v-syntax-highlight
+```
 
 ---
 

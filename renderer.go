@@ -1162,8 +1162,22 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 	}
 	w.Write([]byte{'>'})
 
-	// Content: v-text, v-html, or child nodes.
+	// Check if any invoked directive wants to replace the element's inner HTML.
+	var replacementHTML string
+	for _, inv := range invoked {
+		if dc, ok := inv.dir.(DirectiveWithContent); ok {
+			if h, hasContent := dc.InnerHTML(); hasContent {
+				replacementHTML = h
+				break
+			}
+		}
+	}
+
+	// Content: directive replacement, v-text, v-html, or child nodes.
 	switch {
+	case replacementHTML != "":
+		io.WriteString(w, replacementHTML)
+
 	case vTextExpr != "":
 		val, err := expr.Eval(strings.TrimSpace(vTextExpr), scope)
 		if err != nil {

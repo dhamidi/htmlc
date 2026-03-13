@@ -381,6 +381,25 @@
 //	    },
 //	})
 //
+// # DirectiveWithContent
+//
+// A directive that wants to replace the element's children with custom HTML
+// may implement the optional DirectiveWithContent interface in addition to
+// Directive.  After Created is called the renderer checks whether the
+// directive implements DirectiveWithContent and, if InnerHTML() returns a
+// non-empty string, writes it verbatim between the opening and closing tags
+// instead of rendering the template children.
+//
+// # External Directives
+//
+// htmlc build discovers external directives automatically from the component
+// tree.  Any executable file whose base name (without extension) matches
+// v-<name> (lower-kebab-case) is registered as an external directive under
+// that name.  The executable communicates with htmlc over newline-delimited
+// JSON on stdin/stdout, receiving a request envelope for each hook invocation
+// and responding with a result envelope.  See the README for the full
+// protocol description.
+//
 // # Tutorial
 //
 // The fastest path to a working server is Engine + RenderPage:

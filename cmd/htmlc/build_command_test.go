@@ -576,3 +576,63 @@ func TestBuildDiscoversPages(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildExternalDirective verifies that an external directive (a v-upper
+// shell script) is discovered, started, and invoked during a build.
+// The v-upper directive uppercases the element's text content and returns it
+// as inner_html.
+func TestBuildExternalDirective(t *testing.T) {
+	dir := t.TempDir()
+	pages := filepath.Join(dir, "pages")
+	out := filepath.Join(dir, "out")
+	components := filepath.Join(dir, "components")
+
+	for _, d := range []string{pages, out, components} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatalf("MkdirAll %s: %v", d, err)
+		}
+	}
+
+	// Write a v-upper directive script that uppercases the text content.
+	// Uses node since it's reliably available.
+	upperScript := filepath.Join(components, "v-upper")
+	upperScriptContent := `#!/usr/bin/env node
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on('line', (line) => {
+    const req = JSON.parse(line);
+    if (req.hook === 'created') {
+        process.stdout.write(JSON.stringify({id: req.id, inner_html: req.text.toUpperCase()}) + '\n');
+    } else {
+        process.stdout.write(JSON.stringify({id: req.id, html: ''}) + '\n');
+    }
+});
+`
+	if err := os.WriteFile(upperScript, []byte(upperScriptContent), 0755); err != nil {
+		t.Fatalf("WriteFile v-upper: %v", err)
+	}
+
+	// Write a page component that uses v-upper.
+	pageVue := filepath.Join(pages, "index.vue")
+	if err := os.WriteFile(pageVue, []byte(`<template><p v-upper="true">hello</p></template>`), 0644); err != nil {
+		t.Fatalf("WriteFile index.vue: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err := runBuild([]string{"-dir", components, "-pages", pages, "-out", out}, &stdout, &stderr, false)
+	if err != nil {
+		t.Fatalf("runBuild: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Read the output HTML file.
+	outFile := filepath.Join(out, "index.html")
+	content, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("ReadFile output: %v", err)
+	}
+
+	got := string(content)
+	if !strings.Contains(got, "HELLO") {
+		t.Errorf("output HTML does not contain HELLO:\n%s\nstderr: %s", got, stderr.String())
+	}
+}

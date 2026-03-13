@@ -317,6 +317,27 @@ func runBuild(args []string, stdout, stderr io.Writer, strict bool) error {
 		return errSilent
 	}
 
+	extDirs, err := discoverDirectives(*dir)
+	if err != nil {
+		fmt.Fprintln(stderr, cmdErrorMsg("build", fmt.Sprintf("directive discovery: %v", err)))
+		return errSilent
+	}
+	var extDirectives []*externalDirective
+	for dname, dpath := range extDirs {
+		ed := &externalDirective{name: dname, path: dpath, stderr: stderr}
+		if startErr := ed.start(); startErr != nil {
+			fmt.Fprintf(stderr, "htmlc build: directive %q: failed to start: %v\n", dname, startErr)
+			continue
+		}
+		extDirectives = append(extDirectives, ed)
+		engine.RegisterDirective(dname, ed)
+	}
+	defer func() {
+		for _, ed := range extDirectives {
+			ed.stop()
+		}
+	}()
+
 	if strict {
 		engine.WithMissingPropHandler(htmlc.ErrorOnMissingProp)
 		if errs := engine.ValidateAll(); len(errs) > 0 {

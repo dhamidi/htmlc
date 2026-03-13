@@ -64,6 +64,21 @@ type Directive interface {
 	Mounted(w io.Writer, node *html.Node, binding DirectiveBinding, ctx DirectiveContext) error
 }
 
+// DirectiveWithContent is an optional extension of the Directive interface.
+// When a directive's Created hook wants to replace the element's children with
+// custom HTML it should implement this interface.
+//
+// The renderer checks for this interface after calling Created.  If
+// InnerHTML returns a non-empty string the element's template children are
+// skipped and the string is written verbatim between the opening and closing
+// tags (equivalent to v-html on the element itself).
+type DirectiveWithContent interface {
+	Directive
+	// InnerHTML returns the raw HTML to use as the element's inner content.
+	// Return ("", false) to fall back to normal child rendering.
+	InnerHTML() (html string, ok bool)
+}
+
 // DirectiveRegistry maps directive names (without the "v-" prefix) to their
 // implementations. Keys are lower-kebab-case; the renderer normalises names
 // before lookup.
