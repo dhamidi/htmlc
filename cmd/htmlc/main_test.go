@@ -648,3 +648,99 @@ func TestHelpAst(t *testing.T) {
 		t.Errorf("stdout missing 'ast', got: %q", out)
 	}
 }
+
+func TestBuildHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"build", "-h"}, &stdout, &stderr)
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "SYNOPSIS") {
+		t.Errorf("stdout missing 'SYNOPSIS', got: %q", out)
+	}
+}
+
+func TestBuildMissingPagesDir(t *testing.T) {
+	dir := t.TempDir()
+	missingPages := filepath.Join(dir, "nonexistent-pages")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"build", "-pages", missingPages}, &stdout, &stderr)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "cannot find pages directory") {
+		t.Errorf("stderr missing expected error, got: %q", errOut)
+	}
+}
+
+func TestBuildDiscoversPages(t *testing.T) {
+	pagesDir := t.TempDir()
+
+	// Create a small page tree
+	files := []string{
+		"index.vue",
+		"about.vue",
+		"index.json",
+		filepath.Join("posts", "hello.vue"),
+		filepath.Join("posts", "hello.json"),
+		filepath.Join("posts", "world.vue"),
+		// Underscore-prefixed should be skipped
+		"_partial.vue",
+		filepath.Join("posts", "_shared.vue"),
+		// Non-.vue files should be skipped
+		"style.css",
+	}
+	for _, f := range files {
+		full := filepath.Join(pagesDir, f)
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(full, []byte(""), 0644); err != nil {
+			t.Fatalf("WriteFile %s: %v", f, err)
+		}
+	}
+
+	entries, err := discoverPages(pagesDir)
+	if err != nil {
+		t.Fatalf("discoverPages: %v", err)
+	}
+
+	// Expected pages (sorted by relPath)
+	type expected struct {
+		relPath  string
+		outPath  string
+		hasData  bool
+	}
+	want := []expected{
+		{relPath: "about.vue", outPath: "about.html", hasData: false},
+		{relPath: "index.vue", outPath: "index.html", hasData: true},
+		{relPath: filepath.Join("posts", "hello.vue"), outPath: filepath.Join("posts", "hello.html"), hasData: true},
+		{relPath: filepath.Join("posts", "world.vue"), outPath: filepath.Join("posts", "world.html"), hasData: false},
+	}
+
+	if len(entries) != len(want) {
+		relPaths := make([]string, len(entries))
+		for i, e := range entries {
+			relPaths[i] = e.relPath
+		}
+		t.Fatalf("got %d entries %v, want %d", len(entries), relPaths, len(want))
+	}
+
+	for i, w := range want {
+		e := entries[i]
+		if e.relPath != w.relPath {
+			t.Errorf("entry[%d].relPath = %q, want %q", i, e.relPath, w.relPath)
+		}
+		if e.outPath != w.outPath {
+			t.Errorf("entry[%d].outPath = %q, want %q", i, e.outPath, w.outPath)
+		}
+		if (e.dataPath != "") != w.hasData {
+			t.Errorf("entry[%d].dataPath hasData = %v, want %v (dataPath=%q)", i, e.dataPath != "", w.hasData, e.dataPath)
+		}
+		if !slices.Contains([]string{e.absPath}, filepath.Join(pagesDir, w.relPath)) {
+			t.Errorf("entry[%d].absPath = %q, want %q", i, e.absPath, filepath.Join(pagesDir, w.relPath))
+		}
+	}
+}

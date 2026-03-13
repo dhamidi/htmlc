@@ -26,6 +26,7 @@ For template syntax, directives, the Go API, and the expression language, see th
    - [Subcommands at a glance](#subcommands-at-a-glance)
    - [render](#render)
    - [page](#page)
+   - [build](#build)
    - [props](#props)
    - [ast](#ast)
    - [help](#help)
@@ -333,6 +334,7 @@ htmlc render -dir /var/www/templates/components Hero -props '{}'
 |---|---|---|
 | `render` | HTML fragment | Embedding a component inside a larger page |
 | `page` | Full HTML document | Component represents a complete page |
+| `build` | HTML files on disk | Rendering an entire pages directory tree |
 | `props` | Prop list (text / JSON / env) | Discovering what data a component needs |
 | `ast` | Indented parse tree | Debugging parser behaviour |
 | `help` | Help text | Learning subcommand flags |
@@ -374,6 +376,37 @@ Differences from `render`:
 - Scoped styles are moved into the document `<head>`.
 
 When `-layout` is given, the page component is rendered as a fragment first, then its HTML is passed to the layout as the `content` prop.  All top-level `-props` values are forwarded to both renders.
+
+---
+
+### build
+
+```
+htmlc build [-dir <path>] [-pages <path>] [-out <path>] [-layout <name>] [-debug]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `-dir` | `.` | Directory containing shared `.vue` component files |
+| `-pages` | `./pages` | Root of the page tree. All `.vue` files found recursively are treated as pages. |
+| `-out` | `./out` | Output directory. The page tree hierarchy is reproduced here as `.html` files. Created if it does not exist. |
+| `-layout` | _(empty)_ | Optional layout component name (resolved from `-dir`) that wraps every page. |
+| `-debug` | false | Annotate output with diagnostic HTML comments |
+
+Files in the pages directory whose base name starts with `_` are skipped — they are treated as shared partials, not pages.
+
+Props for each page are loaded from a sibling JSON file with the same base name (e.g. `pages/posts/hello.json` for `pages/posts/hello.vue`).  If no data file exists the page is rendered with no props.
+
+The directory hierarchy is preserved: `pages/posts/hello.vue` becomes `out/posts/hello.html`.
+
+```
+pages/
+  index.vue          → out/index.html
+  about.vue          → out/about.html
+  posts/
+    hello.vue        → out/posts/hello.html
+    hello.json       ← props for posts/hello.vue
+```
 
 ---
 

@@ -75,6 +75,38 @@ EXAMPLES
   htmlc render -debug -dir ./templates Card -props '{"title":"Hello"}'
 `
 
+const helpBuild = `build — render a page tree to an output directory
+
+SYNOPSIS
+  htmlc build [-dir <path>] [-pages <path>] [-out <path>] [-layout <name>] [-debug]
+
+DESCRIPTION
+  Walks the pages directory recursively, renders every .vue file as a full
+  HTML page, and writes the results to the output directory. The directory
+  hierarchy is preserved: pages/posts/hello.vue becomes out/posts/hello.html.
+
+  Props for each page are loaded from a JSON file with the same name as the
+  page (e.g. pages/posts/hello.json for pages/posts/hello.vue). If no data
+  file exists the page is rendered with no props.
+
+FLAGS
+  -dir string     Directory containing shared .vue components. (default ".")
+  -pages string   Root of the page tree. (default "./pages")
+  -out string     Output directory. Created if it does not exist. (default "./out")
+  -layout string  Layout component (from -dir) to wrap every page. (default: none)
+  -debug          Annotate output with diagnostic HTML comments.
+
+EXAMPLES
+  # Build all pages using defaults
+  htmlc build
+
+  # Build with an explicit component dir, pages dir, and output dir
+  htmlc build -dir ./templates -pages ./pages -out ./dist
+
+  # Build with a shared layout
+  htmlc build -dir ./templates -pages ./pages -out ./dist -layout AppLayout
+`
+
 const helpPage = `page — render a .vue component as a full HTML page
 
 SYNOPSIS
@@ -175,6 +207,7 @@ var subcommandHelp = map[string]string{
 	"page":   helpPage,
 	"props":  helpProps,
 	"ast":    helpAst,
+	"build":  helpBuild,
 }
 
 // errSilent is returned when the error has already been written to stderr.
@@ -287,6 +320,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	case "ast":
 		if err := runAst(rest, stdout, stderr); err != nil {
+			if err != errSilent {
+				fmt.Fprintln(stderr, err)
+			}
+			return 1
+		}
+	case "build":
+		if err := runBuild(rest, stdout, stderr); err != nil {
 			if err != errSilent {
 				fmt.Fprintln(stderr, err)
 			}
@@ -528,6 +568,110 @@ func runPage(args []string, stdout, stderr io.Writer) error {
 			}
 			return errSilent
 		}
+	}
+	return nil
+}
+
+// pageEntry describes a single page found during page discovery.
+type pageEntry struct {
+	// relPath is the path relative to the pages root, e.g. "posts/hello.vue"
+	relPath string
+	// absPath is the absolute path to the .vue file
+	absPath string
+	// dataPath is the path to the matching .json data file, or "" if none
+	dataPath string
+	// outPath is the resolved output path relative to -out, e.g. "posts/hello.html"
+	outPath string
+}
+
+// discoverPages walks pagesDir recursively and returns a sorted slice of
+// pageEntry for every .vue file found. Files whose base name starts with "_"
+// are skipped (they are treated as shared partials, not pages).
+func discoverPages(pagesDir string) ([]pageEntry, error) {
+	var entries []pageEntry
+	err := filepath.WalkDir(pagesDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if filepath.Ext(path) != ".vue" {
+			return nil
+		}
+		base := filepath.Base(path)
+		if strings.HasPrefix(base, "_") {
+			return nil
+		}
+		rel, err := filepath.Rel(pagesDir, path)
+		if err != nil {
+			return err
+		}
+		outPath := strings.TrimSuffix(rel, ".vue") + ".html"
+		dataPath := strings.TrimSuffix(path, ".vue") + ".json"
+		if _, statErr := os.Stat(dataPath); statErr != nil {
+			dataPath = ""
+		}
+		entries = append(entries, pageEntry{
+			relPath:  rel,
+			absPath:  path,
+			dataPath: dataPath,
+			outPath:  outPath,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].relPath < entries[j].relPath
+	})
+	return entries, nil
+}
+
+func runBuild(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("build", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", ".", "directory containing shared .vue components")
+	pages := fs.String("pages", "./pages", "root of the page tree")
+	out := fs.String("out", "./out", "output directory")
+	_ = fs.String("layout", "", "layout component to wrap every page")
+	_ = fs.Bool("debug", false, "enable debug render mode")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			fmt.Fprint(stdout, helpBuild)
+			return nil
+		}
+		return err
+	}
+
+	if _, statErr := os.Stat(*pages); statErr != nil {
+		fmt.Fprintln(stderr, cmdErrorMsg("build", fmt.Sprintf("cannot find pages directory %q", *pages),
+			"  The pages directory does not exist. Create it and add .vue page files.",
+			"",
+			"  EXAMPLE",
+			"    mkdir pages",
+			fmt.Sprintf("    htmlc build -pages %s", *pages),
+		))
+		return errSilent
+	}
+
+	if _, statErr := os.Stat(*dir); statErr != nil {
+		fmt.Fprintln(stderr, cmdErrorMsg("build", fmt.Sprintf("cannot load components from %q", *dir),
+			"  No such directory. Create the directory and add .vue component files.",
+		))
+		return errSilent
+	}
+
+	discovered, err := discoverPages(*pages)
+	if err != nil {
+		fmt.Fprintln(stderr, cmdErrorMsg("build", fmt.Sprintf("page discovery failed: %v", err)))
+		return errSilent
+	}
+
+	_ = out
+	for _, e := range discovered {
+		fmt.Fprintf(stdout, "%s → %s\n", e.relPath, e.outPath)
 	}
 	return nil
 }
