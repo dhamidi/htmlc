@@ -167,13 +167,14 @@ v-toc-builder.py        → directive name: toc-builder</code></pre>
 
     <h3 id="directive-protocol">Protocol</h3>
     <p>Communication is NDJSON: one JSON object per line, no pretty-printing. Requests flow from <code>htmlc</code> to the directive on stdin; responses flow back on stdout. Requests are sent sequentially. The directive's stderr is forwarded verbatim to <code>htmlc</code>'s stderr.</p>
-    <p><strong>Request envelope</strong> (sent for every element carrying the directive's attribute):</p>
+    <p><strong>Request envelope</strong> (sent for every element carrying the directive's attribute). Both <code>text</code> and <code>inner_html</code> are populated from the element's fully pre-rendered children — all template expressions are already evaluated before the directive hooks run.</p>
     <pre v-syntax-highlight="'json'"><code>{
-  "hook":    "created" | "mounted",
-  "id":      "&lt;opaque string&gt;",
-  "tag":     "&lt;element tag name&gt;",
-  "attrs":   { "&lt;name&gt;": "&lt;value&gt;", ... },
-  "text":    "&lt;concatenated text content of child text nodes&gt;",
+  "hook":       "created" | "mounted",
+  "id":         "&lt;opaque string&gt;",
+  "tag":        "&lt;element tag name&gt;",
+  "attrs":      { "&lt;name&gt;": "&lt;value&gt;", ... },
+  "text":       "&lt;plain text extracted from rendered children&gt;",
+  "inner_html": "&lt;fully rendered inner HTML of the element's children&gt;",
   "binding": {
     "value":     "&lt;evaluated expression&gt;",
     "raw_expr":  "&lt;unevaluated expression string&gt;",

@@ -29,6 +29,8 @@
       {label: 'Directives'},
       {href: '#directive-interface', label: 'Directive interface'},
       {href: '#directive-types', label: 'DirectiveBinding / Context'},
+      {href: '#directive-registry', label: 'DirectiveRegistry'},
+      {href: '#directive-with-content', label: 'DirectiveWithContent'},
       {label: 'Styles'},
       {href: '#style-collector', label: 'StyleCollector'},
       {href: '#style-helpers', label: 'ScopeID / ScopeCSS'},
@@ -312,12 +314,43 @@ func RenderString(c *Component, scope map[string]any) (string, error)</code></pr
     Modifiers map[string]bool // dot-separated modifiers, e.g. {"prevent": true}
 }</code></pre>
     <pre v-syntax-highlight="'go'"><code>type DirectiveContext struct {
-    Registry Registry // component registry the renderer is using
+    Registry          Registry // component registry the renderer is using
+    RenderedChildHTML string   // fully rendered inner HTML of the host element; empty for void elements
 }</code></pre>
+    <p><code>RenderedChildHTML</code> contains the fully rendered children of the directive's host element — all template expressions evaluated, child components expanded — before either hook runs. It is available in both <code>Created</code> and <code>Mounted</code>. Use it to inspect or transform the rendered subtree, for example in a syntax-highlighting directive that needs the source text after expression evaluation.</p>
 
     <h3 id="directive-registry">DirectiveRegistry</h3>
     <pre v-syntax-highlight="'go'"><code>type DirectiveRegistry map[string]Directive</code></pre>
     <p>Maps directive names (without the <code>v-</code> prefix) to their implementations. Keys are lower-kebab-case; the renderer normalises names before lookup.</p>
+
+    <h3 id="directive-with-content">DirectiveWithContent</h3>
+    <pre v-syntax-highlight="'go'"><code>type DirectiveWithContent interface {
+    Directive
+    InnerHTML() (html string, ok bool)
+}</code></pre>
+    <p>Optional extension of <code>Directive</code>. When a directive's <code>Created</code> hook wants to replace the element's children with custom HTML, implement this interface. The renderer calls <code>InnerHTML</code> after <code>Created</code> returns; if it returns a non-empty string, the element's template children are skipped and the returned HTML is written verbatim between the opening and closing tags (equivalent to <code>v-html</code> on the element itself). Return <code>("", false)</code> to fall back to normal child rendering.</p>
+    <pre v-syntax-highlight="'go'"><code>// Example: a directive that wraps children in a callout box
+type CalloutDirective struct {
+    renderedHTML string
+}
+
+func (d *CalloutDirective) Created(node *html.Node, b htmlc.DirectiveBinding, ctx htmlc.DirectiveContext) error {
+    d.renderedHTML = ctx.RenderedChildHTML
+    return nil
+}
+
+func (d *CalloutDirective) Mounted(w io.Writer, node *html.Node, b htmlc.DirectiveBinding, ctx htmlc.DirectiveContext) error {
+    return nil
+}
+
+func (d *CalloutDirective) InnerHTML() (string, bool) {
+    h := d.renderedHTML
+    d.renderedHTML = ""
+    if h == "" {
+        return "", false
+    }
+    return `&lt;div class="callout"&gt;` + h + `&lt;/div&gt;`, true
+}</code></pre>
 
     <!-- ═══════════════════════════════════════════════ Style Collection -->
     <h2 id="styles">Style Collection</h2>
