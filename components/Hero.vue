@@ -17,7 +17,7 @@
       <Button href="/docs/index.html" variant="secondary">Documentation</Button>
     </div>
     <div class="hero-install">
-      <InstallCommand />
+      <InstallCommand></InstallCommand>
     </div>
   </section>
 </template>
