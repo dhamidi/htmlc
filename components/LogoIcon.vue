@@ -6,7 +6,7 @@
     viewBox="0 0 512 512"
     role="img"
     aria-label="htmlc logo"
-    style="border-radius:6px;display:block;flex-shrink:0;"
+    style="border-radius:6px;display:inline-block;flex-shrink:0;"
   >
     <rect fill="#00ADD8" x="0" y="0" width="512" height="512" />
     <g
