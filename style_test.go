@@ -460,3 +460,204 @@ func TestRenderer_ScopedFontFaceStyleVerbatim(t *testing.T) {
 		}
 	}
 }
+
+// TestScopeCSS_PseudoSelectors verifies that pseudo-class and pseudo-element
+// selectors are preserved and the scope attribute is appended after them.
+// This is a useful edge case because pseudo-selectors include special characters
+// like ':', '::', and '(' that must not confuse the selector rewriter.
+func TestScopeCSS_PseudoSelectors(t *testing.T) {
+	cases := []struct {
+		selector string
+		want     string
+	}{
+		// Pseudo-elements use :: and must retain both colons.
+		{"p::before", "p::before[data-v-abc]"},
+		{"p::after", "p::after[data-v-abc]"},
+		// Pseudo-classes use a single colon.
+		{"a:hover", "a:hover[data-v-abc]"},
+		{"input:focus", "input:focus[data-v-abc]"},
+		// Functional pseudo-class with parenthesised argument.
+		{"li:nth-child(2n+1)", "li:nth-child(2n+1)[data-v-abc]"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.selector, func(t *testing.T) {
+			css := tc.selector + " { color: red; }"
+			got := ScopeCSS(css, "[data-v-abc]")
+			want := tc.want + " { color: red; }"
+			if got != want {
+				t.Errorf("ScopeCSS(%q):\ngot  %q\nwant %q", css, got, want)
+			}
+		})
+	}
+}
+
+// TestScopeCSS_CombinatorSelectors verifies that combinator selectors (>, space,
+// +, ~) have the scope attribute appended to the last simple selector only.
+// This is a useful edge case because the rewriter must not split on spaces or
+// combinator characters.
+func TestScopeCSS_CombinatorSelectors(t *testing.T) {
+	cases := []struct {
+		name     string
+		selector string
+		want     string
+	}{
+		// Child combinator: scope goes on <span>, not <div>.
+		{"child >", "div > span", "div > span[data-v-abc]"},
+		// Descendant combinator (space): scope goes on <li>, not <ul>.
+		{"descendant space", "ul li", "ul li[data-v-abc]"},
+		// Adjacent sibling combinator.
+		{"adjacent sibling +", "a + b", "a + b[data-v-abc]"},
+		// General sibling combinator.
+		{"general sibling ~", "a ~ b", "a ~ b[data-v-abc]"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			css := tc.selector + " { color: red; }"
+			got := ScopeCSS(css, "[data-v-abc]")
+			want := tc.want + " { color: red; }"
+			if got != want {
+				t.Errorf("ScopeCSS(%q):\ngot  %q\nwant %q", css, got, want)
+			}
+		})
+	}
+}
+
+// TestScopeCSS_TenRules verifies that a stylesheet with many rules has all of
+// them rewritten and none are lost.  This exercises the loop in ScopeCSS for
+// more than one or two rules.
+func TestScopeCSS_TenRules(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(&b, ".rule%d { color: red; } ", i)
+	}
+	css := b.String()
+	got := ScopeCSS(css, "[data-v-abc]")
+	for i := 0; i < 10; i++ {
+		want := fmt.Sprintf(".rule%d[data-v-abc]", i)
+		if !strings.Contains(got, want) {
+			t.Errorf("ScopeCSS 10 rules: output %q missing %q", got, want)
+		}
+	}
+}
+
+// TestScopeCSS_EmptyBody verifies that a rule with an empty declaration block
+// is preserved intact.  An empty body must not be dropped or mangled.
+func TestScopeCSS_EmptyBody(t *testing.T) {
+	css := "p {}"
+	got := ScopeCSS(css, "[data-v-abc]")
+	want := "p[data-v-abc]{}"
+	if got != want {
+		t.Errorf("ScopeCSS empty body:\ngot  %q\nwant %q", got, want)
+	}
+}
+
+// TestScopeCSS_AtRulePreserved verifies that @keyframes rules are passed
+// through verbatim and the scope attribute is NOT injected into keyframe steps.
+// @keyframes contain pseudo-rule names (from/to/percentages) that are not
+// element selectors and must not be rewritten.
+func TestScopeCSS_AtRulePreserved(t *testing.T) {
+	css := "@keyframes slide { from { left: 0; } to { left: 100%; } }"
+	got := ScopeCSS(css, "[data-v-abc]")
+	if got != css {
+		t.Errorf("ScopeCSS @keyframes:\ngot  %q\nwant verbatim %q", got, css)
+	}
+	if strings.Contains(got, "[data-v-abc]") {
+		t.Errorf("ScopeCSS @keyframes: scope attr must not appear inside @keyframes")
+	}
+}
+
+// TestScopeCSS_NestedAtRule documents that a regular selector nested inside an
+// @-rule is NOT rewritten — the entire @-rule block is emitted verbatim.
+// This pins the current behaviour so a future refactor cannot silently change it
+// to selective rewriting without updating this test.
+func TestScopeCSS_NestedAtRule(t *testing.T) {
+	css := "@media (max-width: 600px) { .card { color: red } }"
+	got := ScopeCSS(css, "[data-v-abc]")
+	if got != css {
+		t.Errorf("ScopeCSS nested @-rule:\ngot  %q\nwant verbatim %q", got, css)
+	}
+	if strings.Contains(got, "[data-v-abc]") {
+		t.Errorf("ScopeCSS nested @-rule: .card inside @media must not be scoped")
+	}
+}
+
+// TestScopeCSS_EmptyInput verifies that ScopeCSS returns "" for empty input.
+// This is a useful boundary case: the loop must not produce spurious output.
+func TestScopeCSS_EmptyInput(t *testing.T) {
+	got := ScopeCSS("", "[data-v-abc]")
+	if got != "" {
+		t.Errorf("ScopeCSS(\"\", ...): got %q, want \"\"", got)
+	}
+}
+
+// TestStyleCollector_Deduplication exercises the deduplication logic of
+// StyleCollector directly (without going through the renderer) to pin the
+// exact key used for deduplication (ScopeID + CSS).
+func TestStyleCollector_Deduplication(t *testing.T) {
+	// Adding the same contribution twice must produce exactly one entry.
+	// This prevents double-emitting the same stylesheet when a component is
+	// rendered more than once in the same request.
+	t.Run("same contribution twice is deduplicated", func(t *testing.T) {
+		sc := &StyleCollector{}
+		c := StyleContribution{ScopeID: "data-v-aabbccdd", CSS: ".a { color: red; }"}
+		sc.Add(c)
+		sc.Add(c)
+		if got := len(sc.All()); got != 1 {
+			t.Errorf("got %d contributions, want 1", got)
+		}
+	})
+
+	// Same ScopeID but different CSS — the CSS content differs, so both must
+	// be kept.  This can happen when the same component path is used with
+	// different style content (e.g. hot-reload scenarios).
+	t.Run("same ScopeID different CSS are both kept", func(t *testing.T) {
+		sc := &StyleCollector{}
+		sc.Add(StyleContribution{ScopeID: "data-v-aaaaaaaa", CSS: ".a { color: red; }"})
+		sc.Add(StyleContribution{ScopeID: "data-v-aaaaaaaa", CSS: ".b { color: blue; }"})
+		if got := len(sc.All()); got != 2 {
+			t.Errorf("got %d contributions, want 2", got)
+		}
+	})
+
+	// Same CSS but different ScopeID — two distinct scoped components with
+	// identical stylesheet text must both be kept.
+	t.Run("same CSS different ScopeID are both kept", func(t *testing.T) {
+		sc := &StyleCollector{}
+		sc.Add(StyleContribution{ScopeID: "data-v-aaaaaaaa", CSS: ".a { color: red; }"})
+		sc.Add(StyleContribution{ScopeID: "data-v-bbbbbbbb", CSS: ".a { color: red; }"})
+		if got := len(sc.All()); got != 2 {
+			t.Errorf("got %d contributions, want 2", got)
+		}
+	})
+
+	// All() on a zero-value (never-written) collector must return nil without
+	// panicking.  Callers must be able to range over the result safely.
+	t.Run("All() on zero-value collector does not panic", func(t *testing.T) {
+		var sc StyleCollector
+		got := sc.All()
+		if got != nil {
+			t.Errorf("zero-value collector All(): got %v, want nil", got)
+		}
+	})
+
+	// Contributions must be returned in insertion order (FIFO) so that the
+	// rendered <style> tags appear in a deterministic order.
+	t.Run("FIFO order is preserved", func(t *testing.T) {
+		sc := &StyleCollector{}
+		c1 := StyleContribution{ScopeID: "data-v-1", CSS: "first"}
+		c2 := StyleContribution{ScopeID: "data-v-2", CSS: "second"}
+		c3 := StyleContribution{ScopeID: "data-v-3", CSS: "third"}
+		sc.Add(c1)
+		sc.Add(c2)
+		sc.Add(c3)
+		all := sc.All()
+		if len(all) != 3 {
+			t.Fatalf("got %d contributions, want 3", len(all))
+		}
+		if all[0] != c1 || all[1] != c2 || all[2] != c3 {
+			t.Errorf("FIFO order not preserved: got %v", all)
+		}
+	})
+}

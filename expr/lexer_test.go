@@ -294,6 +294,134 @@ func TestNullishCoalescing(t *testing.T) {
 	}
 }
 
+// TestLexer_EdgeCases covers boundary values and unusual-but-valid input that
+// are not exercised by the main happy-path tests.
+func TestLexer_EdgeCases(t *testing.T) {
+	// Empty string must produce exactly one TokenEOF and no error.
+	// This is the simplest possible input and must not cause any loop/index panic.
+	t.Run("empty string produces single TokenEOF", func(t *testing.T) {
+		toks, err := Tokenize("")
+		if err != nil {
+			t.Fatalf("Tokenize(%q): unexpected error: %v", "", err)
+		}
+		if len(toks) != 1 || toks[0].Type != TokenEOF {
+			t.Errorf("Tokenize(%q): got %v, want [TokenEOF]", "", toks)
+		}
+	})
+
+	// String literal with an escaped single quote: 'it\'s' → value "it's".
+	// The escape sequence must be decoded, not passed through literally.
+	t.Run("string with escaped quote is decoded correctly", func(t *testing.T) {
+		toks, err := Tokenize(`'it\'s'`)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if toks[0].Type != TokenString {
+			t.Fatalf("got %s, want TokenString", toks[0].Type)
+		}
+		if toks[0].Value != "it's" {
+			t.Errorf("value: got %q, want %q", toks[0].Value, "it's")
+		}
+	})
+
+	// Unterminated string must produce TokenError and a non-nil error.
+	// This guards against infinite loops or panics when the closing quote is absent.
+	t.Run("unterminated string produces TokenError", func(t *testing.T) {
+		toks, err := Tokenize(`"hello`)
+		if err == nil {
+			t.Error("Tokenize unterminated string: expected error, got nil")
+		}
+		if len(toks) == 0 || toks[len(toks)-1].Type != TokenError {
+			t.Errorf("Tokenize unterminated string: last token should be TokenError, got %v", toks)
+		}
+	})
+
+	// !!=: the lexer must produce TokenBang then TokenBangEq (greedy matching
+	// picks "!=" as one token, not "!!==" as three).
+	t.Run("!!= produces TokenBang then TokenBangEq", func(t *testing.T) {
+		toks, err := Tokenize("!!=")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		wantTypes := []TokenType{TokenBang, TokenBangEq, TokenEOF}
+		gotTypes := tokenTypes(toks)
+		if len(gotTypes) != len(wantTypes) {
+			t.Fatalf("token count: got %d, want %d; tokens: %v", len(gotTypes), len(wantTypes), toks)
+		}
+		for i, want := range wantTypes {
+			if gotTypes[i] != want {
+				t.Errorf("token[%d]: got %s, want %s", i, gotTypes[i], want)
+			}
+		}
+	})
+
+	// === must be tokenised as a single TokenEqEqEq, not three separate = tokens.
+	t.Run("=== produces single TokenEqEqEq", func(t *testing.T) {
+		toks, err := Tokenize("===")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if toks[0].Type != TokenEqEqEq {
+			t.Errorf("got %s, want TokenEqEqEq", toks[0].Type)
+		}
+	})
+
+	// !== must be tokenised as a single TokenBangEqEq.
+	t.Run("!== produces single TokenBangEqEq", func(t *testing.T) {
+		toks, err := Tokenize("!==")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if toks[0].Type != TokenBangEqEq {
+			t.Errorf("got %s, want TokenBangEqEq", toks[0].Type)
+		}
+	})
+
+	// Numeric literal edge cases: each must produce the expected token type.
+	// 0.0 and 1E-2 are not covered by TestNumberLiterals above.
+	numberCases := []struct {
+		src      string
+		wantType TokenType
+	}{
+		{"0", TokenInt},     // integer zero
+		{"0.0", TokenFloat}, // floating-point zero (has decimal point)
+		{".5", TokenFloat},  // leading-dot float
+		{"1e3", TokenFloat}, // lower-case exponent
+		{"1E-2", TokenFloat}, // upper-case exponent with negative sign
+	}
+	for _, tc := range numberCases {
+		tc := tc
+		t.Run("number_"+tc.src, func(t *testing.T) {
+			toks, err := Tokenize(tc.src)
+			if err != nil {
+				t.Fatalf("Tokenize(%q): unexpected error: %v", tc.src, err)
+			}
+			if toks[0].Type != tc.wantType {
+				t.Errorf("Tokenize(%q): got %s, want %s", tc.src, toks[0].Type, tc.wantType)
+			}
+		})
+	}
+
+	// Multi-line input: a newline inside an expression is treated as whitespace
+	// and must not cause a panic or error.
+	t.Run("multi-line input does not panic", func(t *testing.T) {
+		toks, err := Tokenize("a\n+ b")
+		if err != nil {
+			t.Fatalf("Tokenize(multi-line): unexpected error: %v", err)
+		}
+		wantTypes := []TokenType{TokenIdent, TokenPlus, TokenIdent, TokenEOF}
+		gotTypes := tokenTypes(toks)
+		if len(gotTypes) != len(wantTypes) {
+			t.Fatalf("token count: got %d, want %d; tokens: %v", len(gotTypes), len(wantTypes), toks)
+		}
+		for i, want := range wantTypes {
+			if gotTypes[i] != want {
+				t.Errorf("token[%d]: got %s, want %s", i, gotTypes[i], want)
+			}
+		}
+	})
+}
+
 // TestComplexExpression tokenises a more complex expression end-to-end.
 func TestComplexExpression(t *testing.T) {
 	src := "typeof x === 'number' && x > 0"

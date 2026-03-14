@@ -2,6 +2,7 @@ package htmlc
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -612,3 +613,70 @@ func TestParseFile_SourceField_Populated(t *testing.T) {
 		t.Errorf("Component.Source should contain the original source, got: %q", c.Source)
 	}
 }
+
+// TestParseFile_EdgeCases documents parser robustness for unusual inputs.
+// Each subtest pins a specific boundary condition so future refactors cannot
+// silently change the observable behaviour.
+func TestParseFile_EdgeCases(t *testing.T) {
+	// A file with only whitespace has no <template> section, so ParseFile must
+	// return an error rather than a zero-value Component.
+	t.Run("whitespace-only file returns error", func(t *testing.T) {
+		_, err := ParseFile("blank.vue", "   \n\t  ")
+		if err == nil {
+			t.Error("ParseFile(whitespace): expected error for missing template, got nil")
+		}
+	})
+
+	// An opened <template> tag with no matching </template> must be detected as
+	// an unclosed section and reported as an error.
+	t.Run("unclosed template tag returns error", func(t *testing.T) {
+		_, err := ParseFile("unclosed.vue", "<template><div>hello")
+		if err == nil {
+			t.Error("ParseFile(unclosed): expected error for unclosed template, got nil")
+		}
+	})
+
+	// An empty <style scoped></style> block must not panic.  The Scoped flag
+	// should be true and Style should be the empty string.
+	t.Run("empty scoped style does not panic and sets Scoped", func(t *testing.T) {
+		src := "<template><p>x</p></template><style scoped></style>"
+		c, err := ParseFile("empty-scoped.vue", src)
+		if err != nil {
+			t.Fatalf("ParseFile: unexpected error: %v", err)
+		}
+		if !c.Scoped {
+			t.Error("Scoped = false, want true for <style scoped>")
+		}
+		if c.Style != "" {
+			t.Errorf("Style = %q, want empty for empty <style scoped>", c.Style)
+		}
+	})
+
+	// Two <template> blocks in the same file are a structural error.
+	// This test pins the behaviour (error) so a future refactor cannot silently
+	// change it to a "first-wins" strategy without updating this test.
+	t.Run("duplicate template section returns error", func(t *testing.T) {
+		src := "<template><p>first</p></template><template><p>second</p></template>"
+		_, err := ParseFile("dup.vue", src)
+		if err == nil {
+			t.Error("ParseFile(duplicate template): expected error, got nil")
+		}
+	})
+
+	// A very large template must parse within a reasonable time.  10 000 <p>
+	// elements is ~100 KB and exercises the HTML tokeniser for performance
+	// regressions without wall-clock sleeps.
+	t.Run("100KB template parses without error", func(t *testing.T) {
+		var b strings.Builder
+		b.WriteString("<template>")
+		for i := 0; i < 10000; i++ {
+			fmt.Fprintf(&b, "<p>item %d</p>", i)
+		}
+		b.WriteString("</template>")
+		_, err := ParseFile("large.vue", b.String())
+		if err != nil {
+			t.Errorf("ParseFile(100KB): unexpected error: %v", err)
+		}
+	})
+}
+

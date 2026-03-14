@@ -360,6 +360,56 @@ func TestCallNoArgs(t *testing.T) {
 	}
 }
 
+// TestParser_ErrorCases documents the parser's behaviour for invalid inputs.
+// Each subtest pins a specific error boundary so future refactors cannot
+// silently change the failure mode (e.g. from error to panic or silent success).
+func TestParser_ErrorCases(t *testing.T) {
+	cases := []struct {
+		name   string
+		src    string
+		errSub string
+	}{
+		// Empty input: the parser has no tokens to consume for a primary expression.
+		{
+			name:   "empty input",
+			src:    "",
+			errSub: "unexpected end",
+		},
+		// Unmatched opening parenthesis: the closing ')' is never found.
+		{
+			name:   "unmatched (",
+			src:    "(",
+			errSub: "unexpected end",
+		},
+		// Unmatched opening bracket: the closing ']' is never found.
+		{
+			name:   "unmatched [",
+			src:    "[",
+			errSub: "unexpected end",
+		},
+		// Trailing binary operator with no right-hand operand.
+		{
+			name:   "trailing operator 1 +",
+			src:    "1 +",
+			errSub: "unexpected end",
+		},
+		// Double ternary without the required outer else branch:
+		//   a ? b ? c   →  inner ternary (b ? c) consumes the single colon,
+		//   so the outer ternary never gets its ':' → parse error.
+		{
+			name:   "double ternary without else",
+			src:    "a ? b ? c",
+			errSub: "expected :",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			mustCompileError(t, tc.src, tc.errSub)
+		})
+	}
+}
+
 // TestLeftAssocPlus verifies that "a + b + c" is left-associative.
 func TestLeftAssocPlus(t *testing.T) {
 	// a + b + c → (a + b) + c

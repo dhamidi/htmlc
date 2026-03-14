@@ -261,3 +261,63 @@ func TestParseDirectiveKey_Basic(t *testing.T) {
 		}
 	}
 }
+
+// TestParseDirectiveKey_EdgeCases documents the behaviour of parseDirectiveKey
+// for boundary inputs.  Each case pins a specific combination of name, arg, and
+// modifiers so a future refactor cannot silently change the parsing contract.
+func TestParseDirectiveKey_EdgeCases(t *testing.T) {
+	// v-bind with no colon: no argument present → Arg must be the empty string.
+	// This is distinct from v-bind:href where Arg is "href".
+	t.Run("v-bind with no argument has empty Arg", func(t *testing.T) {
+		name, arg, mods := parseDirectiveKey("v-bind")
+		if name != "bind" {
+			t.Errorf("name = %q, want %q", name, "bind")
+		}
+		if arg != "" {
+			t.Errorf("arg = %q, want empty", arg)
+		}
+		if len(mods) != 0 {
+			t.Errorf("modifiers = %v, want empty", mods)
+		}
+	})
+
+	// v-on:click.prevent.stop has two modifiers.  The existing test only checks
+	// one modifier; this verifies that multiple dot-separated modifiers all land
+	// in the map.
+	t.Run("v-on:click.prevent.stop has two modifiers", func(t *testing.T) {
+		name, arg, mods := parseDirectiveKey("v-on:click.prevent.stop")
+		if name != "on" {
+			t.Errorf("name = %q, want %q", name, "on")
+		}
+		if arg != "click" {
+			t.Errorf("arg = %q, want %q", arg, "click")
+		}
+		if !mods["prevent"] || !mods["stop"] {
+			t.Errorf("modifiers = %v, want {prevent:true, stop:true}", mods)
+		}
+		if len(mods) != 2 {
+			t.Errorf("modifiers len = %d, want 2", len(mods))
+		}
+	})
+
+	// The @ shorthand is not a v- prefix so parseDirectiveKey must return all
+	// empty values.  Shorthand handling is the caller's responsibility.
+	t.Run("@ shorthand is not a directive key", func(t *testing.T) {
+		name, arg, mods := parseDirectiveKey("@click")
+		if name != "" || arg != "" || mods != nil {
+			t.Errorf("@click → got name=%q, arg=%q, mods=%v; want all empty/nil", name, arg, mods)
+		}
+	})
+
+	// v- with no name following: body is "", so name must be the empty string.
+	// This documents the defined (non-panicking) behaviour for a bare "v-".
+	t.Run("v- with no name produces empty name", func(t *testing.T) {
+		name, arg, _ := parseDirectiveKey("v-")
+		if name != "" {
+			t.Errorf("name = %q, want empty for v-", name)
+		}
+		if arg != "" {
+			t.Errorf("arg = %q, want empty for v-", arg)
+		}
+	})
+}

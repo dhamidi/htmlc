@@ -556,3 +556,264 @@ func TestNaN(t *testing.T) {
 		t.Errorf("NaN === NaN: got %v, want false", v)
 	}
 }
+
+// TestEval_EdgeCases covers boundary values and unusual-but-valid expressions
+// that are not exercised by the main happy-path tests.
+func TestEval_EdgeCases(t *testing.T) {
+	// 1/0 in Go float64 arithmetic is +Inf, not a panic or error.
+	// This is consistent with IEEE-754 and mirrors JavaScript behaviour.
+	t.Run("1/0 is +Inf", func(t *testing.T) {
+		v, err := Eval("1 / 0", nil)
+		if err != nil {
+			t.Fatalf("1/0: unexpected error: %v", err)
+		}
+		f, ok := v.(float64)
+		if !ok || !math.IsInf(f, 1) {
+			t.Errorf("1/0: got %v (%T), want +Inf", v, v)
+		}
+	})
+
+	// 0/0 → NaN (see also TestNaN; duplicated here for table-driven completeness).
+	t.Run("0/0 is NaN", func(t *testing.T) {
+		v, err := Eval("0 / 0", nil)
+		if err != nil {
+			t.Fatalf("0/0: unexpected error: %v", err)
+		}
+		f, ok := v.(float64)
+		if !ok || !math.IsNaN(f) {
+			t.Errorf("0/0: got %v (%T), want NaN", v, v)
+		}
+	})
+
+	// null?.foo → Undefined: optional chaining short-circuits when the object
+	// is null, returning Undefined instead of an error.
+	t.Run("null?.foo is Undefined", func(t *testing.T) {
+		v := eval(t, "null?.foo", nil)
+		if v != Undefined {
+			t.Errorf("null?.foo: got %v, want Undefined", v)
+		}
+	})
+
+	// undefined?.foo → Undefined: same short-circuit for the undefined value.
+	t.Run("undefined?.foo is Undefined", func(t *testing.T) {
+		v := eval(t, "undefined?.foo", nil)
+		if v != Undefined {
+			t.Errorf("undefined?.foo: got %v, want Undefined", v)
+		}
+	})
+
+	// a?.b?.c when a is nil in scope: a?.b short-circuits to Undefined, then
+	// Undefined?.c short-circuits again — no panic, result is Undefined.
+	t.Run("a?.b?.c with a=nil is Undefined", func(t *testing.T) {
+		v := eval(t, "a?.b?.c", map[string]any{"a": nil})
+		if v != Undefined {
+			t.Errorf("a?.b?.c (a=nil): got %v, want Undefined", v)
+		}
+	})
+
+	// a?.b?.c when a.b is nil: a?.b succeeds returning nil, then nil?.c
+	// short-circuits to Undefined.
+	t.Run("a?.b?.c with a.b=nil is Undefined", func(t *testing.T) {
+		v := eval(t, "a?.b?.c", map[string]any{
+			"a": map[string]any{"b": nil},
+		})
+		if v != Undefined {
+			t.Errorf("a?.b?.c (a.b=nil): got %v, want Undefined", v)
+		}
+	})
+
+	// [] + [] — neither side is a string, and toNumber([]any{}) fails.
+	// The evaluator returns an error rather than silently coercing arrays.
+	// This documents the current (non-JS) behaviour.
+	t.Run("[] + [] returns error (arrays not coercible to number)", func(t *testing.T) {
+		_, err := Eval("[] + []", nil)
+		if err == nil {
+			t.Error("[] + []: expected error for array + array, got nil")
+		}
+	})
+
+	// {} ?? 'default' → {} (empty object is not null/undefined, so ?? returns
+	// the left operand).
+	t.Run("{} ?? 'default' returns {}", func(t *testing.T) {
+		v := eval(t, "{} ?? 'default'", nil)
+		obj, ok := v.(map[string]any)
+		if !ok {
+			t.Fatalf("{} ?? 'default': got %T, want map[string]any", v)
+		}
+		if len(obj) != 0 {
+			t.Errorf("{} ?? 'default': got non-empty map %v", obj)
+		}
+	})
+
+	// '' ?? 'fallback' → '' (empty string is not null/undefined; ?? only
+	// checks for null or undefined, not falsy values).
+	t.Run("'' ?? 'fallback' returns ''", func(t *testing.T) {
+		v := eval(t, "'' ?? 'fallback'", nil)
+		if v != "" {
+			t.Errorf("'' ?? 'fallback': got %v, want ''", v)
+		}
+	})
+
+	// typeof [] → "object": arrays have no special type tag in this evaluator.
+	t.Run("typeof [] is 'object'", func(t *testing.T) {
+		v := eval(t, "typeof []", nil)
+		if v != "object" {
+			t.Errorf("typeof []: got %q, want %q", v, "object")
+		}
+	})
+
+	// typeof {} → "object": plain objects are also "object".
+	t.Run("typeof {} is 'object'", func(t *testing.T) {
+		v := eval(t, "typeof {}", nil)
+		if v != "object" {
+			t.Errorf("typeof {}: got %q, want %q", v, "object")
+		}
+	})
+
+	// typeof null → "object" (JS-compatible quirk).
+	t.Run("typeof null is 'object'", func(t *testing.T) {
+		v := eval(t, "typeof null", nil)
+		if v != "object" {
+			t.Errorf("typeof null: got %q, want %q", v, "object")
+		}
+	})
+
+	// typeof undefined → "undefined".
+	t.Run("typeof undefined is 'undefined'", func(t *testing.T) {
+		v := eval(t, "typeof undefined", nil)
+		if v != "undefined" {
+			t.Errorf("typeof undefined: got %q, want %q", v, "undefined")
+		}
+	})
+
+	// typeof 42 → "number".
+	t.Run("typeof 42 is 'number'", func(t *testing.T) {
+		v := eval(t, "typeof 42", nil)
+		if v != "number" {
+			t.Errorf("typeof 42: got %q, want %q", v, "number")
+		}
+	})
+
+	// typeof 'x' → "string".
+	t.Run("typeof 'x' is 'string'", func(t *testing.T) {
+		v := eval(t, "typeof 'x'", nil)
+		if v != "string" {
+			t.Errorf("typeof 'x': got %q, want %q", v, "string")
+		}
+	})
+
+	// typeof true → "boolean".
+	t.Run("typeof true is 'boolean'", func(t *testing.T) {
+		v := eval(t, "typeof true", nil)
+		if v != "boolean" {
+			t.Errorf("typeof true: got %q, want %q", v, "boolean")
+		}
+	})
+
+	// [1,2,3][10] — out-of-bounds index returns an error (not Undefined).
+	// This documents the current behaviour: the evaluator does not silently
+	// return undefined for out-of-bounds array access.
+	t.Run("[1,2,3][10] returns error (out-of-bounds)", func(t *testing.T) {
+		_, err := Eval("[1,2,3][10]", nil)
+		if err == nil {
+			t.Error("[1,2,3][10]: expected error for out-of-bounds access, got nil")
+		}
+	})
+
+	// 'abc'[10] — string values are not indexable; member access returns error.
+	t.Run("'abc'[10] returns error (strings are not indexable)", func(t *testing.T) {
+		_, err := Eval("'abc'[10]", nil)
+		if err == nil {
+			t.Error("'abc'[10]: expected error for string index access, got nil")
+		}
+	})
+
+	// Very long identifier chain (50 levels of .a) must resolve to the leaf
+	// value without stack overflow.  This guards against overly deep recursion
+	// in evalNode / evalMember.
+	t.Run("deep member chain does not stack overflow", func(t *testing.T) {
+		const depth = 50
+		// Build {"a": {"a": {"a": ... "leaf" ...}}} 50 levels deep.
+		var inner any = "leaf"
+		for i := 0; i < depth; i++ {
+			inner = map[string]any{"a": inner}
+		}
+		scope := map[string]any{"a": inner}
+		// Build expression: a.a.a... (depth accesses).
+		chain := "a"
+		for i := 0; i < depth; i++ {
+			chain += ".a"
+		}
+		v := eval(t, chain, scope)
+		if v != "leaf" {
+			t.Errorf("deep member chain: got %v, want \"leaf\"", v)
+		}
+	})
+}
+
+// TestEval_TypeCoercion covers arithmetic between mixed types to document the
+// JS-compatible coercion rules implemented by addValues and toNumber.
+func TestEval_TypeCoercion(t *testing.T) {
+	// "3" + 4 → string concatenation because the left operand is a string.
+	// JS: "3" + 4 === "34" (number is coerced to string, not the reverse).
+	t.Run("string + number concatenates as string", func(t *testing.T) {
+		v := eval(t, "'3' + 4", nil)
+		if v != "34" {
+			t.Errorf("'3' + 4: got %v (%T), want \"34\"", v, v)
+		}
+	})
+
+	// true + 1 → 2: booleans are coerced to numbers (true → 1) before addition.
+	t.Run("true + 1 is 2", func(t *testing.T) {
+		v := eval(t, "true + 1", nil)
+		if v != float64(2) {
+			t.Errorf("true + 1: got %v (%T), want float64(2)", v, v)
+		}
+	})
+
+	// false + false → 0: both operands are coerced to 0.
+	t.Run("false + false is 0", func(t *testing.T) {
+		v := eval(t, "false + false", nil)
+		if v != float64(0) {
+			t.Errorf("false + false: got %v (%T), want float64(0)", v, v)
+		}
+	})
+}
+
+// TestEval_Builtins verifies that functions registered via RegisterBuiltin are
+// correctly callable and that calling an unregistered name returns an error
+// rather than panicking.
+func TestEval_Builtins(t *testing.T) {
+	// Register a variadic builtin that is safe to call with zero arguments.
+	RegisterBuiltin("safeBuiltin", func(args ...any) (any, error) {
+		if len(args) == 0 {
+			return "no-args", nil
+		}
+		return args[0], nil
+	})
+
+	// Called with zero arguments must use the default branch, not panic.
+	t.Run("safeBuiltin() with zero args", func(t *testing.T) {
+		v := eval(t, "safeBuiltin()", nil)
+		if v != "no-args" {
+			t.Errorf("safeBuiltin(): got %v, want \"no-args\"", v)
+		}
+	})
+
+	// Called with one argument must return that argument.
+	t.Run("safeBuiltin(42) with one arg", func(t *testing.T) {
+		v := eval(t, "safeBuiltin(42)", nil)
+		if v != float64(42) {
+			t.Errorf("safeBuiltin(42): got %v, want float64(42)", v)
+		}
+	})
+
+	// Calling an unregistered identifier as a function must return an error
+	// (Undefined is not callable) rather than panicking.
+	t.Run("calling undefined identifier is an error", func(t *testing.T) {
+		_, err := Eval("notABuiltin()", nil)
+		if err == nil {
+			t.Error("notABuiltin(): expected error for non-callable undefined, got nil")
+		}
+	})
+}
