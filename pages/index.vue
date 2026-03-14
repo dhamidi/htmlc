@@ -51,19 +51,18 @@
       <p class="section-desc">Import the package, create an engine, and render components directly from your HTTP handlers.</p>
 
       <div class="qs-steps">
-        <div class="qs-step">
-          <div class="col-label">1. Add the dependency</div>
+        <QuickStartStep label="1. Add the dependency">
           <pre v-syntax-highlight="'bash'"><code v-pre>go get github.com/dhamidi/htmlc</code></pre>
-        </div>
-        <div class="qs-step">
-          <div class="col-label">2. Write a component</div>
+        </QuickStartStep>
+
+        <QuickStartStep label="2. Write a component">
           <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- templates/Greeting.vue --&gt;
 &lt;template&gt;
   &lt;p&gt;Hello, &#123;&#123;<!---><!----> name &#125;&#125;!&lt;/p&gt;
 &lt;/template&gt;</code></pre>
-        </div>
-        <div class="qs-step">
-          <div class="col-label">3. Create an engine &amp; render</div>
+        </QuickStartStep>
+
+        <QuickStartStep label="3. Create an engine &amp; render">
           <pre v-syntax-highlight="'go'"><code v-pre>engine, err := htmlc.New(htmlc.Options{
     ComponentDir: "templates/",
 })
@@ -73,16 +72,16 @@ html, err := engine.RenderFragmentString(
     map[string]any{"name": "world"},
 )
 // html == "&lt;p&gt;Hello, world!&lt;/p&gt;"</code></pre>
-        </div>
-        <div class="qs-step">
-          <div class="col-label">4. Serve over HTTP</div>
+        </QuickStartStep>
+
+        <QuickStartStep label="4. Serve over HTTP">
           <pre v-syntax-highlight="'go'"><code v-pre>http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
     engine.RenderPage(w, "Page", map[string]any{
         "title": "Home",
     })
 })</code></pre>
-        </div>
+        </QuickStartStep>
       </div>
     </section>
 
@@ -98,9 +97,4 @@ html, err := engine.RenderFragmentString(
   .section-desc { color: var(--muted); max-width: 560px; margin-bottom: 2rem; }
 
   .qs-steps { display: flex; flex-direction: column; gap: 1.25rem; }
-  .qs-step pre { margin-top: 0.4rem; }
-
-  .col-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.5rem; }
-  .col-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.4rem; }
-  .col-desc { font-size: 0.875rem; color: var(--muted); margin-bottom: 1rem; }
 </style>
