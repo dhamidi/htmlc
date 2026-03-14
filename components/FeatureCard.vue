@@ -1,34 +1,46 @@
 <template>
   <div class="feature-card">
-    <div class="feature-icon">{{ icon }}</div>
+    <div class="feature-icon"><slot name="icon" /></div>
     <h3 class="feature-title">{{ title }}</h3>
-    <p class="feature-desc">{{ description }}</p>
+    <div class="feature-desc"><slot /></div>
   </div>
 </template>
 
+<script>
+export default {
+  props: {
+    title: { type: String, required: true },
+  },
+}
+</script>
+
 <style scoped>
 .feature-card {
-  background: #1a1d27;
-  border: 1px solid #2a2d3e;
+  background: var(--bg2);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.5rem;
 }
 
 .feature-icon {
-  font-size: 1.8rem;
   margin-bottom: 0.75rem;
+  color: var(--accent);
+}
+
+.feature-icon :deep(.icon) {
+  width: 1.5rem;
+  height: 1.5rem;
 }
 
 .feature-title {
   font-size: 1rem;
   font-weight: 700;
   margin-bottom: 0.5rem;
-  color: #e2e4f0;
 }
 
 .feature-desc {
   font-size: 0.875rem;
-  color: #8b8fa8;
+  color: var(--muted);
   line-height: 1.6;
 }
 </style>
