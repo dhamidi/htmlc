@@ -18,6 +18,8 @@ jobs:
 
       - name: Set up mise
         uses: jdx/mise-action@v2
+        with:
+          cache: false
 
       - name: Build docs
         run: mise run build

@@ -1,6 +1,6 @@
 [tools]
 go = "latest"
-"go:github.com/dhamidi/htmlc/cmd/htmlc" = "v0.5.0"
+"go:github.com/dhamidi/htmlc/cmd/htmlc" = "latest"
 
 [tasks.build]
 description = "Build the docs site with htmlc"
