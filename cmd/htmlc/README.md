@@ -895,11 +895,55 @@ Both subcommands write to stdout.  Redirect output or capture it in a shell pipe
 
 ### Component name resolution
 
-When you supply a bare name such as `Card`, the engine looks for a file named `card.vue` (case-insensitive) inside the `-dir` directory.  It does not search subdirectories.
+When a template contains a component tag such as `<Card>`, the engine resolves
+it using **proximity-based resolution**:
 
-If the name is not found, the CLI lists up to ten available component names as a hint.
+1. Starting from the directory of the calling component, search for a matching
+   `.vue` file using four name-folding strategies (exact match, first letter
+   capitalised, kebab-to-PascalCase, case-insensitive).
+2. If no match is found, move one level up toward the root (`-dir`) and repeat.
+3. Continue until the root is reached.
+4. If still not found, fall back to the flat registry (backward compatible with
+   single-directory projects).
 
-Supplying a path (`./Card.vue`, `/abs/path/Card.vue`, or anything containing a path separator or ending in `.vue`) is only supported by the `props` subcommand.  The other subcommands require a bare name.
+**Example:**
+
+```
+templates/
+  Card.vue          ← generic card
+  blog/
+    Card.vue        ← blog-specific card
+    PostPage.vue    ← <Card> resolves to blog/Card.vue
+  admin/
+    Dashboard.vue   ← <Card> resolves to Card.vue (walk-up to root)
+```
+
+`blog/PostPage.vue` uses `<Card>` → resolves to `blog/Card.vue` (same directory).
+`admin/Dashboard.vue` uses `<Card>` → no `Card` in `admin/`, walks up, finds `Card.vue` at root.
+
+**Explicit path references**
+
+To bypass proximity resolution and target a specific component, use a
+path-qualified `is` attribute on `<component>`:
+
+```vue
+<!-- always resolves to blog/Card.vue regardless of where this template lives -->
+<component is="blog/Card" />
+
+<!-- root-relative: resolves to Card.vue at the -dir root -->
+<component is="/Card" />
+```
+
+Path-based references do not apply name-folding and return an error if the
+component is not found.
+
+If a name is not resolved through any path, the CLI lists up to ten available
+component names as a hint.
+
+Supplying a file path (`./Card.vue`, `/abs/path/Card.vue`, or anything
+containing a path separator or ending in `.vue`) as the component *argument*
+is only supported by the `props` subcommand.  The other subcommands require a
+bare component name.
 
 ---
 
