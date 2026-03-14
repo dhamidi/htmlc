@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -20,8 +21,17 @@ type Options struct {
 	// ComponentDir is the directory to scan recursively for *.vue files.
 	// Components are discovered by walking the tree in lexical order; each file
 	// is registered by its base name without extension (e.g. "Button.vue"
-	// becomes "Button"). When two files share the same base name the last one
-	// encountered in lexical-order traversal wins.
+	// becomes "Button").
+	//
+	// When ComponentDir is set the engine uses proximity-based resolution:
+	// a tag reference in a template is first looked up in the same directory
+	// as the calling component, then walks toward the root one level at a time.
+	// This allows same-named components in different subdirectories to coexist
+	// without conflict. See the README for details and examples.
+	//
+	// When two files share the same base name and directory the last one
+	// encountered in lexical-order traversal wins in the flat registry
+	// (backward-compatibility fallback path).
 	ComponentDir string
 	// Reload enables hot-reload for development use. When true, the engine
 	// checks the modification time of every registered component file before
@@ -69,8 +79,9 @@ type engineEntry struct {
 // multiple goroutines simultaneously.
 type Engine struct {
 	opts               Options
-	mu                 sync.RWMutex // guards entries
+	mu                 sync.RWMutex // guards entries and nsEntries
 	entries            map[string]*engineEntry
+	nsEntries          map[string]map[string]*engineEntry // relDir → localName → entry
 	missingPropHandler MissingPropFunc
 	directives         DirectiveRegistry
 	funcs              map[string]any // per-engine functions, injected into every render scope
@@ -140,6 +151,7 @@ func New(opts Options) (*Engine, error) {
 	e := &Engine{
 		opts:       opts,
 		entries:    make(map[string]*engineEntry),
+		nsEntries:  make(map[string]map[string]*engineEntry),
 		directives: opts.Directives,
 	}
 	if opts.ComponentDir != "" {
@@ -222,6 +234,16 @@ func (e *Engine) registerPathLocked(name, path string) error {
 	if lower := strings.ToLower(name); lower != name {
 		e.entries[lower] = entry
 	}
+
+	// Populate the namespaced registry when ComponentDir is set.
+	if e.opts.ComponentDir != "" {
+		relDir := e.relDirForPath(path)
+		if e.nsEntries[relDir] == nil {
+			e.nsEntries[relDir] = make(map[string]*engineEntry)
+		}
+		e.nsEntries[relDir][name] = entry
+	}
+
 	return nil
 }
 
@@ -240,8 +262,12 @@ func (e *Engine) Register(name, path string) error {
 	return e.registerPath(name, path)
 }
 
-// maybeReload re-parses any entry whose file mtime has advanced, when Reload
-// is enabled. It is safe for concurrent use.
+// maybeReload checks whether any discovered component file has changed and, if
+// so, performs a full re-walk of ComponentDir, rebuilding both entries and
+// nsEntries from scratch. This ensures nsEntries stays consistent with entries
+// after any modification.
+//
+// It is safe for concurrent use.
 func (e *Engine) maybeReload() error {
 	if !e.opts.Reload {
 		return nil
@@ -249,27 +275,22 @@ func (e *Engine) maybeReload() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Snapshot names to avoid modifying the map while iterating it.
-	names := make([]string, 0, len(e.entries))
-	for name := range e.entries {
-		names = append(names, name)
-	}
-	for _, name := range names {
-		entry := e.entries[name]
+	// Scan entries to find whether any file has been modified.
+	anyChanged := false
+	for _, entry := range e.entries {
 		if e.opts.FS != nil {
 			statFS, ok := e.opts.FS.(fs.StatFS)
 			if !ok {
-				// FS does not support Stat; skip reload for this entry.
-				continue
+				// FS does not support Stat; skip reload entirely.
+				return nil
 			}
 			info, err := statFS.Stat(entry.path)
 			if err != nil {
 				continue
 			}
 			if info.ModTime().After(entry.modTime) {
-				if rerr := e.registerPathLocked(name, entry.path); rerr != nil {
-					return rerr
-				}
+				anyChanged = true
+				break
 			}
 		} else {
 			info, err := os.Stat(entry.path)
@@ -277,11 +298,21 @@ func (e *Engine) maybeReload() error {
 				continue
 			}
 			if info.ModTime().After(entry.modTime) {
-				if rerr := e.registerPathLocked(name, entry.path); rerr != nil {
-					return rerr
-				}
+				anyChanged = true
+				break
 			}
 		}
+	}
+
+	if !anyChanged {
+		return nil
+	}
+
+	// Full re-walk: clear both registries and rebuild from ComponentDir.
+	e.entries = make(map[string]*engineEntry)
+	e.nsEntries = make(map[string]map[string]*engineEntry)
+	if e.opts.ComponentDir != "" {
+		return e.discover(e.opts.ComponentDir)
 	}
 	return nil
 }
@@ -294,6 +325,61 @@ func (e *Engine) buildRegistryLocked() Registry {
 		reg[name] = entry.comp
 	}
 	return reg
+}
+
+// buildNSRegistryLocked returns a snapshot of the namespaced component index.
+// Keys are forward-slash relative directory paths (empty string for root).
+// The caller must hold at least e.mu.RLock().
+func (e *Engine) buildNSRegistryLocked() map[string]map[string]*Component {
+	ns := make(map[string]map[string]*Component, len(e.nsEntries))
+	for dir, dirEntries := range e.nsEntries {
+		dirMap := make(map[string]*Component, len(dirEntries))
+		for name, entry := range dirEntries {
+			dirMap[name] = entry.comp
+		}
+		ns[dir] = dirMap
+	}
+	return ns
+}
+
+// relDirForPath returns the forward-slash directory of the given path relative
+// to opts.ComponentDir, or "" for root-level components. Used when populating
+// nsEntries in registerPathLocked.
+func (e *Engine) relDirForPath(path string) string {
+	if e.opts.ComponentDir == "" {
+		return ""
+	}
+	return nsRelDir(path, e.opts.ComponentDir)
+}
+
+// nsRelDir computes the forward-slash relative directory of compPath with
+// respect to componentDir. Returns "" for components at the root level.
+// Works for both OS paths (converts separators) and FS forward-slash paths.
+func nsRelDir(compPath, componentDir string) string {
+	// Normalise both to forward slashes.
+	compSlash := filepath.ToSlash(compPath)
+	dirSlash := filepath.ToSlash(componentDir)
+
+	// Build the prefix that represents componentDir + separator.
+	var rel string
+	if dirSlash == "" || dirSlash == "." {
+		// componentDir is the working directory; path is already relative.
+		rel = compSlash
+	} else {
+		prefix := dirSlash + "/"
+		if !strings.HasPrefix(compSlash, prefix) {
+			return ""
+		}
+		rel = compSlash[len(prefix):]
+	}
+
+	// rel is e.g. "blog/Card.vue" or "Card.vue".
+	// Extract the directory component using the path package (forward slashes).
+	d := pathpkg.Dir(rel)
+	if d == "." {
+		return ""
+	}
+	return d
 }
 
 // Components returns the names of all registered components in sorted order.
@@ -325,11 +411,17 @@ func (e *Engine) Has(name string) bool {
 // component references and returns a slice of ValidationError (one per
 // problem). An empty slice means all components are valid.
 //
+// ValidateAll uses the same proximity-based resolution as the renderer: a
+// reference that can be resolved via the proximity walk or the flat registry
+// is considered valid. Only references that cannot be found by either
+// mechanism are reported as errors.
+//
 // ValidateAll is intended to be called once at application startup to surface
 // missing-component problems early ("fail fast").
 func (e *Engine) ValidateAll() []ValidationError {
 	e.mu.RLock()
 	reg := e.buildRegistryLocked()
+	nsReg := e.buildNSRegistryLocked()
 	// Build a deduplicated list of component names (skip auto-lowercase aliases).
 	seen := make(map[*engineEntry]bool, len(e.entries))
 	type namedEntry struct {
@@ -356,7 +448,9 @@ func (e *Engine) ValidateAll() []ValidationError {
 		}
 		refs := collectComponentRefs(ne.entry.comp)
 		for _, ref := range refs {
-			if resolveInRegistry(reg, ref) == nil {
+			// Try proximity walk first, then fall back to flat registry.
+			callerDir := e.relDirForPath(ne.entry.path)
+			if resolveInNSRegistry(nsReg, callerDir, ref) == nil && resolveInRegistry(reg, ref) == nil {
 				errs = append(errs, ValidationError{
 					Component: ne.name,
 					Message:   fmt.Sprintf("%s: unknown component %q referenced", ne.entry.path, ref),
@@ -473,8 +567,12 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 	e.mu.RLock()
 	entry, ok := e.entries[name]
 	var reg Registry
+	var nsReg map[string]map[string]*Component
 	if ok {
 		reg = e.buildRegistryLocked()
+		if len(e.nsEntries) > 0 {
+			nsReg = e.buildNSRegistryLocked()
+		}
 	}
 	e.mu.RUnlock()
 
@@ -489,6 +587,9 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 		WithDirectives(e.directives).
 		WithFuncs(e.funcs).
 		WithContext(ctx)
+	if nsReg != nil {
+		renderer = renderer.WithNSComponents(nsReg, e.opts.ComponentDir)
+	}
 
 	scope := e.applyEngineScope(data)
 	if e.missingPropHandler != nil {

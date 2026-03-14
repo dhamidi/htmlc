@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	pathpkg "path"
 	"reflect"
 	"regexp"
 	"sort"
@@ -149,6 +150,8 @@ type Renderer struct {
 	component          *Component
 	styleCollector     *StyleCollector
 	registry           Registry
+	nsRegistry         map[string]map[string]*Component // nil = NS resolution disabled
+	componentDir       string                           // ComponentDir for NS relative-path computation
 	missingPropHandler MissingPropFunc
 	slotDefs           map[string]*SlotDefinition
 	directives         DirectiveRegistry
@@ -178,6 +181,21 @@ func (r *Renderer) WithStyles(sc *StyleCollector) *Renderer {
 // component composition. Returns the Renderer for chaining.
 func (r *Renderer) WithComponents(reg Registry) *Renderer {
 	r.registry = reg
+	return r
+}
+
+// WithNSComponents attaches a namespaced component registry and the engine's
+// ComponentDir to this renderer, enabling proximity-based component resolution.
+// ns maps forward-slash relative directory paths to local component names to
+// parsed components; componentDir is the value of Options.ComponentDir used
+// when the engine was created.
+//
+// When set, resolveComponent walks up the directory tree from the caller
+// component's location before falling back to the flat registry.
+// Returns the Renderer for chaining.
+func (r *Renderer) WithNSComponents(ns map[string]map[string]*Component, componentDir string) *Renderer {
+	r.nsRegistry = ns
+	r.componentDir = componentDir
 	return r
 }
 
@@ -983,31 +1001,67 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		}
 	}
 
-	// --- dynamic <component :is="..."> ---
+	// --- <component is="..."> or <component :is="..."> ---
 	if working.Data == "component" {
-		isExpr, isFound := "", false
+		isVal, isFound, isDynamic := "", false, false
 		var keptAttrs []html.Attribute
 		for _, attr := range working.Attr {
-			if attr.Key == ":is" || attr.Key == "v-bind:is" {
-				isExpr = attr.Val
+			switch attr.Key {
+			case ":is", "v-bind:is":
+				isVal = attr.Val
 				isFound = true
-			} else {
+				isDynamic = true
+			case "is":
+				isVal = attr.Val
+				isFound = true
+				isDynamic = false
+			default:
 				keptAttrs = append(keptAttrs, attr)
 			}
 		}
 		if !isFound {
-			return fmt.Errorf("<component>: :is binding is required")
+			return fmt.Errorf("<component>: :is or is attribute is required")
 		}
-		val, err := expr.Eval(strings.TrimSpace(isExpr), scope)
-		if err != nil {
-			return fmt.Errorf("<component> :is %q: %w", isExpr, err)
+		var compName string
+		if isDynamic {
+			val, err := expr.Eval(strings.TrimSpace(isVal), scope)
+			if err != nil {
+				return fmt.Errorf("<component> :is %q: %w", isVal, err)
+			}
+			var ok bool
+			compName, ok = val.(string)
+			if !ok || compName == "" {
+				return fmt.Errorf("<component> :is: expected non-empty string, got %T", val)
+			}
+		} else {
+			compName = isVal
 		}
-		compName, ok := val.(string)
-		if !ok || compName == "" {
-			return fmt.Errorf("<component> :is: expected non-empty string, got %T", val)
-		}
-		working.Data = compName
 		working.Attr = keptAttrs
+
+		// Path-based reference: if compName contains "/" treat it as a
+		// directory-qualified path for direct NS registry lookup.
+		if strings.Contains(compName, "/") {
+			// Strip a leading "/" for root-relative addressing.
+			stripped := strings.TrimPrefix(compName, "/")
+			parts := strings.Split(stripped, "/")
+			localName := parts[len(parts)-1]
+			dirPart := pathpkg.Join(parts[:len(parts)-1]...)
+
+			if r.nsRegistry == nil {
+				return fmt.Errorf("<component is=%q>: path-based references require a namespaced registry", compName)
+			}
+			dirMap, ok := r.nsRegistry[dirPart]
+			if !ok {
+				return fmt.Errorf("<component is=%q>: no components registered in directory %q", compName, dirPart)
+			}
+			comp, ok := dirMap[localName]
+			if !ok {
+				return fmt.Errorf("<component is=%q>: component %q not found in directory %q", compName, localName, dirPart)
+			}
+			return r.renderComponentElement(w, working, scope, comp)
+		}
+
+		working.Data = compName
 		// Fall through to resolveComponent / native element logic below.
 	}
 
@@ -1292,12 +1346,26 @@ func isComponentLike(tagName string) bool {
 	return strings.Contains(tagName, "-")
 }
 
-// resolveComponent looks up tagName in the registry using several strategies:
-//  1. Exact match (e.g. "my-card")
-//  2. First-letter capitalised (e.g. "card" → "Card", handles lowercased PascalCase)
-//  3. kebab-case to PascalCase (e.g. "my-card" → "MyCard")
-//  4. Case-insensitive scan (handles multi-capital PascalCase like "postcard" → "PostCard")
+// resolveComponent looks up tagName using proximity-based resolution (when the
+// NS registry is available) followed by flat-registry fallback.
+//
+// Proximity walk strategy (NS registry):
+//  1. Start at the caller component's directory (callerDir).
+//  2. For each directory level, try name variants: exact, capitalised,
+//     kebab-to-Pascal, case-insensitive.
+//  3. Walk toward the root until a match is found or the root is exhausted.
+//
+// Flat registry fallback (same four strategies, no directory walk).
 func (r *Renderer) resolveComponent(tagName string) *Component {
+	// Proximity walk using the NS registry.
+	if r.nsRegistry != nil {
+		callerDir := r.callerDir()
+		if c := resolveInNSRegistry(r.nsRegistry, callerDir, tagName); c != nil {
+			return c
+		}
+	}
+
+	// Flat registry fallback.
 	if r.registry == nil {
 		return nil
 	}
@@ -1320,6 +1388,77 @@ func (r *Renderer) resolveComponent(tagName string) *Component {
 	lower := strings.ToLower(tagName)
 	for key, c := range r.registry {
 		if strings.ToLower(key) == lower {
+			return c
+		}
+	}
+	return nil
+}
+
+// callerDir returns the forward-slash relative directory of the current
+// component with respect to componentDir. Returns "" when the component is at
+// the root level or has no path.
+func (r *Renderer) callerDir() string {
+	if r.component == nil || r.component.Path == "" {
+		return ""
+	}
+	return nsRelDir(r.component.Path, r.componentDir)
+}
+
+// resolveInNSRegistry performs the proximity walk over ns starting at
+// callerDir, trying each name variant at every directory level.
+// Returns nil when no match is found.
+func resolveInNSRegistry(ns map[string]map[string]*Component, callerDir, tagName string) *Component {
+	d := callerDir
+	for {
+		if c := lookupNSDir(ns, d, tagName); c != nil {
+			return c
+		}
+		if d == "" {
+			break
+		}
+		// Move one level toward the root using the path package (forward slashes).
+		parent := pathpkg.Dir(d)
+		if parent == "." || parent == d {
+			d = ""
+		} else {
+			d = parent
+		}
+	}
+	return nil
+}
+
+// lookupNSDir looks up tagName in the namespace directory dir using the four
+// standard name-folding strategies: exact, capitalised, kebab-to-Pascal, and
+// case-insensitive scan.
+func lookupNSDir(ns map[string]map[string]*Component, dir, tagName string) *Component {
+	dirMap, ok := ns[dir]
+	if !ok {
+		return nil
+	}
+	// 1. Exact match.
+	if c, ok := dirMap[tagName]; ok {
+		return c
+	}
+	// 2. First letter capitalised.
+	if len(tagName) > 0 {
+		cap := strings.ToUpper(tagName[:1]) + tagName[1:]
+		if cap != tagName {
+			if c, ok := dirMap[cap]; ok {
+				return c
+			}
+		}
+	}
+	// 3. kebab-case to PascalCase.
+	if strings.Contains(tagName, "-") {
+		pascal := kebabToPascal(tagName)
+		if c, ok := dirMap[pascal]; ok {
+			return c
+		}
+	}
+	// 4. Case-insensitive scan.
+	lower := strings.ToLower(tagName)
+	for k, c := range dirMap {
+		if strings.ToLower(k) == lower {
 			return c
 		}
 	}
@@ -1519,6 +1658,8 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		component:          comp,
 		styleCollector:     r.styleCollector,
 		registry:           r.registry,
+		nsRegistry:         r.nsRegistry,   // propagate NS registry to child renderers
+		componentDir:       r.componentDir, // propagate componentDir to child renderers
 		missingPropHandler: r.missingPropHandler,
 		slotDefs:           slotDefs,
 		directives:         r.directives,

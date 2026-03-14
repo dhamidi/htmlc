@@ -2067,3 +2067,215 @@ func TestRenderNode_StyleBlockVerbatim(t *testing.T) {
 		}
 	}
 }
+
+// --- Proximity (NS registry) tests at the renderer level ---
+
+// buildNSRenderer constructs a test Renderer with a namespaced registry.
+// components maps "dir/Name" paths to template strings.
+// callerPath is the path of the "calling" component (e.g. "blog/Post.vue").
+// componentDir is the root (e.g. "").
+func buildNSRenderer(t *testing.T, callerPath, componentDir string, components map[string]string) (*Renderer, *Component) {
+	t.Helper()
+	reg := make(Registry)
+	ns := make(map[string]map[string]*Component)
+
+	for path, tmpl := range components {
+		src := "<template>" + tmpl + "</template>"
+		comp, err := ParseFile(path, src)
+		if err != nil {
+			t.Fatalf("ParseFile %s: %v", path, err)
+		}
+		name := path[strings.LastIndex(path, "/")+1:]
+		name = strings.TrimSuffix(name, ".vue")
+		reg[name] = comp
+
+		// Compute relDir.
+		relDir := nsRelDir(path, componentDir)
+		if ns[relDir] == nil {
+			ns[relDir] = make(map[string]*Component)
+		}
+		ns[relDir][name] = comp
+	}
+
+	callerSrc := "<template><div /></template>"
+	caller, err := ParseFile(callerPath, callerSrc)
+	if err != nil {
+		t.Fatalf("ParseFile caller: %v", err)
+	}
+
+	r := NewRenderer(caller).
+		WithComponents(reg).
+		WithNSComponents(ns, componentDir)
+	return r, caller
+}
+
+func TestRenderer_NS_ProximityWalk_PreferNearerComponent(t *testing.T) {
+	// Two same-named components: proximity walk returns the one nearest to the
+	// caller's directory.
+	ns := map[string]map[string]*Component{}
+
+	rootCard, _ := ParseFile("Card.vue", "<template><div class='root-card' /></template>")
+	blogCard, _ := ParseFile("blog/Card.vue", "<template><div class='blog-card' /></template>")
+
+	ns[""] = map[string]*Component{"Card": rootCard}
+	ns["blog"] = map[string]*Component{"Card": blogCard}
+
+	reg := Registry{"Card": rootCard}
+
+	// Caller in blog/ should get blog/Card.
+	callerComp, _ := ParseFile("blog/Post.vue", "<template><Card /></template>")
+	r := NewRenderer(callerComp).
+		WithComponents(reg).
+		WithNSComponents(ns, "")
+
+	out, err := r.RenderString(nil)
+	if err != nil {
+		t.Fatalf("RenderString: %v", err)
+	}
+	if !strings.Contains(out, "blog-card") {
+		t.Errorf("expected blog-card from blog/ caller, got: %q", out)
+	}
+}
+
+func TestRenderer_NS_WalkUpToRoot(t *testing.T) {
+	// Component defined only at root is found when caller is deeply nested.
+	ns := map[string]map[string]*Component{}
+	sharedComp, _ := ParseFile("Shared.vue", "<template><span>shared</span></template>")
+	ns[""] = map[string]*Component{"Shared": sharedComp}
+	reg := Registry{"Shared": sharedComp}
+
+	callerComp, _ := ParseFile("a/b/c/Page.vue", "<template><Shared /></template>")
+	r := NewRenderer(callerComp).
+		WithComponents(reg).
+		WithNSComponents(ns, "")
+
+	out, err := r.RenderString(nil)
+	if err != nil {
+		t.Fatalf("RenderString: %v", err)
+	}
+	if !strings.Contains(out, "shared") {
+		t.Errorf("expected 'shared', got: %q", out)
+	}
+}
+
+func TestRenderer_NS_ExplicitPathIs_StaticAttr(t *testing.T) {
+	// <component is="blog/Card"> resolves exactly via static is attribute.
+	rootCard, _ := ParseFile("Card.vue", "<template><div class='root' /></template>")
+	blogCard, _ := ParseFile("blog/Card.vue", "<template><div class='blog' /></template>")
+
+	ns := map[string]map[string]*Component{
+		"":     {"Card": rootCard},
+		"blog": {"Card": blogCard},
+	}
+	reg := Registry{"Card": rootCard}
+
+	callerComp, _ := ParseFile("Page.vue", `<template><component is="blog/Card" /></template>`)
+	r := NewRenderer(callerComp).
+		WithComponents(reg).
+		WithNSComponents(ns, "")
+
+	out, err := r.RenderString(nil)
+	if err != nil {
+		t.Fatalf("RenderString: %v", err)
+	}
+	if !strings.Contains(out, "blog") {
+		t.Errorf("expected blog-class from explicit path, got: %q", out)
+	}
+	if strings.Contains(out, "root") {
+		t.Errorf("should not contain root, got: %q", out)
+	}
+}
+
+func TestRenderer_NS_ExplicitPathIs_DynamicBinding(t *testing.T) {
+	// <component :is="'blog/Card'"> resolves exactly via dynamic binding.
+	rootCard, _ := ParseFile("Card.vue", "<template><div class='root' /></template>")
+	blogCard, _ := ParseFile("blog/Card.vue", "<template><div class='blog' /></template>")
+
+	ns := map[string]map[string]*Component{
+		"":     {"Card": rootCard},
+		"blog": {"Card": blogCard},
+	}
+	reg := Registry{"Card": rootCard}
+
+	callerComp, _ := ParseFile("Page.vue", `<template><component :is="'blog/Card'" /></template>`)
+	r := NewRenderer(callerComp).
+		WithComponents(reg).
+		WithNSComponents(ns, "")
+
+	out, err := r.RenderString(nil)
+	if err != nil {
+		t.Fatalf("RenderString: %v", err)
+	}
+	if !strings.Contains(out, "blog") {
+		t.Errorf("expected blog-class from dynamic path, got: %q", out)
+	}
+}
+
+func TestRenderer_NS_RootRelativeIs(t *testing.T) {
+	// <component is="/Card"> always resolves to root Card.vue.
+	rootCard, _ := ParseFile("Card.vue", "<template><div class='root-card' /></template>")
+	blogCard, _ := ParseFile("blog/Card.vue", "<template><div class='blog-card' /></template>")
+
+	ns := map[string]map[string]*Component{
+		"":     {"Card": rootCard},
+		"blog": {"Card": blogCard},
+	}
+	reg := Registry{"Card": rootCard}
+
+	// Caller is in blog/ but asks for root-relative /Card.
+	callerComp, _ := ParseFile("blog/Post.vue", `<template><component is="/Card" /></template>`)
+	r := NewRenderer(callerComp).
+		WithComponents(reg).
+		WithNSComponents(ns, "")
+
+	out, err := r.RenderString(nil)
+	if err != nil {
+		t.Fatalf("RenderString: %v", err)
+	}
+	if !strings.Contains(out, "root-card") {
+		t.Errorf("expected root-card from /Card, got: %q", out)
+	}
+	if strings.Contains(out, "blog-card") {
+		t.Errorf("should not contain blog-card, got: %q", out)
+	}
+}
+
+func TestRenderer_NS_FlatRegistryFallback(t *testing.T) {
+	// When nsRegistry has no match, the flat registry is used as fallback.
+	globalComp, _ := ParseFile("Global.vue", "<template><div class='global' /></template>")
+	ns := map[string]map[string]*Component{
+		"blog": {}, // blog/ exists but has no Global
+	}
+	reg := Registry{"Global": globalComp}
+
+	callerComp, _ := ParseFile("blog/Post.vue", "<template><Global /></template>")
+	r := NewRenderer(callerComp).
+		WithComponents(reg).
+		WithNSComponents(ns, "")
+
+	out, err := r.RenderString(nil)
+	if err != nil {
+		t.Fatalf("RenderString: %v", err)
+	}
+	if !strings.Contains(out, "global") {
+		t.Errorf("expected flat-registry fallback to find Global, got: %q", out)
+	}
+}
+
+func TestRenderer_NS_WithoutNSComponents_FlatOnly(t *testing.T) {
+	// When WithNSComponents is not called, behaviour is identical to the
+	// original flat-registry-only mode.
+	comp, _ := ParseFile("Widget.vue", "<template><span>{{ val }}</span></template>")
+	reg := Registry{"Widget": comp}
+
+	callerComp, _ := ParseFile("Page.vue", "<template><Widget :val=\"'hello'\" /></template>")
+	r := NewRenderer(callerComp).WithComponents(reg)
+
+	out, err := r.RenderString(nil)
+	if err != nil {
+		t.Fatalf("RenderString: %v", err)
+	}
+	if !strings.Contains(out, "hello") {
+		t.Errorf("expected 'hello', got: %q", out)
+	}
+}

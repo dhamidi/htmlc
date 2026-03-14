@@ -427,12 +427,50 @@ Key points:
 
 #### Component resolution
 
-Given a tag name, the engine tries these strategies in order:
+The engine uses **proximity-based resolution**: when a tag is encountered in a template, the engine first searches the same directory as the calling component, then walks toward the root one level at a time until a match is found.
 
-1. Exact match in the registry (e.g. `my-card` → `my-card`)
+For each directory level, the following name-folding strategies are tried in order:
+
+1. Exact match (e.g. `my-card` → `my-card`)
 2. First letter capitalised (e.g. `card` → `Card`)
 3. Kebab-case to PascalCase (e.g. `my-card` → `MyCard`)
 4. Case-insensitive scan
+
+If no match is found via the proximity walk, the engine falls back to the flat registry (backward-compatible with single-directory projects).
+
+**Example:** given this component tree:
+
+```
+components/
+  Card.vue          ← generic root card
+  blog/
+    Card.vue        ← blog-specific card
+    PostPage.vue    ← references <Card>
+  admin/
+    Card.vue        ← admin-specific card
+    Dashboard.vue   ← references <Card>
+```
+
+- `blog/PostPage.vue` referencing `<Card>` resolves to `blog/Card.vue`
+- `admin/Dashboard.vue` referencing `<Card>` resolves to `admin/Card.vue`
+- A root template referencing `<Card>` resolves to `Card.vue`
+
+#### Explicit cross-directory references
+
+Use `<component is="dir/Name">` to reference a component in a specific directory, bypassing proximity resolution:
+
+```html
+<!-- always resolves to blog/Card.vue, regardless of caller location -->
+<component is="blog/Card" />
+
+<!-- root-relative: always resolves to Card.vue at ComponentDir root -->
+<component is="/Card" />
+
+<!-- dynamic version -->
+<component :is="'admin/Card'" />
+```
+
+Path-based `is` values are resolved exactly (no name-folding) and return an error if the component is not found.
 
 #### Scoped styles
 
@@ -460,16 +498,20 @@ Components can freely use other components registered in the same engine.
 
 #### Dynamic components
 
-Use `<component :is="expr">` to render a component whose name is determined at runtime. The expression must evaluate to a non-empty string that names a registered component or a native HTML element:
+Use `<component :is="expr">` to render a component whose name is determined at runtime. Use `<component is="...">` for a static name. The value must be a non-empty string that names a registered component, a path (`dir/Name`), or a native HTML element:
 
 ```html
 <!-- resolve from a variable -->
 <component :is="activeView" />
 
-<!-- inline string literal -->
-<component :is="'Card'" :title="pageTitle">
-  <p>slot content</p>
-</component>
+<!-- static name -->
+<component is="Card" :title="pageTitle" />
+
+<!-- explicit path — always blog/Card.vue, no proximity walk -->
+<component is="blog/Card" />
+
+<!-- root-relative path -->
+<component is="/Card" />
 
 <!-- switch between components in a loop -->
 <div v-for="item in items">
@@ -477,10 +519,10 @@ Use `<component :is="expr">` to render a component whose name is determined at r
 </div>
 ```
 
-- All attributes other than `:is` (or `v-bind:is`) are forwarded to the resolved component as props.
+- All attributes other than `is`, `:is`, or `v-bind:is` are forwarded to the resolved component as props.
 - Slot content (default and named) works exactly as with a statically-named component.
 - If the resolved name is a known HTML element (e.g. `"div"`, `"input"`), the tag is rendered as-is rather than looked up in the component registry.
-- `:is` is required; omitting it or supplying a non-string value is a render error.
+- `is` or `:is` is required; omitting it or supplying a non-string value is a render error.
 
 ### Not supported
 
@@ -765,7 +807,7 @@ engine.WithDataMiddleware(func(r *http.Request, data map[string]any) map[string]
 
 ### Validate components at startup
 
-`ValidateAll` checks every registered component for unresolvable child component references and returns a slice of errors. Call it once at startup to surface missing-component problems before the first request:
+`ValidateAll` checks every registered component for unresolvable child component references and returns a slice of errors. It uses the same proximity-based resolution as the renderer, so a reference that would succeed at render time will not generate a false-positive validation error. Call it once at startup to surface missing-component problems before the first request:
 
 ```go
 if errs := engine.ValidateAll(); len(errs) > 0 {

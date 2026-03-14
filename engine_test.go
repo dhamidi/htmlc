@@ -652,3 +652,233 @@ func TestEngine_RegisterFunc_AvailableInGrandchildComponent(t *testing.T) {
 		t.Errorf("expected 'HI!' in output (grandchild should have shout()), got: %q", out)
 	}
 }
+
+// --- Proximity-based component resolution tests ---
+
+func TestEngine_Proximity_FlatProject_BackwardCompat(t *testing.T) {
+	// Flat project: existing behaviour preserved (proximity walk hits root on
+	// first step, result identical to today).
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Widget.vue"), `<template><span class="widget">{{ label }}</span></template>`)
+	writeVue(t, filepath.Join(dir, "Page.vue"), `<template><div><Widget :label="'click'" /></div></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Page", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "click") {
+		t.Errorf("got %q, want flat-project Widget to work", out)
+	}
+}
+
+func TestEngine_Proximity_SameNameDifferentDirs(t *testing.T) {
+	// Two same-named components in different directories: caller in blog/ gets
+	// blog/Card.vue; caller in admin/ gets admin/Card.vue.
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="blog-card">{{ title }}</div></template>`)
+	writeVue(t, filepath.Join(dir, "admin", "Card.vue"), `<template><div class="admin-card">{{ title }}</div></template>`)
+	writeVue(t, filepath.Join(dir, "blog", "Post.vue"), `<template><section><Card :title="'Blog'" /></section></template>`)
+	writeVue(t, filepath.Join(dir, "admin", "Dashboard.vue"), `<template><section><Card :title="'Admin'" /></section></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	blogOut, err := e.RenderFragmentString("Post", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString Post: %v", err)
+	}
+	if !strings.Contains(blogOut, "blog-card") {
+		t.Errorf("Post: got %q, want 'blog-card'", blogOut)
+	}
+
+	adminOut, err := e.RenderFragmentString("Dashboard", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString Dashboard: %v", err)
+	}
+	if !strings.Contains(adminOut, "admin-card") {
+		t.Errorf("Dashboard: got %q, want 'admin-card'", adminOut)
+	}
+}
+
+func TestEngine_Proximity_WalkUpFallback(t *testing.T) {
+	// Walk-up fallback: component defined only at root is found from a deeply
+	// nested caller.
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "SharedWidget.vue"), `<template><span>root-widget</span></template>`)
+	writeVue(t, filepath.Join(dir, "blog", "deep", "Thread.vue"),
+		`<template><article><SharedWidget /></article></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Thread", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "root-widget") {
+		t.Errorf("got %q, want 'root-widget' via walk-up", out)
+	}
+}
+
+func TestEngine_Proximity_ExplicitPathIs(t *testing.T) {
+	// Explicit <component is="blog/Card">: resolves exactly, ignores caller location.
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Card.vue"), `<template><div class="root-card">root</div></template>`)
+	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="blog-card">blog</div></template>`)
+	writeVue(t, filepath.Join(dir, "Page.vue"),
+		`<template><div><component is="blog/Card" /></div></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Page", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "blog-card") {
+		t.Errorf("got %q, want 'blog-card' from explicit is path", out)
+	}
+	if strings.Contains(out, "root-card") {
+		t.Errorf("got %q, should not contain 'root-card'", out)
+	}
+}
+
+func TestEngine_Proximity_RootRelativeIs(t *testing.T) {
+	// Root-relative <component is="/Card">: always resolves to root Card.vue.
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Card.vue"), `<template><div class="root-card">root</div></template>`)
+	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="blog-card">blog</div></template>`)
+	writeVue(t, filepath.Join(dir, "blog", "Post.vue"),
+		`<template><article><component is="/Card" /></article></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Post", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "root-card") {
+		t.Errorf("got %q, want root-card from root-relative /Card", out)
+	}
+	if strings.Contains(out, "blog-card") {
+		t.Errorf("got %q, should not contain 'blog-card'", out)
+	}
+}
+
+func TestEngine_Proximity_ValidateAll_NoFalsePositives(t *testing.T) {
+	// ValidateAll must not report false positives for proximity-resolved refs.
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div>{{ title }}</div></template>`)
+	writeVue(t, filepath.Join(dir, "blog", "Post.vue"), `<template><section><Card :title="'t'" /></section></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	errs := e.ValidateAll()
+	for _, ve := range errs {
+		if strings.Contains(ve.Message, "unknown component") {
+			t.Errorf("ValidateAll false positive: %v", ve)
+		}
+	}
+}
+
+func TestEngine_Proximity_HotReload_FullRebuild(t *testing.T) {
+	// Hot reload: after modifying a component file, the full registry is rebuilt
+	// and subsequent renders use the updated component.
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="v1">original</div></template>`)
+	writeVue(t, filepath.Join(dir, "blog", "Post.vue"), `<template><section><Card /></section></template>`)
+
+	e, err := New(Options{ComponentDir: dir, Reload: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Post", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString (before): %v", err)
+	}
+	if !strings.Contains(out, "original") {
+		t.Errorf("before reload: got %q, want 'original'", out)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="v2">updated</div></template>`)
+
+	out, err = e.RenderFragmentString("Post", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString (after): %v", err)
+	}
+	if !strings.Contains(out, "updated") {
+		t.Errorf("after reload: got %q, want 'updated'", out)
+	}
+}
+
+func TestEngine_Proximity_SlotAuthoringProximity(t *testing.T) {
+	// Slot authoring proximity: slot content defined in blog/Post.vue referencing
+	// Card resolves to blog/Card.vue even when rendered from a root Layout.vue
+	// that also defines a Card.vue.
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "Card.vue"), `<template><div class="root-card"><slot /></div></template>`)
+	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="blog-card"><slot /></div></template>`)
+	// Layout provides a named slot "content" that callers fill.
+	writeVue(t, filepath.Join(dir, "Layout.vue"),
+		`<template><main><slot name="content" /></main></template>`)
+	// Post fills the Layout's "content" slot with a Card reference.
+	// The Card reference should resolve using Post's directory (blog/), not Layout's.
+	writeVue(t, filepath.Join(dir, "blog", "Post.vue"),
+		`<template><Layout><template #content><Card /></template></Layout></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Post", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "blog-card") {
+		t.Errorf("slot authoring: got %q, want 'blog-card' (slot uses Post's proximity)", out)
+	}
+	if strings.Contains(out, "root-card") {
+		t.Errorf("slot authoring: got %q, should not contain 'root-card'", out)
+	}
+}
+
+func TestEngine_Proximity_ForwardSlashKeysOnAllPlatforms(t *testing.T) {
+	// nsEntries keys must use forward slashes regardless of OS path separator.
+	// Verify by using a deep path and confirming resolution works correctly.
+	dir := t.TempDir()
+	writeVue(t, filepath.Join(dir, "a", "b", "Leaf.vue"), `<template><span>deep-leaf</span></template>`)
+	writeVue(t, filepath.Join(dir, "a", "b", "Page.vue"), `<template><div><Leaf /></div></template>`)
+
+	e, err := New(Options{ComponentDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString("Page", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "deep-leaf") {
+		t.Errorf("got %q, want 'deep-leaf'", out)
+	}
+}
