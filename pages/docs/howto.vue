@@ -16,7 +16,9 @@
       {href: '#missing-props', label: 'Missing prop handling'},
       {label: 'Static sites'},
       {href: '#static-site', label: 'Static site with layout'},
-      {href: '#syntax-highlight', label: 'Syntax highlighting'}
+      {href: '#syntax-highlight', label: 'Syntax highlighting'},
+      {label: 'Testing'},
+      {href: '#testing', label: 'Testing components'}
     ]"
   >
     <h1>How-to Guides</h1>
@@ -347,6 +349,71 @@ func main() {
     <h3>Step 4 — Build</h3>
     <pre v-syntax-highlight="'bash'"><code>htmlc build -dir ./components -pages ./pages -out ./dist</code></pre>
     <p>The generated HTML will contain highlighted <code>&lt;span&gt;</code> elements styled by the Chroma CSS classes. See the <a href="/docs/cli.html#external-directives">external directives reference</a> for the full protocol and discovery rules.</p>
+
+    <!-- ═══════════════════════════════════════════════ Testing -->
+    <h2 id="testing">Testing components</h2>
+    <p class="howto-goal">Write unit tests for <code>.vue</code> components without touching the filesystem.</p>
+
+    <p>The <code>htmlctest</code> package provides a lightweight test harness for htmlc components. Import it in your <code>_test.go</code> files:</p>
+
+    <pre v-syntax-highlight="'bash'"><code>go get github.com/dhamidi/htmlc/htmlctest</code></pre>
+
+    <h3>NewEngine</h3>
+    <pre v-syntax-highlight="'go'"><code>func NewEngine(t testing.TB, files map[string]string, opts ...htmlc.Options) *htmlc.Engine</code></pre>
+    <p>Creates a test <code>Engine</code> backed by an in-memory filesystem. The <code>files</code> map uses file names as keys (e.g. <code>"Button.vue"</code>) and component source text as values. Pass optional <code>htmlc.Options</code> to configure directives, missing-prop handlers, etc.; the <code>FS</code> and <code>ComponentDir</code> fields are always overridden. The test fails immediately if the engine cannot be created.</p>
+
+    <h3>AssertFragment</h3>
+    <pre v-syntax-highlight="'go'"><code>func AssertFragment(t testing.TB, e *htmlc.Engine, name string, data map[string]any, want string)</code></pre>
+    <p>Renders <code>name</code> as an HTML fragment with <code>data</code> and fails the test if the output does not match <code>want</code> after whitespace normalisation (runs of whitespace collapsed to single spaces).</p>
+
+    <h3>AssertRendersHTML</h3>
+    <pre v-syntax-highlight="'go'"><code>func AssertRendersHTML(t testing.TB, e *htmlc.Engine, name string, data map[string]any, want string)</code></pre>
+    <p>Like <code>AssertFragment</code> but renders a full HTML page (with <code>&lt;!DOCTYPE html&gt;</code> and scoped styles injected into <code>&lt;head&gt;</code>).</p>
+
+    <h3>Example</h3>
+    <pre v-syntax-highlight="'go'"><code>package myapp_test
+
+import (
+    &#34;testing&#34;
+
+    &#34;github.com/dhamidi/htmlc/htmlctest&#34;
+)
+
+func TestGreeting(t *testing.T) {
+    e := htmlctest.NewEngine(t, map[string]string{
+        &#34;Greeting.vue&#34;: `&lt;template&gt;&lt;p&gt;Hello {{ name }}!&lt;/p&gt;&lt;/template&gt;`,
+    })
+    htmlctest.AssertFragment(t, e, &#34;Greeting&#34;,
+        map[string]any{&#34;name&#34;: &#34;World&#34;},
+        &#34;&lt;p&gt;Hello World!&lt;/p&gt;&#34;,
+    )
+}
+
+func TestCard(t *testing.T) {
+    e := htmlctest.NewEngine(t, map[string]string{
+        &#34;Card.vue&#34;: `
+&lt;template&gt;
+  &lt;div class=&#34;card&#34;&gt;
+    &lt;h2&gt;{{ title }}&lt;/h2&gt;
+    &lt;slot&gt;&lt;/slot&gt;
+  &lt;/div&gt;
+&lt;/template&gt;`,
+    })
+    htmlctest.AssertFragment(t, e, &#34;Card&#34;,
+        map[string]any{&#34;title&#34;: &#34;Hello&#34;},
+        `&lt;div class=&#34;card&#34;&gt;&lt;h2&gt;Hello&lt;/h2&gt;&lt;/div&gt;`,
+    )
+}</code></pre>
+
+    <h3>Testing with custom directives</h3>
+    <p>Pass an <code>htmlc.Options</code> with a <code>Directives</code> map to test components that use custom directives:</p>
+    <pre v-syntax-highlight="'go'"><code>e := htmlctest.NewEngine(t, map[string]string{
+    &#34;Page.vue&#34;: `&lt;template&gt;&lt;pre v-upper=&#34;text&#34;&gt;&lt;/pre&gt;&lt;/template&gt;`,
+}, htmlc.Options{
+    Directives: htmlc.DirectiveRegistry{
+        &#34;upper&#34;: &amp;UpperDirective{},
+    },
+})</code></pre>
 
   </DocsPage>
 </template>
