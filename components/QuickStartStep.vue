@@ -23,7 +23,7 @@ export default {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--muted);
+  color: rgb(240, 242, 255);
   margin-bottom: 0.5rem;
 }
 </style>
