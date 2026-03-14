@@ -16,7 +16,9 @@
       <Button href="/docs/tutorial.html" variant="primary">Get started</Button>
       <Button href="/docs/index.html" variant="secondary">Documentation</Button>
     </div>
-    <InstallCommand />
+    <div class="hero-install">
+      <InstallCommand />
+    </div>
   </section>
 </template>
 
@@ -70,5 +72,13 @@
 
 .hero-logo {
   margin-bottom: 1.75rem;
+}
+
+/* Prevent the global :not(pre) > code border from showing inside the install block */
+.hero-install :not(pre) > code {
+  border: none;
+  background: none;
+  padding: 0;
+  border-radius: 0;
 }
 </style>
