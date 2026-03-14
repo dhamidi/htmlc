@@ -12,7 +12,7 @@
     <g
       transform="translate(468 456)"
       font-family="Inter, SF Pro Display, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-      font-size="96"
+      font-size="128"
       font-weight="800"
       text-anchor="end"
     >
