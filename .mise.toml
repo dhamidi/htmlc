@@ -1,10 +1,12 @@
 [tools]
 go = "latest"
 "go:github.com/dhamidi/htmlc/cmd/htmlc" = "latest"
+"go:github.com/dhamidi/htmlc/cmd/v-syntax-highlight" = "0.2.0"
 
 [tasks.build]
 description = "Build the docs site with htmlc"
 run = """
+cp $(which v-syntax-highlight) ./components/v-syntax-highlight
 htmlc build -strict -dir ./components -pages ./pages -out ./dist
 cp -r public/. dist/
 """
