@@ -1997,6 +1997,37 @@ func TestRender_VBindSpreadNonMapError(t *testing.T) {
 // TestRenderNode_StyleBlockVerbatim checks that a <style> element nested
 // inside a template (e.g. in <head>) has its text content emitted verbatim,
 // without HTML-escaping quotes or > characters.
+func TestRenderNode_NoscriptVerbatim(t *testing.T) {
+	src := `<template>
+<html>
+  <head>
+    <noscript><link rel="stylesheet" href="/fonts.css" /></noscript>
+  </head>
+  <body></body>
+</html>
+</template>`
+
+	comp, err := ParseFile("test.vue", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf strings.Builder
+	if err := NewRenderer(comp).Render(&buf, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+
+	want := `<noscript><link rel="stylesheet" href="/fonts.css" /></noscript>`
+	if !strings.Contains(got, want) {
+		t.Errorf("noscript content was HTML-escaped; want verbatim %q\ngot:\n%s", want, got)
+	}
+	for _, bad := range []string{"&lt;", "&gt;", "&#34;"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("output contains escaped entity %q inside noscript; got:\n%s", bad, got)
+		}
+	}
+}
+
 func TestRenderNode_StyleBlockVerbatim(t *testing.T) {
 	src := `<template>
 <html>

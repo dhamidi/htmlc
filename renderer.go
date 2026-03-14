@@ -408,9 +408,9 @@ func (r *Renderer) renderNode(w io.Writer, n *html.Node, scope map[string]any) e
 
 // interpolate processes mustache expressions within text and writes the result to w.
 // isRawTextElement reports whether tag is an HTML raw text element whose
-// content browsers never HTML-decode (<style>, <script>).
+// content browsers never HTML-decode (<style>, <script>, <noscript>).
 func isRawTextElement(tag string) bool {
-	return tag == "style" || tag == "script"
+	return tag == "style" || tag == "script" || tag == "noscript"
 }
 
 // Literal segments are HTML-escaped; {{ expr }} segments are evaluated and escaped.
