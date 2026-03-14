@@ -455,6 +455,30 @@ components/
 - `admin/Dashboard.vue` referencing `<Card>` resolves to `admin/Card.vue`
 - A root template referencing `<Card>` resolves to `Card.vue`
 
+The template in `blog/PostPage.vue` uses an unqualified `<Card>` tag:
+
+```vue
+<!-- blog/PostPage.vue -->
+<template>
+  <Card :title="post.title">{{ post.summary }}</Card>
+</template>
+```
+
+Because `blog/Card.vue` exists in the same directory, it wins over the
+root-level `Card.vue` and the `admin/Card.vue`.  No import statement or
+path qualifier is needed.
+
+A component at the root level (`Shell.vue`) referencing `<Card>` resolves to
+the root-level `Card.vue` because there is no `Card` in the root directory's
+walk other than itself:
+
+```vue
+<!-- Shell.vue (at root of components/) -->
+<template>
+  <div><Card :title="title" /></div>
+</template>
+```
+
 #### Explicit cross-directory references
 
 Use `<component is="dir/Name">` to reference a component in a specific directory, bypassing proximity resolution:
