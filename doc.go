@@ -243,6 +243,63 @@
 //
 // Renders to: <div class="card"><p>No content provided</p></div>
 //
+// ## Component resolution
+//
+// When the renderer encounters a component tag it resolves the name using
+// proximity-based resolution, searching for the nearest matching .vue file
+// relative to the calling component's directory.
+//
+// Algorithm (applied at each directory level, starting at the caller's dir):
+//
+//  1. Exact match            — "my-card"  matches "my-card.vue"
+//  2. Capitalise first letter — "card"    matches "Card.vue"
+//  3. Kebab to PascalCase    — "my-card"  matches "MyCard.vue"
+//  4. Case-insensitive scan  — "CARD"     matches "card.vue"
+//
+// If none of the four strategies finds a match in the current directory, the
+// engine walks one level toward the ComponentDir root and repeats.  After
+// exhausting all directories it falls back to the flat registry (required
+// for manually registered components and backward compatibility with
+// single-directory projects).
+//
+// Example directory tree:
+//
+//	templates/
+//	  Card.vue          <- generic card used by root templates
+//	  blog/
+//	    Card.vue        <- blog-specific card
+//	    PostPage.vue    <- <Card> resolves to blog/Card.vue
+//	  admin/
+//	    Card.vue        <- admin-specific card
+//	    Dashboard.vue   <- <Card> resolves to admin/Card.vue
+//	  shop/
+//	    ProductPage.vue <- no Card.vue here; walk-up finds Card.vue at root
+//
+// PostPage.vue and Dashboard.vue both use an unqualified <Card> tag.
+// Because each has a same-named sibling, they resolve independently without
+// any explicit import or path qualifier.
+//
+// ## Explicit cross-directory references
+//
+// To target a component in a specific directory regardless of the caller's
+// location, use a path-qualified is attribute on <component>:
+//
+//	<!-- always resolves to blog/Card.vue -->
+//	<component is="blog/Card" />
+//
+//	<!-- root-relative: always resolves to Card.vue at ComponentDir root -->
+//	<component is="/Card" />
+//
+//	<!-- dynamic version -->
+//	<component :is="'admin/Card'" />
+//
+// Path-based references do not apply name-folding and return a render error
+// if the named component is not found.
+//
+// Proximity resolution is enabled automatically when ComponentDir is set.
+// Manually registered components (via Engine.Register) are available through
+// the flat-registry fallback regardless of directory.
+//
 // # Scope propagation
 //
 // Every component renders in an isolated scope that contains only the props
