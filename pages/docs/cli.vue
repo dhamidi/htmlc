@@ -18,6 +18,7 @@
       {href: '#static-site', label: 'Static sites'},
       {href: '#layouts', label: 'Layouts'},
       {href: '#data-files', label: 'Data files'},
+      {href: '#page-partials', label: 'Page partials'},
       {label: 'External directives'},
       {href: '#external-directives', label: 'Overview'},
       {href: '#directive-discovery', label: 'Discovery'},
@@ -84,6 +85,30 @@ echo '{"name":"world"}' | htmlc render -dir ./templates Greeting</code></pre>
       <li><code>pages/subdir/_data.json</code> — subdirectory defaults</li>
       <li><code>pages/subdir/hello.json</code> — page-level props (highest priority)</li>
     </ol>
+
+    <h3 id="page-partials">Shared page partials</h3>
+    <p>Any <code>.vue</code> file whose base name starts with <code>_</code> is treated as a <strong>shared partial</strong> and is skipped during page discovery. Partials are not rendered as standalone HTML pages; they exist solely to be referenced as child components by other pages.</p>
+
+    <pre v-syntax-highlight="'text'"><code>pages/
+  _Header.vue          ← skipped (partial, not a page)
+  _Footer.vue          ← skipped (partial, not a page)
+  index.vue            → dist/index.html
+  about.vue            → dist/about.html
+  blog/
+    _PostCard.vue      ← skipped (partial)
+    index.vue          → dist/blog/index.html
+    hello-world.vue    → dist/blog/hello-world.html</code></pre>
+
+    <p>The partial is still registered as a component and can be used inside other pages:</p>
+
+    <pre v-syntax-highlight="'html'"><code>&lt;!-- pages/index.vue --&gt;
+&lt;template&gt;
+  &lt;_Header :title="siteTitle" /&gt;
+  &lt;main&gt;…&lt;/main&gt;
+  &lt;_Footer /&gt;
+&lt;/template&gt;</code></pre>
+
+    <p>The leading <code>_</code> is part of the component name when referenced in templates. Use it to signal to readers that the file is a layout aid rather than a user-facing page.</p>
 
     <h3 id="static-site">Examples</h3>
     <pre v-syntax-highlight="'bash'"><code># Build with defaults (components in ., pages in ./pages, output to ./out)
