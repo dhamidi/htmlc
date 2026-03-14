@@ -16,9 +16,7 @@
       <Button href="/docs/tutorial.html" variant="primary">Get started</Button>
       <Button href="/docs/index.html" variant="secondary">Documentation</Button>
     </div>
-    <div class="hero-install">
-      <code>go install github.com/dhamidi/htmlc/cmd/htmlc@latest</code>
-    </div>
+    <InstallCommand />
   </section>
 </template>
 
@@ -72,15 +70,5 @@
 
 .hero-logo {
   margin-bottom: 1.75rem;
-}
-
-.hero-install {
-  display: inline-block;
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.6rem 1.2rem;
-  font-size: 0.85rem;
-  color: var(--accent);
 }
 </style>
