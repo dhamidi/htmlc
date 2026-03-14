@@ -61,18 +61,18 @@
       <div class="qs-steps">
         <div class="qs-step">
           <div class="col-label">1. Add the dependency</div>
-          <pre><code>go get github.com/dhamidi/htmlc</code></pre>
+          <pre v-syntax-highlight="'bash'"><code>go get github.com/dhamidi/htmlc</code></pre>
         </div>
         <div class="qs-step">
           <div class="col-label">2. Write a component</div>
-          <pre><code>&lt;!-- templates/Greeting.vue --&gt;
+          <pre v-syntax-highlight="'html'"><code>&lt;!-- templates/Greeting.vue --&gt;
 &lt;template&gt;
-  &lt;p&gt;Hello, {{ "{{" }} name }}!&lt;/p&gt;
+  &lt;p&gt;Hello, &#123;&#123; name &#125;&#125;!&lt;/p&gt;
 &lt;/template&gt;</code></pre>
         </div>
         <div class="qs-step">
           <div class="col-label">3. Create an engine &amp; render</div>
-          <pre><code>engine, err := htmlc.New(htmlc.Options{
+          <pre v-syntax-highlight="'go'"><code>engine, err := htmlc.New(htmlc.Options{
     ComponentDir: "templates/",
 })
 
@@ -84,7 +84,7 @@ html, err := engine.RenderFragmentString(
         </div>
         <div class="qs-step">
           <div class="col-label">4. Serve over HTTP</div>
-          <pre><code>http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+          <pre v-syntax-highlight="'go'"><code>http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
     engine.RenderPage(w, "Page", map[string]any{
         "title": "Home",
