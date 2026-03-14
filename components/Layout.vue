@@ -220,7 +220,7 @@
     <body>
       <nav class="site-nav">
         <a href="/" class="logo">
-          <LogoIcon :size="32" />htmlc</a>
+          <LogoIcon :size="32"></LogoIcon>htmlc</a>
         <div class="nav-links">
           <a href="/docs/index.html">Docs</a>
           <a href="/docs/tutorial.html">Tutorial</a>
@@ -241,7 +241,7 @@
           </div>
         </details>
       </nav>
-      <main :class="['site-main', { 'site-main--full': fullWidth }]">
+      <main :class="fullWidth ? 'site-main site-main--full' : 'site-main'">
         <slot><!-- page content --></slot>
       </main>
       <footer class="site-footer">

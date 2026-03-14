@@ -1,8 +1,5 @@
 <template>
-  <div v-if="type === 'info'" class="callout callout-info">
-    <slot />
-  </div>
-  <div v-else class="callout">
+  <div class="callout">
     <slot />
   </div>
 </template>

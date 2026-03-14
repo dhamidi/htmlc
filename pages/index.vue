@@ -1,5 +1,5 @@
 <template>
-  <Layout pageTitle="htmlc" :siteTitle="siteTitle" :description="description">
+  <Layout pageTitle="htmlc" :siteTitle="siteTitle" :description="description" :fullWidth="false">
 
     <!-- Hero -->
     <section class="hero">
@@ -38,12 +38,12 @@
       <div class="feature-card">
         <div class="feature-icon"><IconPalette /></div>
         <div class="feature-title">Scoped styles</div>
-        <p class="feature-desc"><code>&lt;style scoped&gt;</code> rewrites selectors and injects scope attributes automatically — styles never leak between components.</p>
+        <p class="feature-desc"><code v-pre>&lt;style scoped&gt;</code> rewrites selectors and injects scope attributes automatically — styles never leak between components.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon"><IconGlobe /></div>
         <div class="feature-title">Static site generation</div>
-        <p class="feature-desc"><code>htmlc build</code> walks a pages directory and renders every <code>.vue</code> file to a matching <code>.html</code> file. Props come from sibling JSON files.</p>
+        <p class="feature-desc"><code v-pre>htmlc build</code> walks a pages directory and renders every <code>.vue</code> file to a matching <code>.html</code> file. Props come from sibling JSON files.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon"><IconBug /></div>
@@ -61,18 +61,18 @@
       <div class="qs-steps">
         <div class="qs-step">
           <div class="col-label">1. Add the dependency</div>
-          <pre v-syntax-highlight="'bash'"><code>go get github.com/dhamidi/htmlc</code></pre>
+          <pre v-syntax-highlight="'bash'"><code v-pre>go get github.com/dhamidi/htmlc</code></pre>
         </div>
         <div class="qs-step">
           <div class="col-label">2. Write a component</div>
-          <pre v-syntax-highlight="'html'"><code>&lt;!-- templates/Greeting.vue --&gt;
+          <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- templates/Greeting.vue --&gt;
 &lt;template&gt;
-  &lt;p&gt;Hello, &#123;&#123; name &#125;&#125;!&lt;/p&gt;
+  &lt;p&gt;Hello, &#123;&#123;<!---><!----> name &#125;&#125;!&lt;/p&gt;
 &lt;/template&gt;</code></pre>
         </div>
         <div class="qs-step">
           <div class="col-label">3. Create an engine &amp; render</div>
-          <pre v-syntax-highlight="'go'"><code>engine, err := htmlc.New(htmlc.Options{
+          <pre v-syntax-highlight="'go'"><code v-pre>engine, err := htmlc.New(htmlc.Options{
     ComponentDir: "templates/",
 })
 
@@ -84,7 +84,7 @@ html, err := engine.RenderFragmentString(
         </div>
         <div class="qs-step">
           <div class="col-label">4. Serve over HTTP</div>
-          <pre v-syntax-highlight="'go'"><code>http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+          <pre v-syntax-highlight="'go'"><code v-pre>http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
     engine.RenderPage(w, "Page", map[string]any{
         "title": "Home",

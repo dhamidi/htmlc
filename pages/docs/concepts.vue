@@ -26,13 +26,13 @@
     <p>At its core, htmlc is a template engine that turns a <code>.vue</code> file and a Go data map into a string of HTML. The data flow is straightforward:</p>
 
     <div class="data-flow">
-      <div class="flow-box"><code>map[string]any</code><span class="flow-label">scope / data</span></div>
+      <div class="flow-box"><code v-pre>map[string]any</code><span class="flow-label">scope / data</span></div>
       <div class="flow-arrow">+</div>
-      <div class="flow-box"><code>*.vue</code><span class="flow-label">parsed AST</span></div>
+      <div class="flow-box"><code v-pre>*.vue</code><span class="flow-label">parsed AST</span></div>
       <div class="flow-arrow">→</div>
-      <div class="flow-box flow-box--accent"><code>Renderer</code><span class="flow-label">walks the AST</span></div>
+      <div class="flow-box flow-box--accent"><code v-pre>Renderer</code><span class="flow-label">walks the AST</span></div>
       <div class="flow-arrow">→</div>
-      <div class="flow-box"><code>HTML string</code><span class="flow-label">output bytes</span></div>
+      <div class="flow-box"><code v-pre>HTML string</code><span class="flow-label">output bytes</span></div>
     </div>
 
     <p>When a <code>.vue</code> file is first loaded, htmlc parses it into an HTML abstract syntax tree (AST) using <code>golang.org/x/net/html</code>. The <code>&lt;template&gt;</code>, <code>&lt;style&gt;</code>, and <code>&lt;script&gt;</code> sections are separated and stored on the <code>Component</code> struct. The AST is kept in memory so that repeated renders incur no parsing cost.</p>
@@ -58,7 +58,7 @@
 
     <p>Each call to <code>RenderPage</code> or <code>RenderFragment</code> is a pure function call:</p>
 
-    <pre v-syntax-highlight="'go'"><code>f(name string, data map[string]any) → (HTML string, error)</code></pre>
+    <pre v-syntax-highlight="'go'"><code v-pre>f(name string, data map[string]any) → (HTML string, error)</code></pre>
 
     <p>The same component can be rendered a thousand times concurrently with different data maps and it will produce independent, deterministic output each time. There is no shared mutable state between renders.</p>
 
@@ -78,19 +78,19 @@
         <tr><th>Feature</th><th>Example</th></tr>
       </thead>
       <tbody>
-        <tr><td>Arithmetic</td><td><code>price * qty + shipping</code></td></tr>
-        <tr><td>Comparison &amp; equality</td><td><code>count &gt; 0</code>, <code>status === 'active'</code></td></tr>
-        <tr><td>Logical operators</td><td><code>isAdmin &amp;&amp; !isBanned</code></td></tr>
-        <tr><td>Nullish coalescing</td><td><code>user.name ?? 'Anonymous'</code></td></tr>
-        <tr><td>Ternary</td><td><code>age &gt;= 18 ? 'adult' : 'minor'</code></td></tr>
-        <tr><td>Member access (dot)</td><td><code>post.author.name</code></td></tr>
-        <tr><td>Member access (bracket)</td><td><code>items[0]</code>, <code>obj["key"]</code></td></tr>
-        <tr><td>Optional chaining</td><td><code>user?.address?.city</code></td></tr>
-        <tr><td>Array / object literals</td><td><code>[1, 2, 3]</code>, <code>{ "k": v }</code></td></tr>
-        <tr><td>Function calls</td><td><code>formatDate(post.createdAt)</code></td></tr>
-        <tr><td>String concatenation</td><td><code>'Hello, ' + name + '!'</code></td></tr>
-        <tr><td><code>in</code> operator</td><td><code>"key" in obj</code></td></tr>
-        <tr><td>Typeof</td><td><code>typeof value === 'string'</code></td></tr>
+        <tr><td>Arithmetic</td><td><code v-pre>price * qty + shipping</code></td></tr>
+        <tr><td>Comparison &amp; equality</td><td><code v-pre>count &gt; 0</code>, <code>status === 'active'</code></td></tr>
+        <tr><td>Logical operators</td><td><code v-pre>isAdmin &amp;&amp; !isBanned</code></td></tr>
+        <tr><td>Nullish coalescing</td><td><code v-pre>user.name ?? 'Anonymous'</code></td></tr>
+        <tr><td>Ternary</td><td><code v-pre>age &gt;= 18 ? 'adult' : 'minor'</code></td></tr>
+        <tr><td>Member access (dot)</td><td><code v-pre>post.author.name</code></td></tr>
+        <tr><td>Member access (bracket)</td><td><code v-pre>items[0]</code>, <code>obj["key"]</code></td></tr>
+        <tr><td>Optional chaining</td><td><code v-pre>user?.address?.city</code></td></tr>
+        <tr><td>Array / object literals</td><td><code v-pre>[1, 2, 3]</code>, <code>{ "k": v }</code></td></tr>
+        <tr><td>Function calls</td><td><code v-pre>formatDate(post.createdAt)</code></td></tr>
+        <tr><td>String concatenation</td><td><code v-pre>'Hello, ' + name + '!'</code></td></tr>
+        <tr><td><code v-pre>in</code> operator</td><td><code v-pre>"key" in obj</code></td></tr>
+        <tr><td>Typeof</td><td><code v-pre>typeof value === 'string'</code></td></tr>
       </tbody>
     </table>
 
@@ -103,10 +103,10 @@
       <tbody>
         <tr><td>Assignment (<code>x = y</code>, <code>x++</code>)</td><td>The evaluator is side-effect-free by design</td></tr>
         <tr><td>Arrow functions / closures</td><td>No JavaScript runtime; function values must come from Go</td></tr>
-        <tr><td><code>this</code></td><td>No component instance concept</td></tr>
+        <tr><td><code v-pre>this</code></td><td>No component instance concept</td></tr>
         <tr><td>JS builtins (<code>JSON.parse</code>, <code>Math.max</code>, <code>parseInt</code>)</td><td>Not registered by default; add via <code>RegisterFunc</code></td></tr>
         <tr><td>Template literals (<code>`${x}`</code>)</td><td>Not supported; use string concatenation instead</td></tr>
-        <tr><td><code>new</code>, <code>class</code>, <code>delete</code></td><td>Object-oriented constructs are not applicable in this context</td></tr>
+        <tr><td><code v-pre>new</code>, <code>class</code>, <code>delete</code></td><td>Object-oriented constructs are not applicable in this context</td></tr>
         <tr><td>Spread operator (<code>...arr</code>)</td><td>Not implemented</td></tr>
         <tr><td>Regular expressions</td><td>Not implemented</td></tr>
       </tbody>
@@ -116,7 +116,7 @@
 
     <p>The <code>Engine.RegisterFunc</code> method is the bridge between Go and the expression language. Any function registered this way becomes available by name in every expression evaluated by that engine:</p>
 
-    <pre v-syntax-highlight="'go'"><code>engine.RegisterFunc("formatDate", func(args ...any) (any, error) {
+    <pre v-syntax-highlight="'go'"><code v-pre>engine.RegisterFunc("formatDate", func(args ...any) (any, error) {
     if len(args) != 1 {
         return nil, fmt.Errorf("formatDate: want 1 arg")
     }
@@ -129,7 +129,7 @@
 
     <p>Once registered, templates can call it like any other expression:</p>
 
-    <pre v-syntax-highlight="'html'"><code>&lt;span&gt;&#123;&#123; formatDate(post.publishedAt) }}&lt;/span&gt;</code></pre>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;span&gt;&#123;&#123;<!---><!----> formatDate(post.publishedAt) }}&lt;/span&gt;</code></pre>
 
     <p>Functions registered via <code>RegisterFunc</code> are scoped to a single engine instance. For truly global functions (available to all engines in a process), use <code>expr.RegisterBuiltin</code> from the <code>htmlc/expr</code> package directly — but note that it modifies global state and must be called before any concurrent evaluation begins.</p>
 
@@ -146,7 +146,7 @@
 
     <p>Each component gets a stable, unique scope identifier derived from its file path. The <code>ScopeID</code> function computes an FNV-1a 32-bit hash of the path and formats it as an 8-character lowercase hex string:</p>
 
-    <pre v-syntax-highlight="'go'"><code>// Result: "data-v-a1b2c3d4" (the exact value depends on the file path)
+    <pre v-syntax-highlight="'go'"><code v-pre>// Result: "data-v-a1b2c3d4" (the exact value depends on the file path)
 id := htmlc.ScopeID("./components/Button.vue")</code></pre>
 
     <p>The scope ID is stable across restarts as long as the component file path does not change. Because it is derived purely from the path, no state is needed — any process that loads the same file will generate the same ID.</p>
@@ -155,7 +155,7 @@ id := htmlc.ScopeID("./components/Button.vue")</code></pre>
 
     <p>The <code>ScopeCSS</code> function rewrites every CSS selector in a scoped style block by appending an attribute selector to the last compound selector in each rule:</p>
 
-    <pre v-syntax-highlight="'css'"><code>/* Before scoping */
+    <pre v-syntax-highlight="'css'"><code v-pre>/* Before scoping */
 p { color: red; }
 .title h2 { font-size: 1.5rem; }
 
@@ -169,7 +169,7 @@ p[data-v-a1b2c3d4] { color: red; }
 
     <p>At render time, every HTML element produced by a scoped component receives the scope attribute as an additional HTML attribute. For a component with scope ID <code>data-v-a1b2c3d4</code>:</p>
 
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- Template --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- Template --&gt;
 &lt;p class="intro"&gt;Hello&lt;/p&gt;
 
 &lt;!-- Rendered output --&gt;
@@ -189,12 +189,12 @@ p[data-v-a1b2c3d4] { color: red; }
       </thead>
       <tbody>
         <tr>
-          <td><code>RenderPage</code></td>
+          <td><code v-pre>RenderPage</code></td>
           <td>Finds the <code>&lt;/head&gt;</code> tag in the output and inserts a <code>&lt;style&gt;</code> block immediately before it</td>
           <td>Rendering a full HTML document that contains a <code>&lt;head&gt;</code> section</td>
         </tr>
         <tr>
-          <td><code>RenderFragment</code></td>
+          <td><code v-pre>RenderFragment</code></td>
           <td>Prepends a <code>&lt;style&gt;</code> block to the beginning of the output</td>
           <td>Rendering a partial HTML snippet (HTMX, turbo frames, layout slots)</td>
         </tr>
@@ -222,7 +222,7 @@ p[data-v-a1b2c3d4] { color: red; }
 
     <p>Create one <code>Engine</code> at application startup and share it across all handlers:</p>
 
-    <pre v-syntax-highlight="'go'"><code>engine, err := htmlc.New(htmlc.Options{
+    <pre v-syntax-highlight="'go'"><code v-pre>engine, err := htmlc.New(htmlc.Options{
     ComponentDir: "./components",
 })
 if err != nil {
@@ -265,7 +265,7 @@ if err != nil {
         <tr>
           <td>Component lifecycle</td>
           <td>None — render is a pure function</td>
-          <td><code>onMounted</code>, <code>onUpdated</code>, <code>onUnmounted</code>, etc.</td>
+          <td><code v-pre>onMounted</code>, <code>onUpdated</code>, <code>onUnmounted</code>, etc.</td>
         </tr>
         <tr>
           <td>Reactivity</td>
@@ -295,9 +295,9 @@ if err != nil {
     <p>htmlc does not error on directives it cannot meaningfully execute in a server context. Instead, it <em>strips</em> them from the output. This means:</p>
 
     <ul>
-      <li><code>@click="handler"</code>, <code>v-on:submit="..."</code> — the event binding attribute is removed; the element itself is kept.</li>
-      <li><code>v-model="value"</code> — removed from the element.</li>
-      <li><code>v-once</code>, <code>v-memo</code> — removed; htmlc always renders each node fresh.</li>
+      <li><code v-pre>@click="handler"</code>, <code>v-on:submit="..."</code> — the event binding attribute is removed; the element itself is kept.</li>
+      <li><code v-pre>v-model="value"</code> — removed from the element.</li>
+      <li><code v-pre>v-once</code>, <code>v-memo</code> — removed; htmlc always renders each node fresh.</li>
     </ul>
 
     <p>This stripping behaviour is intentional. It allows you to write SFC templates that are shared in concept with a client-side Vue component — the server renders the initial HTML, and a separately bundled Vue application may hydrate and take over. The server's job is to produce ready-to-serve HTML; wiring up interactivity is the client's job.</p>

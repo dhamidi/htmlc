@@ -22,18 +22,18 @@
     <!-- ═══════════════════════════════════════════════ Step 1 -->
     <h2 id="step-1">Step 1 — Install htmlc</h2>
     <p>Add the package to your Go module:</p>
-    <pre v-syntax-highlight="'bash'"><code>go get github.com/dhamidi/htmlc</code></pre>
+    <pre v-syntax-highlight="'bash'"><code v-pre>go get github.com/dhamidi/htmlc</code></pre>
 
     <p>The CLI is optional but handy for testing components without writing Go code:</p>
-    <pre v-syntax-highlight="'bash'"><code>go install github.com/dhamidi/htmlc/cmd/htmlc@latest</code></pre>
+    <pre v-syntax-highlight="'bash'"><code v-pre>go install github.com/dhamidi/htmlc/cmd/htmlc@latest</code></pre>
 
     <!-- ═══════════════════════════════════════════════ Step 2 -->
     <h2 id="step-2">Step 2 — Write a component</h2>
     <p>Create a directory called <code>components/</code> and add a file named <code>Card.vue</code>:</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- components/Card.vue --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/Card.vue --&gt;
 &lt;template&gt;
   &lt;div class="card"&gt;
-    &lt;h2&gt;&#123;&#123; title }}&lt;/h2&gt;
+    &lt;h2&gt;&#123;&#123;<!---><!----> title }}&lt;/h2&gt;
     &lt;slot&gt;No content provided.&lt;/slot&gt;
   &lt;/div&gt;
 &lt;/template&gt;
@@ -51,7 +51,7 @@
     <!-- ═══════════════════════════════════════════════ Step 3 -->
     <h2 id="step-3">Step 3 — Create an engine</h2>
     <p>Call <code>htmlc.New</code> with the directory that contains your <code>.vue</code> files. The engine discovers and registers every component automatically.</p>
-    <pre v-syntax-highlight="'go'"><code>package main
+    <pre v-syntax-highlight="'go'"><code v-pre>package main
 
 import (
     "log"
@@ -72,7 +72,7 @@ func main() {
     <!-- ═══════════════════════════════════════════════ Step 4 -->
     <h2 id="step-4">Step 4 — Render with props</h2>
     <p>Call <code>RenderFragmentString</code> to render a component to a string. Pass props as a <code>map[string]any</code>.</p>
-    <pre v-syntax-highlight="'go'"><code>html, err := engine.RenderFragmentString("Card", map[string]any{
+    <pre v-syntax-highlight="'go'"><code v-pre>html, err := engine.RenderFragmentString("Card", map[string]any{
     "title": "Hello, htmlc!",
 })
 if err != nil {
@@ -81,7 +81,7 @@ if err != nil {
 fmt.Println(html)</code></pre>
 
     <p>Expected output (style block prepended by the engine):</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;style&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;style&gt;
 .card[data-v-…]{border:1px solid #ccc;border-radius:8px;padding:1rem}
 &lt;/style&gt;
 &lt;div class="card" data-v-…&gt;
@@ -96,7 +96,7 @@ fmt.Println(html)</code></pre>
     <p>Slot content is supplied through <strong>component composition in a <code>.vue</code> template</strong>. There is no <code>$slots</code> key in the Go props map; htmlc does not support injecting raw HTML into slots via the data map.</p>
 
     <p>Create a wrapper component that uses <code>Card</code> with slot content:</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- components/WelcomeCard.vue --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/WelcomeCard.vue --&gt;
 &lt;template&gt;
   &lt;Card title="Welcome"&gt;
     &lt;p&gt;This paragraph is rendered inside the Card's slot.&lt;/p&gt;
@@ -104,14 +104,14 @@ fmt.Println(html)</code></pre>
 &lt;/template&gt;</code></pre>
 
     <p>Then render the wrapper from Go:</p>
-    <pre v-syntax-highlight="'go'"><code>html, err := engine.RenderFragmentString("WelcomeCard", nil)
+    <pre v-syntax-highlight="'go'"><code v-pre>html, err := engine.RenderFragmentString("WelcomeCard", nil)
 if err != nil {
     log.Fatal(err)
 }
 fmt.Println(html)</code></pre>
 
     <p>Expected output:</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;div class="card" data-v-…&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;div class="card" data-v-…&gt;
   &lt;h2&gt;Welcome&lt;/h2&gt;
   &lt;p&gt;This paragraph is rendered inside the Card's slot.&lt;/p&gt;
 &lt;/div&gt;</code></pre>
@@ -121,12 +121,12 @@ fmt.Println(html)</code></pre>
     <Callout>
       <p><strong>Dynamic slot content from Go</strong><br>
       If you need to inject a dynamic HTML string into a component from Go, use a regular prop with <code>v-html</code> instead of a slot:</p>
-      <pre v-syntax-highlight="'html'"><code>&lt;!-- components/Card.vue --&gt;
+      <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/Card.vue --&gt;
 &lt;div class="card"&gt;
-  &lt;h2&gt;&#123;&#123; title }}&lt;/h2&gt;
+  &lt;h2&gt;&#123;&#123;<!---><!----> title }}&lt;/h2&gt;
   &lt;div v-html="body"&gt;&lt;/div&gt;
 &lt;/div&gt;</code></pre>
-      <pre v-syntax-highlight="'go'"><code>html, err := engine.RenderFragmentString("Card", map[string]any{
+      <pre v-syntax-highlight="'go'"><code v-pre>html, err := engine.RenderFragmentString("Card", map[string]any{
     "title": "Hello",
     "body":  "&lt;p&gt;Dynamic content from Go&lt;/p&gt;",
 })</code></pre>

@@ -5,7 +5,7 @@ go = "latest"
 [tasks.build]
 description = "Build the docs site with htmlc"
 run = """
-htmlc build -dir ./components -pages ./pages -out ./dist
+htmlc build -strict -dir ./components -pages ./pages -out ./dist
 cp -r public/. dist/
 """
 

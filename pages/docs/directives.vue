@@ -27,14 +27,14 @@
 
     <h2 id="v-if">v-if / v-else-if / v-else</h2>
     <p>Renders the element only when the expression is truthy. Whitespace-only text nodes between branches are ignored.</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;p v-if="role === 'admin'"&gt;Admin panel&lt;/p&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;p v-if="role === 'admin'"&gt;Admin panel&lt;/p&gt;
 &lt;p v-else-if="role === 'editor'"&gt;Editor view&lt;/p&gt;
 &lt;p v-else&gt;Read-only view&lt;/p&gt;</code></pre>
 
     <p>Works on <code>&lt;template&gt;</code> elements too (renders children only, no wrapper element):</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;template v-if="items.length &gt; 0"&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;template v-if="items.length &gt; 0"&gt;
   &lt;ul&gt;
-    &lt;li v-for="item in items"&gt;&#123;&#123; item }}&lt;/li&gt;
+    &lt;li v-for="item in items"&gt;&#123;&#123;<!---><!----> item }}&lt;/li&gt;
   &lt;/ul&gt;
 &lt;/template&gt;
 &lt;template v-else&gt;
@@ -43,11 +43,11 @@
 
     <h2 id="v-show">v-show</h2>
     <p>Adds <code>style="display:none"</code> when the expression is falsy. The element is always rendered (unlike <code>v-if</code>). Merges with any existing <code>style</code> attribute.</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;div v-show="isVisible"&gt;Visible when isVisible is truthy&lt;/div&gt;</code></pre>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;div v-show="isVisible"&gt;Visible when isVisible is truthy&lt;/div&gt;</code></pre>
 
     <h2 id="v-switch">v-switch / v-case / v-default</h2>
     <p>Switch/case conditional (implements Vue RFC #482). Must be on a <code>&lt;template&gt;</code> element. Renders the first matching <code>v-case</code> branch.</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;template v-switch="status"&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;template v-switch="status"&gt;
   &lt;div v-case="'active'"&gt;Active&lt;/div&gt;
   &lt;div v-case="'pending'"&gt;Pending approval&lt;/div&gt;
   &lt;div v-default&gt;Unknown status&lt;/div&gt;
@@ -55,17 +55,17 @@
 
     <h2 id="v-for">v-for</h2>
     <p>Repeats the element for each item in the iterable. Supports arrays, maps, and objects.</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- Array --&gt;
-&lt;li v-for="item in items"&gt;&#123;&#123; item }}&lt;/li&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- Array --&gt;
+&lt;li v-for="item in items"&gt;&#123;&#123;<!---><!----> item }}&lt;/li&gt;
 
 &lt;!-- With index --&gt;
-&lt;li v-for="(item, index) in items"&gt;&#123;&#123; index }}: &#123;&#123; item }}&lt;/li&gt;
+&lt;li v-for="(item, index) in items"&gt;&#123;&#123;<!---><!----> index }}: &#123;&#123;<!---> item }}&lt;/li&gt;
 
 &lt;!-- Object/map --&gt;
-&lt;li v-for="(value, key) in obj"&gt;&#123;&#123; key }}: &#123;&#123; value }}&lt;/li&gt;
+&lt;li v-for="(value, key) in obj"&gt;&#123;&#123;<!---><!----> key }}: &#123;&#123;<!---> value }}&lt;/li&gt;
 
 &lt;!-- Range (integer) --&gt;
-&lt;li v-for="i in 5"&gt;&#123;&#123; i }}&lt;/li&gt;</code></pre>
+&lt;li v-for="i in 5"&gt;&#123;&#123;<!---><!----> i }}&lt;/li&gt;</code></pre>
 
     <Callout>
       <p><strong>Note:</strong> Map iteration order follows Go's <code>reflect.MapKeys()</code> — not insertion order. Sort your maps before passing them if order matters.</p>
@@ -73,7 +73,7 @@
 
     <h2 id="v-bind">v-bind / :attr</h2>
     <p>Dynamically binds an HTML attribute to an expression. The shorthand is <code>:</code>.</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- Long form --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- Long form --&gt;
 &lt;a v-bind:href="url"&gt;Link&lt;/a&gt;
 
 &lt;!-- Shorthand --&gt;
@@ -87,10 +87,10 @@
 &lt;div :class="isActive ? 'active' : ''"&gt;...&lt;/div&gt;</code></pre>
 
     <p>When passing props to a component, <code>:propName</code> evaluates the expression:</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;Card :title="post.title" :author="post.author" /&gt;</code></pre>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;Card :title="post.title" :author="post.author" /&gt;</code></pre>
 
     <h3>:class — object and array syntax</h3>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- Object: keys with truthy values are included --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- Object: keys with truthy values are included --&gt;
 &lt;div :class="{ active: isActive, disabled: !isEnabled }"&gt;...&lt;/div&gt;
 
 &lt;!-- Array: non-empty string elements are included --&gt;
@@ -100,7 +100,7 @@
 &lt;div class="card" :class="{ featured: post.featured }"&gt;...&lt;/div&gt;</code></pre>
 
     <h3>:style — object syntax</h3>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- camelCase keys are converted to kebab-case in output --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- camelCase keys are converted to kebab-case in output --&gt;
 &lt;p :style="{ fontSize: '14px', backgroundColor: theme.bg }"&gt;...&lt;/p&gt;</code></pre>
 
     <h3>Boolean attributes</h3>
@@ -112,7 +112,7 @@
       entirely</strong> when the value is falsy, and rendered without a value
       when truthy.
     </p>
-    <pre v-syntax-highlight="'html'"><code>&lt;button :disabled="isLoading"&gt;Submit&lt;/button&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;button :disabled="isLoading"&gt;Submit&lt;/button&gt;
 &lt;!-- renders as &lt;button&gt; when isLoading is false --&gt;
 &lt;!-- renders as &lt;button disabled&gt; when isLoading is true --&gt;</code></pre>
 
@@ -123,7 +123,7 @@
       attribute. <code>class</code> and <code>style</code> keys follow the same
       merge rules. Boolean attribute semantics apply per key.
     </p>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- Spread HTMX attributes --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- Spread HTMX attributes --&gt;
 &lt;button v-bind="htmxAttrs"&gt;Delete&lt;/button&gt;
 
 &lt;!-- Spread props into a child component --&gt;
@@ -135,7 +135,7 @@
 
     <h2 id="v-html">v-html</h2>
     <p>Sets the element's inner HTML to the expression value. The value is <strong>not</strong> HTML-escaped. Only use with trusted content.</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;div v-html="renderedMarkdown"&gt;&lt;/div&gt;</code></pre>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;div v-html="renderedMarkdown"&gt;&lt;/div&gt;</code></pre>
 
     <Callout>
       <p><strong>Warning:</strong> Never use <code>v-html</code> with user-supplied data — it can introduce XSS vulnerabilities.</p>
@@ -143,9 +143,9 @@
 
     <h2 id="v-text">v-text</h2>
     <p>Sets the element's text content to the expression value. HTML-escaped. Replaces all child nodes.</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;span v-text="message"&gt;&lt;/span&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;span v-text="message"&gt;&lt;/span&gt;
 &lt;!-- equivalent to --&gt;
-&lt;span&gt;&#123;&#123; message }}&lt;/span&gt;</code></pre>
+&lt;span&gt;&#123;&#123;<!---><!----> message }}&lt;/span&gt;</code></pre>
 
     <h2 id="v-pre">v-pre</h2>
     <p>
@@ -153,8 +153,8 @@
       its descendants. Mustache syntax (<code>{{ "{{" }} }}</code>) is emitted literally.
       The <code>v-pre</code> attribute itself is stripped from the output.
     </p>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- This renders literally: &#123;&#123; raw }} --&gt;
-&lt;code v-pre&gt;&#123;&#123; raw }}&lt;/code&gt;</code></pre>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- This renders literally: &#123;&#123;<!---><!----> raw }} --&gt;
+&lt;code v-pre&gt;&#123;&#123;<!---><!----> raw }}&lt;/code&gt;</code></pre>
 
     <p>
       Use <code>v-pre</code> to show template syntax as documentation or source
@@ -163,7 +163,7 @@
 
     <h2 id="v-slot">v-slot / #slot</h2>
     <p>Passes content into a named slot of a child component.</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- In Layout.vue --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- In Layout.vue --&gt;
 &lt;header&gt;&lt;slot name="header" /&gt;&lt;/header&gt;
 &lt;main&gt;&lt;slot /&gt;&lt;/main&gt;
 
@@ -176,17 +176,17 @@
 &lt;/Layout&gt;</code></pre>
 
     <p>Scoped slots (slot props):</p>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- In List.vue --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- In List.vue --&gt;
 &lt;ul&gt;
   &lt;li v-for="item in items"&gt;
-    &lt;slot :item="item"&gt;&#123;&#123; item }}&lt;/slot&gt;
+    &lt;slot :item="item"&gt;&#123;&#123;<!---><!----> item }}&lt;/slot&gt;
   &lt;/li&gt;
 &lt;/ul&gt;
 
 &lt;!-- Usage --&gt;
 &lt;List :items="posts"&gt;
   &lt;template #default="{ item }"&gt;
-    &lt;a :href="item.url"&gt;&#123;&#123; item.title }}&lt;/a&gt;
+    &lt;a :href="item.url"&gt;&#123;&#123;<!---><!----> item.title }}&lt;/a&gt;
   &lt;/template&gt;
 &lt;/List&gt;</code></pre>
 
@@ -196,7 +196,7 @@
       expression must evaluate to a non-empty string naming a registered component
       or a standard HTML element.
     </p>
-    <pre v-syntax-highlight="'html'"><code>&lt;!-- Resolve from a variable --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- Resolve from a variable --&gt;
 &lt;component :is="activeView" /&gt;
 
 &lt;!-- Inline string literal --&gt;
@@ -215,17 +215,17 @@
         If the resolved name is a standard HTML element (e.g. <code>"div"</code>),
         it is rendered as a plain tag, not looked up in the component registry.
       </li>
-      <li><code>:is</code> is required; omitting it is a render error.</li>
+      <li><code v-pre>:is</code> is required; omitting it is a render error.</li>
     </ul>
 
     <h2 id="not-supported">Stripped directives</h2>
     <p>These directives are parsed but produce no output — they are client-side only and have no meaning in a server-side renderer:</p>
     <ul>
-      <li><code>v-model</code> — two-way binding</li>
-      <li><code>@event</code> / <code>v-on:event</code> — event listeners</li>
-      <li><code>v-once</code> — one-time render optimisation hint</li>
-      <li><code>v-memo</code> — memoisation hint</li>
-      <li><code>v-cloak</code> — FOUC prevention</li>
+      <li><code v-pre>v-model</code> — two-way binding</li>
+      <li><code v-pre>@event</code> / <code>v-on:event</code> — event listeners</li>
+      <li><code v-pre>v-once</code> — one-time render optimisation hint</li>
+      <li><code v-pre>v-memo</code> — memoisation hint</li>
+      <li><code v-pre>v-cloak</code> — FOUC prevention</li>
     </ul>
   </DocsPage>
 </template>

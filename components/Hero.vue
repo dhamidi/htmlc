@@ -1,7 +1,7 @@
 <template>
   <section class="hero">
     <div class="hero-logo">
-      <LogoIcon :size="96" style="border-radius:16px;" />
+      <LogoIcon :size="96" style="border-radius:16px;"></LogoIcon>
     </div>
     <div class="hero-badge">Go &bull; Zero JS &bull; Vue SFC syntax</div>
     <h1 class="hero-title">
