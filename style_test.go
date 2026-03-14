@@ -547,7 +547,7 @@ func TestScopeCSS_TenRules(t *testing.T) {
 func TestScopeCSS_EmptyBody(t *testing.T) {
 	css := "p {}"
 	got := ScopeCSS(css, "[data-v-abc]")
-	want := "p[data-v-abc]{}"
+	want := "p[data-v-abc] {}"
 	if got != want {
 		t.Errorf("ScopeCSS empty body:\ngot  %q\nwant %q", got, want)
 	}

@@ -382,10 +382,11 @@ func TestParser_ErrorCases(t *testing.T) {
 			errSub: "unexpected end",
 		},
 		// Unmatched opening bracket: the closing ']' is never found.
+		// The parser reports "expected ]" rather than a generic end-of-input message.
 		{
 			name:   "unmatched [",
 			src:    "[",
-			errSub: "unexpected end",
+			errSub: "expected ]",
 		},
 		// Trailing binary operator with no right-hand operand.
 		{
