@@ -6,36 +6,42 @@
 
     <!-- Features -->
     <div class="features">
-      <div class="feature-card">
-        <div class="feature-icon"><IconZap /></div>
-        <div class="feature-title">Zero JavaScript runtime</div>
-        <p class="feature-desc">Templates evaluate once per request and produce plain HTML. No hydration, no virtual DOM, no client bundles.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon"><IconFileCode /></div>
-        <div class="feature-title">Vue SFC syntax</div>
-        <p class="feature-desc">Author components using the same <code>.vue</code> format you already know — <code>v-if</code>, <code>v-for</code>, <code>v-bind</code>, slots, scoped styles.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon"><IconTerminal /></div>
-        <div class="feature-title">CLI &amp; Go API</div>
-        <p class="feature-desc">Use the <code>htmlc</code> CLI for static sites or import the Go package to render components inside any HTTP handler.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon"><IconPalette /></div>
-        <div class="feature-title">Scoped styles</div>
-        <p class="feature-desc"><code v-pre>&lt;style scoped&gt;</code> rewrites selectors and injects scope attributes automatically — styles never leak between components.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon"><IconGlobe /></div>
-        <div class="feature-title">Static site generation</div>
-        <p class="feature-desc"><code v-pre>htmlc build</code> walks a pages directory and renders every <code>.vue</code> file to a matching <code>.html</code> file. Props come from sibling JSON files.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon"><IconBug /></div>
-        <div class="feature-title">Debug mode</div>
-        <p class="feature-desc">Pass <code>-debug</code> and the output is annotated with HTML comments showing which component rendered each subtree.</p>
-      </div>
+      <FeatureCard title="Zero JavaScript runtime">
+        <template #icon><IconZap /></template>
+        Templates evaluate once per request and produce plain HTML.
+        No hydration, no virtual DOM, no client bundles.
+      </FeatureCard>
+
+      <FeatureCard title="Vue SFC syntax">
+        <template #icon><IconFileCode /></template>
+        Author components using the same <code>.vue</code> format you already know —
+        <code>v-if</code>, <code>v-for</code>, <code>v-bind</code>, slots, scoped styles.
+      </FeatureCard>
+
+      <FeatureCard title="CLI &amp; Go API">
+        <template #icon><IconTerminal /></template>
+        Use the <code>htmlc</code> CLI for static sites or import the Go package to
+        render components inside any HTTP handler.
+      </FeatureCard>
+
+      <FeatureCard title="Scoped styles">
+        <template #icon><IconPalette /></template>
+        <code v-pre>&lt;style scoped&gt;</code> rewrites selectors and injects scope
+        attributes automatically — styles never leak between components.
+      </FeatureCard>
+
+      <FeatureCard title="Static site generation">
+        <template #icon><IconGlobe /></template>
+        <code v-pre>htmlc build</code> walks a pages directory and renders every
+        <code>.vue</code> file to a matching <code>.html</code> file.
+        Props come from sibling JSON files.
+      </FeatureCard>
+
+      <FeatureCard title="Debug mode">
+        <template #icon><IconBug /></template>
+        Pass <code>-debug</code> and the output is annotated with HTML comments
+        showing which component rendered each subtree.
+      </FeatureCard>
     </div>
 
     <!-- Quick start (Go API) -->
@@ -85,11 +91,6 @@ html, err := engine.RenderFragmentString(
 
 <style>
   .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin: 4rem 0; }
-  .feature-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
-  .feature-icon { margin-bottom: 0.75rem; color: var(--accent); }
-  .feature-icon .icon { width: 1.5rem; height: 1.5rem; }
-  .feature-title { font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem; }
-  .feature-desc { font-size: 0.875rem; color: var(--muted); line-height: 1.6; }
 
   .section { margin: 5rem 0; }
   .section-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 0.75rem; }
