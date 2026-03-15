@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/dhamidi/htmlc/bridge"
 )
 
 // ---- CompileToTemplate tests ------------------------------------------------
@@ -130,9 +128,9 @@ func TestEngine_CompileToTemplate_UnsupportedConstruct(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unsupported construct")
 	}
-	var cerr *bridge.ConversionError
+	var cerr *ConversionError
 	if !errors.As(err, &cerr) {
-		t.Errorf("expected *bridge.ConversionError, got %T: %v", err, err)
+		t.Errorf("expected *ConversionError, got %T: %v", err, err)
 	}
 	if !errors.Is(err, ErrConversion) {
 		t.Errorf("expected error to wrap ErrConversion, got %v", err)
@@ -212,9 +210,9 @@ func TestEngine_RegisterTemplate_WithUnsupported(t *testing.T) {
 	if regErr == nil {
 		t.Fatal("expected error for {{with}}")
 	}
-	var cerr *bridge.ConversionError
+	var cerr *ConversionError
 	if !errors.As(regErr, &cerr) {
-		t.Errorf("expected *bridge.ConversionError, got %T: %v", regErr, regErr)
+		t.Errorf("expected *ConversionError, got %T: %v", regErr, regErr)
 	}
 	// Component must not be registered on error.
 	if e.Has("bad-tmpl") {

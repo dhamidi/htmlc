@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/dhamidi/htmlc"
-	"github.com/dhamidi/htmlc/bridge"
 )
 
 const helpTemplate = `template — convert between .vue components and html/template syntax
@@ -186,7 +185,7 @@ func runTemplateTmplToVue(args []string, stdin io.Reader, stdout, stderr io.Writ
 		return errSilent
 	}
 
-	result, err := bridge.TemplateToVue(string(src), *name)
+	result, err := htmlc.TemplateToVue(string(src), *name)
 	if err != nil {
 		fmt.Fprintln(stderr, cmdErrorMsg("template tmpl-to-vue", err.Error()))
 		return errSilent

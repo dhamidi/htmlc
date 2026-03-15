@@ -1,4 +1,4 @@
-// Package bridge implements bidirectional conversion between htmlc .vue
+// Package htmlc implements bidirectional conversion between htmlc .vue
 // components and Go's standard html/template format.
 //
 // # vue→tmpl direction
@@ -30,7 +30,7 @@
 //
 // TemplateToVue converts html/template source text to .vue component source.
 // This direction is explicitly best-effort; see TemplateToVue for details.
-package bridge
+package htmlc
 
 import (
 	stdhtml "html"
@@ -579,11 +579,3 @@ func shouldSkipAttrEmit(key string) bool {
 	return false
 }
 
-// voidElements is the set of HTML5 void elements.
-var voidElements = map[string]bool{
-	"area": true, "base": true, "br": true, "col": true, "embed": true,
-	"hr": true, "img": true, "input": true, "link": true, "meta": true,
-	"param": true, "source": true, "track": true, "wbr": true,
-}
-
-func isVoidElement(tag string) bool { return voidElements[tag] }

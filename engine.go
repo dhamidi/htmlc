@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
-
-	"github.com/dhamidi/htmlc/bridge"
 )
 
 // Options holds configuration for creating a new Engine.
@@ -813,7 +811,7 @@ func (e *Engine) Mount(mux *http.ServeMux, routes map[string]string) {
 // the bridge (for example, data-contract notices for v-html and v-bind spread).
 //
 // Error types follow the same conventions as CompileToTemplate: ErrComponentNotFound
-// when componentName is not registered, and *bridge.ConversionError (wrapped with
+// when componentName is not registered, and *ConversionError (wrapped with
 // ErrConversion) when a directive or expression cannot be converted.
 func (e *Engine) TemplateText(componentName string) (text string, warnings []string, err error) {
 	e.mu.RLock()
@@ -884,7 +882,7 @@ func (e *Engine) TemplateText(componentName string) (text string, warnings []str
 	// Convert each component to a {{define}} block and concatenate them.
 	var combined strings.Builder
 	for _, ce := range order {
-		result, convErr := bridge.VueToTemplate(ce.comp.Template, ce.lowerName)
+		result, convErr := VueToTemplate(ce.comp.Template, ce.lowerName)
 		if convErr != nil {
 			return "", nil, fmt.Errorf("%w: %w", ErrConversion, convErr)
 		}
@@ -906,7 +904,7 @@ func (e *Engine) TemplateText(componentName string) (text string, warnings []str
 //
 // Scoped <style> blocks are stripped from the output.  Non-recoverable
 // conversion errors (unsupported directives, complex expressions) are returned
-// as *bridge.ConversionError with source location information, wrapped together
+// as *ConversionError with source location information, wrapped together
 // with ErrConversion so callers can test with either errors.Is or errors.As.
 //
 // The returned *html/template.Template is safe to call with Execute or
@@ -932,7 +930,7 @@ func (e *Engine) CompileToTemplate(componentName string) (*htmltmpl.Template, er
 // accessible by their block names.
 //
 // If conversion fails (unsupported template constructs), RegisterTemplate
-// returns a *bridge.ConversionError wrapped with ErrConversion and does not
+// returns a *ConversionError wrapped with ErrConversion and does not
 // register anything.
 //
 // RegisterTemplate validates the template at registration time (fail-fast
@@ -959,7 +957,7 @@ func (e *Engine) RegisterTemplate(name string, tmpl *htmltmpl.Template) error {
 			// Map the root template to the caller-provided name.
 			tname = name
 		}
-		result, err := bridge.TemplateToVue(src, tname)
+		result, err := TemplateToVue(src, tname)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrConversion, err)
 		}

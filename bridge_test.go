@@ -1,12 +1,11 @@
-package bridge_test
+package htmlc_test
 
 import (
 	htmltemplate "html/template"
 	"strings"
 	"testing"
 
-	"github.com/dhamidi/htmlc"
-	"github.com/dhamidi/htmlc/bridge"
+	htmlc "github.com/dhamidi/htmlc"
 )
 
 // ---- helpers ----------------------------------------------------------------
@@ -20,10 +19,10 @@ func mustParseVue(t *testing.T, src string) *htmlc.Component {
 	return comp
 }
 
-func mustVueToTemplate(t *testing.T, src, name string) *bridge.VueToTemplateResult {
+func mustVueToTemplate(t *testing.T, src, name string) *htmlc.VueToTemplateResult {
 	t.Helper()
 	comp := mustParseVue(t, src)
-	result, err := bridge.VueToTemplate(comp.Template, name)
+	result, err := htmlc.VueToTemplate(comp.Template, name)
 	if err != nil {
 		t.Fatalf("VueToTemplate: %v", err)
 	}
@@ -56,22 +55,22 @@ func assertNoError(t *testing.T, err error, label string) {
 func TestClassifyExpr(t *testing.T) {
 	cases := []struct {
 		expr string
-		want bridge.ExprKind
+		want htmlc.ExprKind
 	}{
-		{".", bridge.ExprSimpleIdent},
-		{"name", bridge.ExprSimpleIdent},
-		{"_name", bridge.ExprSimpleIdent},
-		{"Name123", bridge.ExprSimpleIdent},
-		{"a.b", bridge.ExprDotPath},
-		{"a.b.c", bridge.ExprDotPath},
-		{"post.title", bridge.ExprDotPath},
-		{"items[0]", bridge.ExprComplex},
-		{"a + b", bridge.ExprComplex},
-		{"foo()", bridge.ExprComplex},
-		{"a?.b", bridge.ExprComplex},
+		{".", htmlc.ExprSimpleIdent},
+		{"name", htmlc.ExprSimpleIdent},
+		{"_name", htmlc.ExprSimpleIdent},
+		{"Name123", htmlc.ExprSimpleIdent},
+		{"a.b", htmlc.ExprDotPath},
+		{"a.b.c", htmlc.ExprDotPath},
+		{"post.title", htmlc.ExprDotPath},
+		{"items[0]", htmlc.ExprComplex},
+		{"a + b", htmlc.ExprComplex},
+		{"foo()", htmlc.ExprComplex},
+		{"a?.b", htmlc.ExprComplex},
 	}
 	for _, tc := range cases {
-		got := bridge.ClassifyExpr(tc.expr)
+		got := htmlc.ClassifyExpr(tc.expr)
 		if got != tc.want {
 			t.Errorf("ClassifyExpr(%q) = %v, want %v", tc.expr, got, tc.want)
 		}
@@ -93,7 +92,7 @@ func TestDotPrefix(t *testing.T) {
 		{"a + b", "", true},
 	}
 	for _, tc := range cases {
-		got, err := bridge.DotPrefix(tc.expr)
+		got, err := htmlc.DotPrefix(tc.expr)
 		if tc.wantErr {
 			if err == nil {
 				t.Errorf("DotPrefix(%q): expected error, got %q", tc.expr, got)
@@ -123,9 +122,9 @@ func TestVueToTemplate_DotPath(t *testing.T) {
 
 func TestVueToTemplate_ComplexExprError(t *testing.T) {
 	comp := mustParseVue(t, `<template><p>{{ items[0] }}</p></template>`)
-	_, err := bridge.VueToTemplate(comp.Template,"Test")
+	_, err := htmlc.VueToTemplate(comp.Template, "Test")
 	assertError(t, err, "complex expression")
-	var ce *bridge.ConversionError
+	var ce *htmlc.ConversionError
 	if ok := isConversionError(err, &ce); !ok {
 		t.Errorf("expected *ConversionError, got %T: %v", err, err)
 	}
@@ -175,7 +174,7 @@ func TestVueToTemplate_VForOuterScopeRef(t *testing.T) {
 	// "title" is an outer-scope variable, not the loop variable "item".
 	src := `<template><ul><li v-for="item in items">{{ title }}</li></ul></template>`
 	comp := mustParseVue(t, src)
-	_, err := bridge.VueToTemplate(comp.Template,"Test")
+	_, err := htmlc.VueToTemplate(comp.Template, "Test")
 	assertError(t, err, "outer-scope reference inside v-for")
 }
 
@@ -275,7 +274,7 @@ func TestVueToTemplate_ComponentZeroProps(t *testing.T) {
 func TestVueToTemplate_ComponentWithPropsError(t *testing.T) {
 	src := `<template><my-card :title="name"></my-card></template>`
 	comp := mustParseVue(t, src)
-	_, err := bridge.VueToTemplate(comp.Template,"Test")
+	_, err := htmlc.VueToTemplate(comp.Template, "Test")
 	assertError(t, err, "component with bound props")
 }
 
@@ -284,7 +283,7 @@ func TestVueToTemplate_ComponentWithPropsError(t *testing.T) {
 func TestVueToTemplate_CustomDirectiveError(t *testing.T) {
 	src := `<template><div v-highlight="color">text</div></template>`
 	comp := mustParseVue(t, src)
-	_, err := bridge.VueToTemplate(comp.Template,"Test")
+	_, err := htmlc.VueToTemplate(comp.Template, "Test")
 	assertError(t, err, "custom directive")
 }
 
@@ -302,61 +301,61 @@ func TestVueToTemplate_StyleNotInOutput(t *testing.T) {
 // ---- TemplateToVue ----------------------------------------------------------
 
 func TestTemplateToVue_SimpleIdent(t *testing.T) {
-	result, err := bridge.TemplateToVue(`<p>{{.name}}</p>`, "Test")
+	result, err := htmlc.TemplateToVue(`<p>{{.name}}</p>`, "Test")
 	assertNoError(t, err, "simple ident")
 	assertContains(t, result.Text, "{{ name }}", "mustache output")
 }
 
 func TestTemplateToVue_DotPath(t *testing.T) {
-	result, err := bridge.TemplateToVue(`<p>{{.a.b}}</p>`, "Test")
+	result, err := htmlc.TemplateToVue(`<p>{{.a.b}}</p>`, "Test")
 	assertNoError(t, err, "dot-path")
 	assertContains(t, result.Text, "{{ a.b }}", "dot-path output")
 }
 
 func TestTemplateToVue_PipelineError(t *testing.T) {
-	_, err := bridge.TemplateToVue(`<p>{{.items | len}}</p>`, "Test")
+	_, err := htmlc.TemplateToVue(`<p>{{.items | len}}</p>`, "Test")
 	assertError(t, err, "pipeline")
 }
 
 func TestTemplateToVue_If(t *testing.T) {
-	result, err := bridge.TemplateToVue(`{{if .cond}}<p>yes</p>{{end}}`, "Test")
+	result, err := htmlc.TemplateToVue(`{{if .cond}}<p>yes</p>{{end}}`, "Test")
 	assertNoError(t, err, "if")
 	assertContains(t, result.Text, `v-if="cond"`, "v-if attr")
 }
 
 func TestTemplateToVue_IfElse(t *testing.T) {
-	result, err := bridge.TemplateToVue(`{{if .cond}}<p>yes</p>{{else}}<p>no</p>{{end}}`, "Test")
+	result, err := htmlc.TemplateToVue(`{{if .cond}}<p>yes</p>{{else}}<p>no</p>{{end}}`, "Test")
 	assertNoError(t, err, "if-else")
 	assertContains(t, result.Text, `v-if="cond"`, "v-if")
 	assertContains(t, result.Text, `v-else`, "v-else")
 }
 
 func TestTemplateToVue_Range(t *testing.T) {
-	result, err := bridge.TemplateToVue(`{{range .items}}item{{end}}`, "Test")
+	result, err := htmlc.TemplateToVue(`{{range .items}}item{{end}}`, "Test")
 	assertNoError(t, err, "range")
 	assertContains(t, result.Text, `v-for="item in items"`, "v-for attr")
 }
 
 func TestTemplateToVue_Block(t *testing.T) {
-	result, err := bridge.TemplateToVue(`{{block "default" .}}fallback{{end}}`, "Test")
+	result, err := htmlc.TemplateToVue(`{{block "default" .}}fallback{{end}}`, "Test")
 	assertNoError(t, err, "block default")
 	assertContains(t, result.Text, "<slot>", "slot element")
 }
 
 func TestTemplateToVue_BlockNamed(t *testing.T) {
-	result, err := bridge.TemplateToVue(`{{block "header" .}}Header{{end}}`, "Test")
+	result, err := htmlc.TemplateToVue(`{{block "header" .}}Header{{end}}`, "Test")
 	assertNoError(t, err, "block named")
 	assertContains(t, result.Text, `<slot name="header">`, "named slot")
 }
 
 func TestTemplateToVue_Template(t *testing.T) {
-	result, err := bridge.TemplateToVue(`{{template "Card" .}}`, "Test")
+	result, err := htmlc.TemplateToVue(`{{template "Card" .}}`, "Test")
 	assertNoError(t, err, "template")
 	assertContains(t, result.Text, "<Card />", "component element")
 }
 
 func TestTemplateToVue_With(t *testing.T) {
-	_, err := bridge.TemplateToVue(`{{with .x}}body{{end}}`, "Test")
+	_, err := htmlc.TemplateToVue(`{{with .x}}body{{end}}`, "Test")
 	assertError(t, err, "with")
 }
 
@@ -380,7 +379,7 @@ func TestRoundTrip_SimpleInterpolation(t *testing.T) {
 	}
 
 	// Convert to Go template and render.
-	result, err := bridge.VueToTemplate(comp.Template,"RoundTrip")
+	result, err := htmlc.VueToTemplate(comp.Template, "RoundTrip")
 	if err != nil {
 		t.Fatalf("VueToTemplate: %v", err)
 	}
@@ -413,7 +412,7 @@ func TestRoundTrip_DotPath(t *testing.T) {
 		t.Fatalf("htmlc render: %v", err)
 	}
 
-	result, err := bridge.VueToTemplate(comp.Template,"RoundTrip")
+	result, err := htmlc.VueToTemplate(comp.Template, "RoundTrip")
 	if err != nil {
 		t.Fatalf("VueToTemplate: %v", err)
 	}
@@ -446,7 +445,7 @@ func TestRoundTrip_VFor(t *testing.T) {
 		t.Fatalf("htmlc render: %v", err)
 	}
 
-	result, err := bridge.VueToTemplate(comp.Template,"RoundTrip")
+	result, err := htmlc.VueToTemplate(comp.Template, "RoundTrip")
 	if err != nil {
 		t.Fatalf("VueToTemplate: %v", err)
 	}
@@ -467,11 +466,11 @@ func TestRoundTrip_VFor(t *testing.T) {
 
 // ---- helpers (package-private) ----------------------------------------------
 
-func isConversionError(err error, target **bridge.ConversionError) bool {
+func isConversionError(err error, target **htmlc.ConversionError) bool {
 	if err == nil {
 		return false
 	}
-	if ce, ok := err.(*bridge.ConversionError); ok {
+	if ce, ok := err.(*htmlc.ConversionError); ok {
 		if target != nil {
 			*target = ce
 		}
