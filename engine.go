@@ -804,29 +804,21 @@ func (e *Engine) Mount(mux *http.ServeMux, routes map[string]string) {
 	}
 }
 
-// CompileToTemplate compiles the named component (and all components it
-// statically references) into a single *html/template.Template.
+// TemplateText returns the raw html/template-compatible text for componentName
+// and all its statically-referenced sub-components.  The text consists of
+// {{ define }} blocks suitable for html/template.New("").Parse(text).
 //
-// The root component becomes the primary named template; all sub-components are
-// added as named {{ define }} blocks in the same template set.  Template names
-// follow Go convention: the component name is lowercased (e.g. "Card" →
-// "card").
-//
-// Scoped <style> blocks are stripped from the output.  Non-recoverable
-// conversion errors (unsupported directives, complex expressions) are returned
-// as *bridge.ConversionError with source location information, wrapped together
-// with ErrConversion so callers can test with either errors.Is or errors.As.
-//
-// The returned *html/template.Template is safe to call with Execute or
-// ExecuteTemplate for any data value compatible with the component's props.
-func (e *Engine) CompileToTemplate(componentName string) (*htmltmpl.Template, error) {
+// This is the text form of CompileToTemplate; see that method for full
+// semantics.  warnings contains any non-fatal conversion warnings emitted by
+// the bridge.
+func (e *Engine) TemplateText(componentName string) (text string, warnings []string, err error) {
 	e.mu.RLock()
 	reg := e.buildRegistryLocked()
 	e.mu.RUnlock()
 
 	root := resolveInRegistry(reg, componentName)
 	if root == nil {
-		return nil, fmt.Errorf("engine: unknown component %q: %w", componentName, ErrComponentNotFound)
+		return "", nil, fmt.Errorf("engine: unknown component %q: %w", componentName, ErrComponentNotFound)
 	}
 
 	// DFS to collect all transitively-referenced sub-components in dependency
@@ -881,23 +873,47 @@ func (e *Engine) CompileToTemplate(componentName string) (*htmltmpl.Template, er
 	}
 
 	rootLower := strings.ToLower(componentName)
-	if err := dfs(rootLower, root); err != nil {
-		return nil, err
+	if err = dfs(rootLower, root); err != nil {
+		return "", nil, err
 	}
 
 	// Convert each component to a {{define}} block and concatenate them.
 	var combined strings.Builder
 	for _, ce := range order {
-		result, err := bridge.VueToTemplate(ce.comp.Template, ce.lowerName)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrConversion, err)
+		result, convErr := bridge.VueToTemplate(ce.comp.Template, ce.lowerName)
+		if convErr != nil {
+			return "", nil, fmt.Errorf("%w: %w", ErrConversion, convErr)
 		}
-		// Accumulated warnings are silently dropped (no logger on engine).
+		warnings = append(warnings, result.Warnings...)
 		combined.WriteString(result.Text)
 		combined.WriteString("\n")
 	}
 
-	tmpl, err := htmltmpl.New(rootLower).Parse(combined.String())
+	return combined.String(), warnings, nil
+}
+
+// CompileToTemplate compiles the named component (and all components it
+// statically references) into a single *html/template.Template.
+//
+// The root component becomes the primary named template; all sub-components are
+// added as named {{ define }} blocks in the same template set.  Template names
+// follow Go convention: the component name is lowercased (e.g. "Card" →
+// "card").
+//
+// Scoped <style> blocks are stripped from the output.  Non-recoverable
+// conversion errors (unsupported directives, complex expressions) are returned
+// as *bridge.ConversionError with source location information, wrapped together
+// with ErrConversion so callers can test with either errors.Is or errors.As.
+//
+// The returned *html/template.Template is safe to call with Execute or
+// ExecuteTemplate for any data value compatible with the component's props.
+func (e *Engine) CompileToTemplate(componentName string) (*htmltmpl.Template, error) {
+	text, _, err := e.TemplateText(componentName)
+	if err != nil {
+		return nil, err
+	}
+	rootLower := strings.ToLower(componentName)
+	tmpl, err := htmltmpl.New(rootLower).Parse(text)
 	if err != nil {
 		return nil, err
 	}

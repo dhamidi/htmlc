@@ -10,11 +10,14 @@ import (
 var readmeContent string
 
 var subcommandHelp = map[string]string{
-	"render": helpRender,
-	"page":   helpPage,
-	"props":  helpProps,
-	"ast":    helpAst,
-	"build":  helpBuild,
+	"render":               helpRender,
+	"page":                 helpPage,
+	"props":                helpProps,
+	"ast":                  helpAst,
+	"build":                helpBuild,
+	"template":             helpTemplate,
+	"template vue-to-tmpl": helpTemplateVueToTmpl,
+	"template tmpl-to-vue": helpTemplateTmplToVue,
 }
 
 func printHelp(w io.Writer) {
