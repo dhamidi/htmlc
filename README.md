@@ -22,7 +22,7 @@ A server-side Go template engine that uses Vue.js Single File Component (`.vue`)
 8. [Debug Mode](#debug-mode)
 9. [Custom Directives](#custom-directives)
 10. [Compatibility with Vue.js](#compatibility-with-vuejs)
-11. [bridge: .vue ↔ html/template Conversion](#bridge-vue--htmltemplate-conversion)
+11. [html/template Integration](#htmltemplate-integration)
 
 ---
 
@@ -1228,34 +1228,33 @@ passed at render time.
 
 ---
 
-## 11. bridge: .vue ↔ html/template Conversion
+## 11. html/template Integration
 
-The `bridge` sub-package (`github.com/dhamidi/htmlc/bridge`) provides
-bidirectional conversion between `.vue` components and Go's standard
-`html/template` format.
+Already using `html/template`? htmlc works alongside your existing templates
+with no changes required. Use `RegisterTemplate` to bring any existing partial
+into an htmlc component tree, and `CompileToTemplate` to export new `.vue`
+components to any library that requires `*html/template.Template`. Adopt
+incrementally — one component at a time.
 
-### vue → tmpl
+### CompileToTemplate — export a .vue component for stdlib code
 
-`VueToTemplate` converts a parsed component's template tree (`*html.Node`)
-to a string containing `{{define "name"}}…{{end}}` blocks suitable for
-`html/template`:
+`CompileToTemplate` compiles a named component (and all components it
+transitively references) into a single `*html/template.Template`:
 
 ```go
-import (
-    "github.com/dhamidi/htmlc"
-    "github.com/dhamidi/htmlc/bridge"
-)
+tmpl, err := engine.CompileToTemplate("Card")
+// tmpl is ready to Execute; sub-components appear as named define blocks.
+// Template names are lowercased: "Card" → "card".
 
-comp, err := htmlc.ParseFile("Card.vue", src)
-result, err := bridge.VueToTemplate(comp.Template, "card")
-// result.Text contains {{define "card"}}…{{end}}
-// result.Warnings lists non-fatal issues (v-html, v-bind spread, etc.)
-
-tmpl, err := html/template.New("").Parse(result.Text)
-tmpl.ExecuteTemplate(w, "card", data)
+var buf strings.Builder
+tmpl.Execute(&buf, map[string]any{"title": "Hello"})
 ```
 
-#### Supported constructs
+Scoped `<style>` blocks are stripped from the output. Non-recoverable errors
+are returned as `*ConversionError` (also testable with
+`errors.Is(err, ErrConversion)`).
+
+#### Supported constructs (vue → tmpl)
 
 | Vue syntax | Go template output |
 |---|---|
@@ -1276,17 +1275,25 @@ tmpl.ExecuteTemplate(w, "card", data)
 | `<my-component>` (zero props) | `{{template "my-component" .}}` |
 
 Complex expressions, bound props on child components, and custom directives
-return `*bridge.ConversionError`.
+return `*ConversionError`.
 
-### tmpl → vue (best-effort)
+### RegisterTemplate — use existing partials inside .vue files
 
-`TemplateToVue` converts `html/template` source to `.vue` syntax.
-This direction is best-effort; some constructs cannot be round-tripped.
+`RegisterTemplate` imports an existing `*html/template.Template` into the
+engine's registry as a virtual htmlc component under the given name:
 
 ```go
-result, err := bridge.TemplateToVue(tmplSrc, "Card")
-// result.Text is a .vue source string with <template>…</template>
+subTmpl, _ := html.template.New("foot-note").Parse("<footer>{{.year}}</footer>")
+err := engine.RegisterTemplate("foot-note", subTmpl)
+// "foot-note" can now be used as a child component in .vue files.
 ```
+
+All `{{define}}` blocks within `tmpl` are also registered under their block
+names. Conversion is validated at registration time; unsupported constructs
+(e.g. `{{with}}`) return `*ConversionError` and nothing is registered.
+Registering the same name twice keeps the latest value ("last write wins").
+
+#### Supported constructs (tmpl → vue)
 
 | Template syntax | Vue output |
 |---|---|
@@ -1298,53 +1305,6 @@ result, err := bridge.TemplateToVue(tmplSrc, "Card")
 | `{{template "Name" .}}` | `<Name />` |
 
 `{{with}}`, variable assignments, and multi-command pipelines return
-`*bridge.ConversionError`.
+`*ConversionError`.
 
-### Engine bridge methods
-
-`Engine` provides two high-level methods that build on the bridge package,
-handling sub-component discovery and registration automatically.
-
-#### CompileToTemplate
-
-`CompileToTemplate` compiles a named component (and all components it
-transitively references) into a single `*html/template.Template`:
-
-```go
-tmpl, err := engine.CompileToTemplate("Card")
-// tmpl is ready to Execute; sub-components appear as named define blocks.
-// Template names are lowercased: "Card" → "card".
-
-var buf strings.Builder
-tmpl.Execute(&buf, map[string]any{"title": "Hello"})
-```
-
-Scoped `<style>` blocks are stripped from the output. Non-recoverable errors
-are returned as `*bridge.ConversionError` (also testable with
-`errors.Is(err, htmlc.ErrConversion)`).
-
-#### RegisterTemplate
-
-`RegisterTemplate` imports an existing `*html/template.Template` into the
-engine's registry as a virtual htmlc component under the given name:
-
-```go
-subTmpl, _ := html/template.New("foot-note").Parse("<footer>{{.year}}</footer>")
-err := engine.RegisterTemplate("foot-note", subTmpl)
-// "foot-note" can now be used as a child component in .vue files.
-```
-
-All `{{define}}` blocks within `tmpl` are also registered under their block
-names.  Conversion is validated at registration time; unsupported constructs
-(e.g. `{{with}}`) return `*bridge.ConversionError` and nothing is registered.
-Registering the same name twice keeps the latest value ("last write wins").
-
-### Expression classifier
-
-The `bridge` package also exposes `ClassifyExpr`, `DotPrefix`, and `Snippet`
-as utilities for inspecting and transforming htmlc expressions:
-
-```go
-kind := bridge.ClassifyExpr("post.title") // bridge.ExprDotPath
-dot, err := bridge.DotPrefix("post.title") // ".post.title", nil
-```
+For step-by-step recipes, see `docs/howto-template-integration.md`.
