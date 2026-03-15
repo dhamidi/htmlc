@@ -64,10 +64,20 @@ type Options struct {
 
 // engineEntry holds a parsed component together with its source path and the
 // mtime at which it was last parsed.
+//
+// For synthetic components (created by ImportTemplate), comp is nil and
+// renderFn is non-nil. Synthetic entries are skipped by hot-reload because
+// their path is empty.
 type engineEntry struct {
 	path    string
 	comp    *Component
 	modTime time.Time
+	// renderFn, when non-nil, replaces the normal component rendering pipeline.
+	// Used for synthetic components that wrap *html/template.Template values.
+	renderFn func(w io.Writer, data map[string]any) error
+	// props holds props discovered from the wrapped template's parse tree.
+	// Only populated for synthetic entries (renderFn != nil).
+	props []PropInfo
 }
 
 // Engine is the entry point for rendering .vue components. Create one with
@@ -318,13 +328,36 @@ func (e *Engine) maybeReload() error {
 }
 
 // buildRegistryLocked returns a Registry snapshot of all current entries.
+// Synthetic entries (renderFn != nil, comp == nil) are excluded from the
+// registry because the renderer cannot use a nil *Component. Synthetic
+// components are dispatched through the synthComponents map instead.
 // The caller must hold at least e.mu.RLock().
 func (e *Engine) buildRegistryLocked() Registry {
 	reg := make(Registry, len(e.entries))
 	for name, entry := range e.entries {
-		reg[name] = entry.comp
+		if entry.comp != nil {
+			reg[name] = entry.comp
+		}
 	}
 	return reg
+}
+
+// buildSynthRegistryLocked returns a snapshot of the synthetic-component render
+// functions for all entries that have renderFn set. These are passed to the
+// renderer via WithSynthComponents so that <Name> tags in .vue templates can
+// invoke imported stdlib templates.
+// The caller must hold at least e.mu.RLock().
+func (e *Engine) buildSynthRegistryLocked() map[string]func(io.Writer, map[string]any) error {
+	var synth map[string]func(io.Writer, map[string]any) error
+	for name, entry := range e.entries {
+		if entry.renderFn != nil {
+			if synth == nil {
+				synth = make(map[string]func(io.Writer, map[string]any) error)
+			}
+			synth[name] = entry.renderFn
+		}
+	}
+	return synth
 }
 
 // buildNSRegistryLocked returns a snapshot of the namespaced component index.
@@ -440,6 +473,11 @@ func (e *Engine) ValidateAll() []ValidationError {
 
 	var errs []ValidationError
 	for _, ne := range entries {
+		// Synthetic entries (imported via ImportTemplate) have no Component;
+		// they are always valid from the engine's perspective.
+		if ne.entry.comp == nil {
+			continue
+		}
 		for _, w := range ne.entry.comp.Warnings {
 			errs = append(errs, ValidationError{
 				Component: ne.name,
@@ -568,8 +606,10 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 	entry, ok := e.entries[name]
 	var reg Registry
 	var nsReg map[string]map[string]*Component
+	var synthReg map[string]func(io.Writer, map[string]any) error
 	if ok {
 		reg = e.buildRegistryLocked()
+		synthReg = e.buildSynthRegistryLocked()
 		if len(e.nsEntries) > 0 {
 			nsReg = e.buildNSRegistryLocked()
 		}
@@ -580,6 +620,14 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 		return nil, fmt.Errorf("engine: unknown component %q: %w", name, ErrComponentNotFound)
 	}
 
+	// Synthetic component (imported via ImportTemplate): delegate directly to
+	// its render function, bypassing the normal Renderer pipeline.
+	if entry.renderFn != nil {
+		sc := &StyleCollector{}
+		scope := e.applyEngineScope(data)
+		return sc, entry.renderFn(w, scope)
+	}
+
 	sc := &StyleCollector{}
 	renderer := NewRenderer(entry.comp).
 		WithStyles(sc).
@@ -587,6 +635,9 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 		WithDirectives(e.directives).
 		WithFuncs(e.funcs).
 		WithContext(ctx)
+	if len(synthReg) > 0 {
+		renderer = renderer.WithSynthComponents(synthReg)
+	}
 	if nsReg != nil {
 		renderer = renderer.WithNSComponents(nsReg, e.opts.ComponentDir)
 	}
