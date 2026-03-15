@@ -3,18 +3,25 @@ package bridge
 import (
 	"fmt"
 	"strings"
-
-	"github.com/dhamidi/htmlc"
 )
+
+// SourceLocation describes a position within a source file.
+// It mirrors htmlc.SourceLocation without importing the parent package.
+type SourceLocation struct {
+	File    string // source file path
+	Line    int    // 1-based line number (0 = unknown)
+	Column  int    // 1-based column (0 = unknown)
+	Snippet string // ≈3-line context around the error (may be empty)
+}
 
 // ConversionError is returned when a .vue→tmpl or tmpl→.vue conversion
 // encounters an unsupported construct.
 type ConversionError struct {
-	Component string                // component name, e.g. "PostPage"
-	Directive string                // directive name, e.g. "v-if" (may be empty)
-	Message   string                // human-readable cause
-	Location  *htmlc.SourceLocation // source position; may be nil
-	Cause     error                 // underlying error; may be nil
+	Component string          // component name, e.g. "PostPage"
+	Directive string          // directive name, e.g. "v-if" (may be empty)
+	Message   string          // human-readable cause
+	Location  *SourceLocation // source position; may be nil
+	Cause     error           // underlying error; may be nil
 }
 
 func (e *ConversionError) Error() string {

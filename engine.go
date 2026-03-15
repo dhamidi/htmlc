@@ -3,6 +3,7 @@ package htmlc
 import (
 	"context"
 	"fmt"
+	htmltmpl "html/template"
 	"io"
 	"io/fs"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
+
+	"github.com/dhamidi/htmlc/bridge"
 )
 
 // Options holds configuration for creating a new Engine.
@@ -799,4 +802,163 @@ func (e *Engine) Mount(mux *http.ServeMux, routes map[string]string) {
 	for pattern, name := range routes {
 		mux.HandleFunc(pattern, e.ServePageComponent(name, nil))
 	}
+}
+
+// CompileToTemplate compiles the named component (and all components it
+// statically references) into a single *html/template.Template.
+//
+// The root component becomes the primary named template; all sub-components are
+// added as named {{ define }} blocks in the same template set.  Template names
+// follow Go convention: the component name is lowercased (e.g. "Card" →
+// "card").
+//
+// Scoped <style> blocks are stripped from the output.  Non-recoverable
+// conversion errors (unsupported directives, complex expressions) are returned
+// as *bridge.ConversionError with source location information, wrapped together
+// with ErrConversion so callers can test with either errors.Is or errors.As.
+//
+// The returned *html/template.Template is safe to call with Execute or
+// ExecuteTemplate for any data value compatible with the component's props.
+func (e *Engine) CompileToTemplate(componentName string) (*htmltmpl.Template, error) {
+	e.mu.RLock()
+	reg := e.buildRegistryLocked()
+	e.mu.RUnlock()
+
+	root := resolveInRegistry(reg, componentName)
+	if root == nil {
+		return nil, fmt.Errorf("engine: unknown component %q: %w", componentName, ErrComponentNotFound)
+	}
+
+	// DFS to collect all transitively-referenced sub-components in dependency
+	// order (leaves first, root last).  visited is keyed on the lowercase tag
+	// name as it appears in the HTML tree (already lowercased by the parser).
+	type compEntry struct {
+		lowerName string
+		comp      *Component
+	}
+	visited := make(map[string]bool)
+	var order []compEntry
+
+	var dfs func(lowerName string, comp *Component) error
+	dfs = func(lowerName string, comp *Component) error {
+		if visited[lowerName] {
+			return nil
+		}
+		visited[lowerName] = true
+
+		// Walk the HTML node tree and recurse into any element whose name
+		// resolves to a registered component (same strategy as the renderer).
+		if comp.Template != nil {
+			refSeen := make(map[string]bool)
+			var walkNode func(*html.Node) error
+			walkNode = func(n *html.Node) error {
+				if n.Type == html.ElementNode {
+					if subComp := resolveInRegistry(reg, n.Data); subComp != nil {
+						// n.Data is already lowercased by the HTML parser.
+						refName := n.Data
+						if !refSeen[refName] {
+							refSeen[refName] = true
+							if err := dfs(refName, subComp); err != nil {
+								return err
+							}
+						}
+					}
+				}
+				for child := n.FirstChild; child != nil; child = child.NextSibling {
+					if err := walkNode(child); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			if err := walkNode(comp.Template); err != nil {
+				return err
+			}
+		}
+
+		order = append(order, compEntry{lowerName, comp})
+		return nil
+	}
+
+	rootLower := strings.ToLower(componentName)
+	if err := dfs(rootLower, root); err != nil {
+		return nil, err
+	}
+
+	// Convert each component to a {{define}} block and concatenate them.
+	var combined strings.Builder
+	for _, ce := range order {
+		result, err := bridge.VueToTemplate(ce.comp.Template, ce.lowerName)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrConversion, err)
+		}
+		// Accumulated warnings are silently dropped (no logger on engine).
+		combined.WriteString(result.Text)
+		combined.WriteString("\n")
+	}
+
+	tmpl, err := htmltmpl.New(rootLower).Parse(combined.String())
+	if err != nil {
+		return nil, err
+	}
+	return tmpl, nil
+}
+
+// RegisterTemplate registers an existing *html/template.Template as a virtual
+// htmlc component under name.  The template is converted to htmlc's internal
+// representation using the tmpl→vue bridge.
+//
+// All named {{ define }} blocks within tmpl are also registered as components
+// accessible by their block names.
+//
+// If conversion fails (unsupported template constructs), RegisterTemplate
+// returns a *bridge.ConversionError wrapped with ErrConversion and does not
+// register anything.
+//
+// RegisterTemplate validates the template at registration time (fail-fast
+// behaviour); it does not defer validation to render time.
+//
+// When called with a name already in use, the new registration wins
+// ("last write wins"), consistent with flat-registry behaviour.
+func (e *Engine) RegisterTemplate(name string, tmpl *htmltmpl.Template) error {
+	type parsed struct {
+		name string
+		comp *Component
+	}
+
+	// Convert all templates first; if any fails, return the error without
+	// side effects (nothing is registered).
+	var results []parsed
+	for _, t := range tmpl.Templates() {
+		if t.Tree == nil || t.Tree.Root == nil {
+			continue
+		}
+		src := t.Tree.Root.String()
+		tname := t.Name()
+		if tname == tmpl.Name() {
+			// Map the root template to the caller-provided name.
+			tname = name
+		}
+		result, err := bridge.TemplateToVue(src, tname)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrConversion, err)
+		}
+		comp, err := ParseFile("", result.Text)
+		if err != nil {
+			return err
+		}
+		results = append(results, parsed{tname, comp})
+	}
+
+	// All conversions succeeded; register under the write lock.
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, r := range results {
+		entry := &engineEntry{comp: r.comp}
+		e.entries[r.name] = entry
+		if lower := strings.ToLower(r.name); lower != r.name {
+			e.entries[lower] = entry
+		}
+	}
+	return nil
 }

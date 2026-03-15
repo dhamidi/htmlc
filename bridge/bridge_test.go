@@ -23,7 +23,7 @@ func mustParseVue(t *testing.T, src string) *htmlc.Component {
 func mustVueToTemplate(t *testing.T, src, name string) *bridge.VueToTemplateResult {
 	t.Helper()
 	comp := mustParseVue(t, src)
-	result, err := bridge.VueToTemplate(comp, name)
+	result, err := bridge.VueToTemplate(comp.Template, name)
 	if err != nil {
 		t.Fatalf("VueToTemplate: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestVueToTemplate_DotPath(t *testing.T) {
 
 func TestVueToTemplate_ComplexExprError(t *testing.T) {
 	comp := mustParseVue(t, `<template><p>{{ items[0] }}</p></template>`)
-	_, err := bridge.VueToTemplate(comp, "Test")
+	_, err := bridge.VueToTemplate(comp.Template,"Test")
 	assertError(t, err, "complex expression")
 	var ce *bridge.ConversionError
 	if ok := isConversionError(err, &ce); !ok {
@@ -175,7 +175,7 @@ func TestVueToTemplate_VForOuterScopeRef(t *testing.T) {
 	// "title" is an outer-scope variable, not the loop variable "item".
 	src := `<template><ul><li v-for="item in items">{{ title }}</li></ul></template>`
 	comp := mustParseVue(t, src)
-	_, err := bridge.VueToTemplate(comp, "Test")
+	_, err := bridge.VueToTemplate(comp.Template,"Test")
 	assertError(t, err, "outer-scope reference inside v-for")
 }
 
@@ -275,7 +275,7 @@ func TestVueToTemplate_ComponentZeroProps(t *testing.T) {
 func TestVueToTemplate_ComponentWithPropsError(t *testing.T) {
 	src := `<template><my-card :title="name"></my-card></template>`
 	comp := mustParseVue(t, src)
-	_, err := bridge.VueToTemplate(comp, "Test")
+	_, err := bridge.VueToTemplate(comp.Template,"Test")
 	assertError(t, err, "component with bound props")
 }
 
@@ -284,7 +284,7 @@ func TestVueToTemplate_ComponentWithPropsError(t *testing.T) {
 func TestVueToTemplate_CustomDirectiveError(t *testing.T) {
 	src := `<template><div v-highlight="color">text</div></template>`
 	comp := mustParseVue(t, src)
-	_, err := bridge.VueToTemplate(comp, "Test")
+	_, err := bridge.VueToTemplate(comp.Template,"Test")
 	assertError(t, err, "custom directive")
 }
 
@@ -380,7 +380,7 @@ func TestRoundTrip_SimpleInterpolation(t *testing.T) {
 	}
 
 	// Convert to Go template and render.
-	result, err := bridge.VueToTemplate(comp, "RoundTrip")
+	result, err := bridge.VueToTemplate(comp.Template,"RoundTrip")
 	if err != nil {
 		t.Fatalf("VueToTemplate: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestRoundTrip_DotPath(t *testing.T) {
 		t.Fatalf("htmlc render: %v", err)
 	}
 
-	result, err := bridge.VueToTemplate(comp, "RoundTrip")
+	result, err := bridge.VueToTemplate(comp.Template,"RoundTrip")
 	if err != nil {
 		t.Fatalf("VueToTemplate: %v", err)
 	}
@@ -446,7 +446,7 @@ func TestRoundTrip_VFor(t *testing.T) {
 		t.Fatalf("htmlc render: %v", err)
 	}
 
-	result, err := bridge.VueToTemplate(comp, "RoundTrip")
+	result, err := bridge.VueToTemplate(comp.Template,"RoundTrip")
 	if err != nil {
 		t.Fatalf("VueToTemplate: %v", err)
 	}

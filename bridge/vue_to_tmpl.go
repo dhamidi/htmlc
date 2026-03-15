@@ -38,7 +38,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dhamidi/htmlc"
 	"golang.org/x/net/html"
 )
 
@@ -49,20 +48,24 @@ type VueToTemplateResult struct {
 	Warnings []string
 }
 
-// VueToTemplate converts a parsed .vue component to Go html/template syntax.
-// The result is a string containing one or more {{define "name"}}…{{end}}
-// blocks, suitable for html/template.New("").Parse(result).
+// VueToTemplate converts a parsed .vue component template tree to Go
+// html/template syntax.  tmpl is the root *html.Node from the component's
+// Template field (i.e. the parsed <template> section).
 //
-// componentName is the base name used for the outermost {{define}} block.
+// The result is a string containing one {{define "componentName"}}…{{end}}
+// block, suitable for combining with other such blocks and parsing via
+// html/template.New("").Parse(combined).
+//
+// componentName is the base name used for the {{define}} block.
 //
 // Returns *ConversionError on the first unsupported construct encountered.
-func VueToTemplate(comp *htmlc.Component, componentName string) (*VueToTemplateResult, error) {
+func VueToTemplate(tmpl *html.Node, componentName string) (*VueToTemplateResult, error) {
 	ctx := &vueConvCtx{
 		sb:       new(strings.Builder),
 		warnings: new([]string),
 	}
 	fmt.Fprintf(ctx.sb, `{{define "%s"}}`, componentName)
-	if err := ctx.writeChildren(comp.Template); err != nil {
+	if err := ctx.writeChildren(tmpl); err != nil {
 		return nil, err
 	}
 	ctx.sb.WriteString(`{{end}}`)

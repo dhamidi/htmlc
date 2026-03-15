@@ -14,6 +14,15 @@ var (
 	// ErrMissingProp is returned when a required prop is absent from the render
 	// scope and no MissingPropFunc has been set.
 	ErrMissingProp = errors.New("htmlc: missing required prop")
+
+	// ErrConversion is returned (wrapped) when a bridge conversion fails.
+	// Callers can use errors.As to extract the underlying *bridge.ConversionError:
+	//
+	//	var cerr *bridge.ConversionError
+	//	if errors.As(err, &cerr) {
+	//	    fmt.Println(cerr.Location)
+	//	}
+	ErrConversion = errors.New("htmlc: conversion failed")
 )
 
 // SourceLocation describes a position within a source file.
