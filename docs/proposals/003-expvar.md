@@ -59,8 +59,9 @@ a standard HTTP integration point.
 2. **Runtime settability for scalar options**: `Reload` and `Debug` can be
    toggled at runtime by writing to their `expvar.Int` variables; the engine
    picks up the new value on the next render or reload check without restart.
-3. **Read-only protection for structural options**: `ComponentDir` and `FS` are
-   inspectable but not settable through the expvar interface.
+3. **All options writable at runtime**: `ComponentDir` and `FS` are settable
+   via `SetComponentDir` and `SetFS` methods that re-run discovery atomically
+   under the engine's write-lock.
 4. **Non-colliding multi-engine registration**: a process running multiple
    `Engine` instances can publish each under a caller-supplied name prefix; two
    engines with different prefixes never share or collide in the global registry.
@@ -77,21 +78,18 @@ a standard HTTP integration point.
 
 ## 3. Non-Goals
 
-1. **Writable `ComponentDir` or `FS`**: changing the component root at runtime
-   would require a full re-discover walk and could leave the engine in a
-   transient inconsistent state.  This is deferred to a future RFC.
-2. **Settable `Directives`**: directive registration already has a thread-safe
+1. **Settable `Directives`**: directive registration already has a thread-safe
    post-construction API (`RegisterDirective`); bridging it to expvar is out of
    scope here.
-3. **Custom HTTP admin endpoints**: this RFC adds standard `expvar` publication
+2. **Custom HTTP admin endpoints**: this RFC adds standard `expvar` publication
    only.  Building a read/write admin UI or structured mutation API on top of
    expvar is a separate concern.
-4. **Per-request metrics**: counters proposed here are process-lifetime
+3. **Per-request metrics**: counters proposed here are process-lifetime
    aggregates.  Request-level histograms, percentile tracking, or distributed
    tracing integration are out of scope.
-5. **Prometheus or OpenTelemetry bridges**: expvar is the sole target.  Bridging
+4. **Prometheus or OpenTelemetry bridges**: expvar is the sole target.  Bridging
    to other telemetry systems can be layered on top of expvar after this RFC.
-6. **Engine pooling or hot-swapping**: swapping an `Engine` out of an HTTP
+5. **Engine pooling or hot-swapping**: swapping an `Engine` out of an HTTP
    handler while requests are in flight is outside this proposal's scope.
 
 ---
@@ -133,16 +131,18 @@ type Engine struct {
     varReload       *expvar.Int    // 0 = false, 1 = true
     varDebug        *expvar.Int    // 0 = false, 1 = true
 
-    // read-only inspection vars
+    // settable option vars — updated by SetComponentDir / SetFS
     varComponentDir *expvar.String
-    varFSType       *expvar.String // reflect.TypeOf(opts.FS).String() or "<nil>"
+    varFS           *expvar.String // reflect.TypeOf(opts.FS).String() or "<nil>"
+
+    // read-only info var (published under "info" sub-map)
     varDirectives   *expvar.Func   // returns []string of registered directive names
 
     // performance counters
-    counterRenders      *expvar.Int // total calls to renderComponent
-    counterRenderErrors *expvar.Int // renderComponent calls that returned non-nil error
-    counterReloads      *expvar.Int // maybeReload full re-walk triggers
-    counterRenderNanos  *expvar.Int // cumulative wall-clock render time in nanoseconds
+    counterRenders      *expvar.Int  // total calls to renderComponent
+    counterRenderErrors *expvar.Int  // renderComponent calls that returned non-nil error
+    counterReloads      *expvar.Int  // maybeReload full re-walk triggers
+    counterRenderNanos  *expvar.Int  // cumulative wall-clock render time in nanoseconds
     counterComponents   *expvar.Func // len(e.entries) de-duplicated, computed live
 
     // global registry integration
@@ -181,11 +181,11 @@ func New(opts Options) (*Engine, error) {
     e.varComponentDir = new(expvar.String)
     e.varComponentDir.Set(opts.ComponentDir)
 
-    e.varFSType = new(expvar.String)
+    e.varFS = new(expvar.String)
     if opts.FS != nil {
-        e.varFSType.Set(reflect.TypeOf(opts.FS).String())
+        e.varFS.Set(reflect.TypeOf(opts.FS).String())
     } else {
-        e.varFSType.Set("<nil>")
+        e.varFS.Set("<nil>")
     }
 
     e.varDirectives = &expvar.Func{F: func() any {
@@ -238,17 +238,23 @@ without any global side effect until `PublishExpvars` is called.
 func (e *Engine) PublishExpvars(prefix string) *Engine {
     m := expvar.NewMap(prefix)   // panics if prefix already registered
 
-    m.Set("options.componentDir", e.varComponentDir)
-    m.Set("options.fsType",       e.varFSType)
-    m.Set("options.reload",       e.varReload)
-    m.Set("options.debug",        e.varDebug)
-    m.Set("options.directives",   e.varDirectives)
+    // writable options
+    m.Set("reload",       e.varReload)
+    m.Set("debug",        e.varDebug)
+    m.Set("componentDir", e.varComponentDir)
+    m.Set("fs",           e.varFS)
 
-    m.Set("counters.renders",      e.counterRenders)
-    m.Set("counters.renderErrors", e.counterRenderErrors)
-    m.Set("counters.reloads",      e.counterReloads)
-    m.Set("counters.renderNanos",  e.counterRenderNanos)
-    m.Set("counters.components",   e.counterComponents)
+    // performance counters / gauges
+    m.Set("renders",      e.counterRenders)
+    m.Set("renderErrors", e.counterRenderErrors)
+    m.Set("reloads",      e.counterReloads)
+    m.Set("renderNanos",  e.counterRenderNanos)
+    m.Set("components",   e.counterComponents)
+
+    // read-only info sub-map
+    info := new(expvar.Map)
+    info.Set("directives", e.varDirectives)
+    m.Set("info", info)
 
     e.expvarMap    = m
     e.expvarPrefix = prefix
@@ -264,16 +270,18 @@ a single global entry (`prefix`) whose JSON serialisation is a nested object:
 ```json
 {
   "htmlc": {
-    "options.componentDir": "templates/",
-    "options.fsType": "<nil>",
-    "options.reload": 0,
-    "options.debug": 0,
-    "options.directives": ["highlight","switch"],
-    "counters.renders": 1042,
-    "counters.renderErrors": 3,
-    "counters.reloads": 0,
-    "counters.renderNanos": 48392011,
-    "counters.components": 27
+    "reload": 0,
+    "debug": 0,
+    "componentDir": "templates/",
+    "fs": "<nil>",
+    "renders": 1042,
+    "renderErrors": 3,
+    "reloads": 0,
+    "renderNanos": 48392011,
+    "components": 27,
+    "info": {
+      "directives": ["highlight", "switch"]
+    }
   }
 }
 ```
@@ -350,7 +358,7 @@ func (e *Engine) SetDebug(enabled bool) {
 
 These setter methods are thin convenience wrappers.  They are not strictly
 required — a caller with access to the `expvar.Map` can also call
-`m.Get("options.reload").(*expvar.Int).Set(1)` — but the methods provide a
+`m.Get("reload").(*expvar.Int).Set(1)` — but the methods provide a
 typed, discoverable API that does not require a type assertion.
 
 #### Consistency safety under concurrent renders
@@ -377,18 +385,19 @@ both `varReload` and `varDebug` without additional locking.
 
 ---
 
-### 4.3 Read-only inspection variables
+### 4.3 Settable option variables — `ComponentDir` and `FS`
+
+`ComponentDir` and `FS` are exposed as writable `*expvar.String` vars and are
+updated by `SetComponentDir` and `SetFS` respectively.  Unlike `varReload` and
+`varDebug`, changing these options requires re-running the discovery walk, so
+the setter methods (described in §4.6) perform additional work under
+`e.mu` write-lock.
 
 #### `ComponentDir` — `*expvar.String`
 
-`ComponentDir` is set once during `New` from `opts.ComponentDir` and never
-changed.  Exposing it as `*expvar.String` provides a readable view for
-operators without any risk of mutation through the `expvar.Map` interface (the
-`expvar.Map.Set(key, var)` call replaces the entire `Var` pointer in the map,
-but external callers reading through `/debug/vars` never get a writable handle
-to the inner `expvar.String`).
-
-There is no API to reset `ComponentDir` at runtime (see §3).
+`varComponentDir` is seeded during `New` from `opts.ComponentDir`.  Calling
+`SetComponentDir(dir)` updates both `e.opts.ComponentDir` and `varComponentDir`
+atomically after a successful re-discover.
 
 #### `FS` — `*expvar.String` (type name only)
 
@@ -398,9 +407,10 @@ gives operators enough information to understand which filesystem backend is in
 use (`"embed.FS"`, `"os.dirFS"`, `"afero.MemMapFs"`, etc.) without exposing
 internal state of the FS implementation.
 
-Changing `FS` at runtime is not supported (see §3).
+`varFS` is seeded during `New` and updated by `SetFS` after a successful
+re-discover.
 
-#### `Directives` — `*expvar.Func`
+#### Read-only info sub-map — `varDirectives`
 
 `DirectiveRegistry` is `map[string]Directive`.  Since `Directive` is an
 interface with no meaningful string representation, only the **names** of
@@ -408,6 +418,9 @@ registered directives are exposed.  An `expvar.Func` wrapping a closure over
 `e.directives` computes the sorted list of directive names on each JSON
 serialisation call.  This is read-only: the expvar interface provides no
 mechanism to write a slice back into the map.
+
+`varDirectives` is published under the nested `"info"` sub-map (see §4.1
+`PublishExpvars`), not at the top level:
 
 ```go
 // pseudo-code — not implementation
@@ -603,23 +616,119 @@ Proposed replacement:
 
 The rest of `renderComponent` is unchanged.
 
-#### Summary of `opts` fields that remain read-only seeds
+#### Summary of `opts` fields and runtime settability
 
 | `Options` field | Engine reads from | Settable at runtime |
 |----------------|------------------|---------------------|
-| `ComponentDir` | `opts.ComponentDir` (construction only) | No |
-| `Reload` | `varReload.Value()` | Yes |
-| `Debug` | `varDebug.Value()` | Yes |
-| `FS` | `opts.FS` (construction only) | No |
+| `ComponentDir` | `varComponentDir` / `opts.ComponentDir` | Yes — via `SetComponentDir` |
+| `Reload` | `varReload.Value()` | Yes — via `SetReload` |
+| `Debug` | `varDebug.Value()` | Yes — via `SetDebug` |
+| `FS` | `varFS` / `opts.FS` | Yes — via `SetFS` |
 | `Directives` | `e.directives` (managed by `RegisterDirective`) | Via `RegisterDirective` only |
 
-`opts.ComponentDir` and `opts.FS` continue to be read from `opts` directly
-inside `discover`, `registerPathLocked`, and `maybeReload`'s filesystem stat
-calls.  Only the boolean toggles (`Reload`, `Debug`) migrate to expvar reads.
+`SetComponentDir` and `SetFS` update both the `opts.*` field and the
+corresponding `var*` string under the write-lock.  `maybeReload`'s filesystem
+stat calls continue to use `e.opts.ComponentDir` and `e.opts.FS` directly, but
+because the setters update `e.opts.*` under the same write-lock they use for
+entry replacement, there is no race.
 
 ---
 
-### 4.6 Multiple-engine registration and naming
+### 4.6 Runtime FS and ComponentDir replacement
+
+This section documents the two new setter methods that allow the engine's
+component source to be replaced at runtime without restarting the process.
+
+#### `SetComponentDir(dir string) error`
+
+Replaces the component directory with `dir` and re-runs discovery.
+
+```go
+// pseudo-code — not implementation
+
+// SetComponentDir replaces the engine's component directory and re-runs
+// discovery under the write-lock. Returns an error if discovery fails;
+// on error the engine state is left unchanged.
+func (e *Engine) SetComponentDir(dir string) error {
+    e.mu.Lock()
+    defer e.mu.Unlock()
+    entries := make(map[string]*engineEntry)
+    nsEntries := make(map[string]map[string]*engineEntry)
+    // run discover into scratch maps, then swap atomically
+    if err := e.discoverInto(dir, entries, nsEntries); err != nil {
+        return err
+    }
+    e.entries = entries
+    e.nsEntries = nsEntries
+    e.opts.ComponentDir = dir
+    e.varComponentDir.Set(dir)
+    return nil
+}
+```
+
+#### `SetFS(fsys fs.FS) error`
+
+Replaces the engine's `fs.FS` and re-runs discovery.
+
+```go
+// pseudo-code — not implementation
+
+// SetFS replaces the engine's filesystem and re-runs discovery under the
+// write-lock. Returns an error if discovery fails; on error the engine's
+// FS is restored to its previous value.
+//
+// If fsys does not implement fs.StatFS, enabling Reload has no effect:
+// maybeReload performs stat checks via fs.StatFS and returns immediately
+// when the interface is absent.
+func (e *Engine) SetFS(fsys fs.FS) error {
+    e.mu.Lock()
+    defer e.mu.Unlock()
+    entries := make(map[string]*engineEntry)
+    nsEntries := make(map[string]map[string]*engineEntry)
+    savedFS := e.opts.FS
+    e.opts.FS = fsys
+    if err := e.discoverInto(e.opts.ComponentDir, entries, nsEntries); err != nil {
+        e.opts.FS = savedFS
+        return err
+    }
+    e.entries = entries
+    e.nsEntries = nsEntries
+    if fsys != nil {
+        e.varFS.Set(reflect.TypeOf(fsys).String())
+    } else {
+        e.varFS.Set("<nil>")
+    }
+    return nil
+}
+```
+
+#### Concurrency analysis
+
+Both setters acquire `e.mu` for writing before touching any mutable engine
+state.  Discovery runs against scratch maps; the swap into `e.entries` and
+`e.nsEntries` is a single pointer assignment under the lock.  Concurrent
+renders that hold `e.mu` for reading will complete before the write-lock is
+granted.
+
+#### Interaction with `counterReloads`
+
+`SetFS` and `SetComponentDir` do **not** increment `counterReloads`.  These
+are deliberate operator-driven replacements (e.g. switching from an embedded
+FS to a live filesystem for a development mode toggle), not hot-reload events
+triggered by filesystem changes.  `counterReloads` remains an accurate count
+of automatic `maybeReload` re-walks only.
+
+#### `SetFS` and `Reload` interaction
+
+If `SetFS` is called with a non-nil `fsys` that does not implement `fs.StatFS`,
+enabling `Reload` via `SetReload(true)` will have no observable effect:
+`maybeReload` checks `fs.StatFS` availability before performing stat calls and
+returns `nil` immediately when the interface is absent.  This is documented in
+the godoc of `SetFS` (see pseudo-code above).
+
+---
+
+### 4.7 Multiple-engine registration and naming
 
 #### The collision problem
 
@@ -675,22 +784,30 @@ semantics), making the error impossible to miss.
 ```json
 {
   "htmlc.api": {
-    "options.componentDir": "templates/api/",
-    "options.reload": 0,
-    "options.debug": 0,
-    "counters.renders": 500,
-    "counters.renderErrors": 0,
-    "counters.renderNanos": 21000000,
-    "counters.components": 15
+    "reload": 0,
+    "debug": 0,
+    "componentDir": "templates/api/",
+    "fs": "<nil>",
+    "renders": 500,
+    "renderErrors": 0,
+    "renderNanos": 21000000,
+    "components": 15,
+    "info": {
+      "directives": []
+    }
   },
   "htmlc.admin": {
-    "options.componentDir": "templates/admin/",
-    "options.reload": 1,
-    "options.debug": 0,
-    "counters.renders": 120,
-    "counters.renderErrors": 2,
-    "counters.renderNanos": 8100000,
-    "counters.components": 9
+    "reload": 1,
+    "debug": 0,
+    "componentDir": "templates/admin/",
+    "fs": "<nil>",
+    "renders": 120,
+    "renderErrors": 2,
+    "renderNanos": 8100000,
+    "components": 9,
+    "info": {
+      "directives": []
+    }
   }
 }
 ```
@@ -742,16 +859,18 @@ After 1 000 requests, `curl localhost:8080/debug/vars` returns:
 ```json
 {
   "htmlc": {
-    "options.componentDir": "templates/",
-    "options.fsType": "<nil>",
-    "options.reload": 0,
-    "options.debug": 0,
-    "options.directives": [],
-    "counters.renders": 1000,
-    "counters.renderErrors": 0,
-    "counters.reloads": 0,
-    "counters.renderNanos": 45200000,
-    "counters.components": 23
+    "reload": 0,
+    "debug": 0,
+    "componentDir": "templates/",
+    "fs": "<nil>",
+    "renders": 1000,
+    "renderErrors": 0,
+    "reloads": 0,
+    "renderNanos": 45200000,
+    "components": 23,
+    "info": {
+      "directives": []
+    }
   }
 }
 ```
@@ -781,7 +900,7 @@ http.HandleFunc("/admin/reload/disable", func(w http.ResponseWriter, r *http.Req
 `/debug/vars` reflects the change immediately after the toggle:
 
 ```json
-{ "htmlc": { "options.reload": 1, ... } }
+{ "htmlc": { "reload": 1, "debug": 0, "componentDir": "templates/", "fs": "<nil>", ... } }
 ```
 
 No restart is required; the next `renderComponent` call will invoke
@@ -808,14 +927,30 @@ admin.PublishExpvars("htmlc.admin")
 ```json
 {
   "htmlc.public": {
-    "options.componentDir": "templates/public/",
-    "options.debug": 0,
-    "counters.renders": 800
+    "reload": 0,
+    "debug": 0,
+    "componentDir": "templates/public/",
+    "fs": "<nil>",
+    "renders": 800,
+    "renderErrors": 0,
+    "renderNanos": 36000000,
+    "components": 18,
+    "info": {
+      "directives": []
+    }
   },
   "htmlc.admin": {
-    "options.componentDir": "templates/admin/",
-    "options.debug": 1,
-    "counters.renders": 42
+    "reload": 0,
+    "debug": 1,
+    "componentDir": "templates/admin/",
+    "fs": "<nil>",
+    "renders": 42,
+    "renderErrors": 0,
+    "renderNanos": 3800000,
+    "components": 9,
+    "info": {
+      "directives": ["highlight"]
+    }
   }
 }
 ```
@@ -837,24 +972,66 @@ engine, _ := htmlc.New(htmlc.Options{
 engine.PublishExpvars("htmlc")
 ```
 
-The `options.fsType` key reveals the concrete FS type without exposing private
+The `fs` key reveals the concrete FS type without exposing private
 fields of the `embed.FS` value:
 
 ```json
 {
   "htmlc": {
-    "options.fsType": "embed.FS",
-    "options.reload": 0,
-    ...
+    "reload": 0,
+    "debug": 0,
+    "componentDir": "templates",
+    "fs": "embed.FS",
+    "renders": 0,
+    "renderErrors": 0,
+    "reloads": 0,
+    "renderNanos": 0,
+    "components": 12,
+    "info": {
+      "directives": []
+    }
   }
 }
 ```
 
 Because `embed.FS` does not implement `fs.StatFS`, hot-reload is silently
-skipped — the `options.fsType` value gives the operator exactly enough
-information to understand why `options.reload: 1` would have no effect.
+skipped — the `fs` value gives the operator exactly enough
+information to understand why `reload: 1` would have no effect.
 
-### Example 5 — Engine without `PublishExpvars` (backward compatibility)
+### Example 5 — Runtime ComponentDir replacement
+
+Switching from a compiled-in directory to a live directory during development:
+
+```go
+// pseudo-code — not implementation
+
+engine, _ := htmlc.New(htmlc.Options{ComponentDir: "templates/dist/"})
+engine.PublishExpvars("htmlc")
+
+// Admin endpoint — swap to live source directory without restart.
+http.HandleFunc("/admin/dev-mode", func(w http.ResponseWriter, r *http.Request) {
+    if err := engine.SetComponentDir("templates/src/"); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    engine.SetReload(true)
+    fmt.Fprintln(w, "dev mode enabled")
+})
+```
+
+After hitting `/admin/dev-mode`, `/debug/vars` reflects both changes:
+
+```json
+{
+  "htmlc": {
+    "reload": 1,
+    "componentDir": "templates/src/",
+    ...
+  }
+}
+```
+
+### Example 6 — Engine without `PublishExpvars` (backward compatibility)
 
 ```go
 // pseudo-code — not implementation
@@ -884,8 +1061,8 @@ scope for this RFC.
 
 ### `engine.go`
 
-1. **`Engine` struct**: add nine new fields as described in §4.1 (`varReload`,
-   `varDebug`, `varComponentDir`, `varFSType`, `varDirectives`,
+1. **`Engine` struct**: add ten new fields as described in §4.1 (`varReload`,
+   `varDebug`, `varComponentDir`, `varFS`, `varDirectives`,
    `counterRenders`, `counterRenderErrors`, `counterReloads`,
    `counterRenderNanos`, `counterComponents`, `expvarMap`, `expvarPrefix`).
 
@@ -907,12 +1084,25 @@ scope for this RFC.
 5. **`componentCountDedup`**: new unexported method (4–8 lines) used by
    `counterComponents`'s `expvar.Func`.
 
-6. **`PublishExpvars`**: new exported method (~15 lines).
+6. **`PublishExpvars`**: new exported method (~20 lines, includes building the
+   `info` sub-map).
 
 7. **`SetReload` / `SetDebug`**: two new exported methods (~4 lines each).
 
-8. **Imports**: add `"expvar"`, `"reflect"`, `"sort"` to the import block.
-   `"time"` is already imported.
+8. **`SetComponentDir`**: new exported method (~15 lines); acquires write-lock,
+   discovers into scratch maps, swaps atomically, updates `e.opts.ComponentDir`
+   and `e.varComponentDir`.
+
+9. **`SetFS`**: new exported method (~20 lines); acquires write-lock, saves old
+   FS for rollback, discovers into scratch maps, swaps atomically, updates
+   `e.opts.FS` and `e.varFS`.
+
+10. **`discoverInto`**: new unexported helper that accepts target `entries` and
+    `nsEntries` maps as parameters; extracted from `discover` to support the
+    scratch-map pattern used by both `SetComponentDir` and `SetFS`.
+
+11. **Imports**: add `"expvar"`, `"reflect"`, `"sort"` to the import block.
+    `"time"` is already imported.
 
 ### `renderer.go`
 
@@ -920,8 +1110,9 @@ No changes required.  All instrumentation is at the `Engine` layer.
 
 ### `doc.go`
 
-Update the package-level comment to document `PublishExpvars`, `SetReload`, and
-`SetDebug` under the existing "Tutorial" section.
+Update the package-level comment to document `PublishExpvars`, `SetReload`,
+`SetDebug`, `SetComponentDir`, and `SetFS` under the existing "Tutorial"
+section.
 
 ### Platform considerations
 
@@ -972,13 +1163,15 @@ externally will observe no behavioural difference.
 
 ### New exported symbols
 
-Three new exported methods are added to `Engine`:
+Five new exported methods are added to `Engine`:
 
 | Symbol | Signature | Notes |
 |--------|-----------|-------|
 | `PublishExpvars` | `func (e *Engine) PublishExpvars(prefix string) *Engine` | Opt-in; panics on duplicate prefix |
 | `SetReload` | `func (e *Engine) SetReload(enabled bool)` | Convenience wrapper |
 | `SetDebug` | `func (e *Engine) SetDebug(enabled bool)` | Convenience wrapper |
+| `SetComponentDir` | `func (e *Engine) SetComponentDir(dir string) error` | Re-runs discovery under write-lock |
+| `SetFS` | `func (e *Engine) SetFS(fsys fs.FS) error` | Re-runs discovery under write-lock |
 
 These are purely additive.  No existing code needs to be updated.
 
@@ -1111,32 +1304,24 @@ called) is the correct design.
    over an empty map exits immediately).  A diagnostic warning log might be
    useful here; deferred to implementation.
 
-4. **(non-blocking) Key naming inside the `expvar.Map`**: the RFC proposes dot-
-   separated keys such as `"options.reload"` and `"counters.renders"`.  The
-   `expvar.Map` does not restrict key names.  An alternative grouping — using
-   nested `expvar.Map` values for `"options"` and `"counters"` — would produce
-   deeper JSON nesting (`htmlc.options.reload`) that some scraping tools handle
-   better.  Recommendation: flat keys within a single `expvar.Map` (as proposed
-   in §4.1); nested maps can be introduced in a follow-on if tooling demands it.
-
-5. **(non-blocking) `counterRenderNanos` overflow**: `expvar.Int` is `int64`;
+4. **(non-blocking) `counterRenderNanos` overflow**: `expvar.Int` is `int64`;
    the maximum value is approximately 9.2 × 10¹⁸ nanoseconds ≈ 292 years of
    cumulative render time.  Overflow in practice is impossible.  No action
    required.
 
-6. **(non-blocking) Gauge vs counter semantics for `counterComponents`**: the
+5. **(non-blocking) Gauge vs counter semantics for `counterComponents`**: the
    component count behaves as a gauge (it can decrease after hot-reload removes
    a file), not a monotonic counter.  The field name `counterComponents` may be
    misleading.  Alternative names: `gaugeComponents`, `components`.  Naming
    decision can be made during implementation without blocking the design.
 
-7. **(non-blocking) Per-component latency tracking**: identifying slow
+6. **(non-blocking) Per-component latency tracking**: identifying slow
    components requires per-component counters, which are explicitly deferred
    (see §9).  If a follow-on RFC adds per-component counters, the existing
    `counterRenders` and `counterRenderNanos` at the engine level remain useful
    as aggregate summaries.
 
-8. **(non-blocking) Integration with `net/http/pprof`**: `expvar` and `pprof`
+7. **(non-blocking) Integration with `net/http/pprof`**: `expvar` and `pprof`
    both register under `/debug/` by default.  A caller who imports both
    automatically gets both endpoints.  No coordination between `htmlc` and
    `pprof` is required; this is purely an operator concern.
