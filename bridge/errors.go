@@ -15,7 +15,17 @@ type SourceLocation struct {
 }
 
 // ConversionError is returned when a .vue→tmpl or tmpl→.vue conversion
-// encounters an unsupported construct.
+// encounters an unsupported construct.  It is always returned wrapped together
+// with htmlc.ErrConversion so callers can detect it with either errors.Is or
+// errors.As:
+//
+//	var cerr *bridge.ConversionError
+//	if errors.As(err, &cerr) {
+//	    log.Printf("conversion failed at %s:%d: %s", cerr.Location.File, cerr.Location.Line, cerr.Message)
+//	}
+//
+// Conversion halts on the first unsupported construct; no partial output is
+// produced.
 type ConversionError struct {
 	Component string          // component name, e.g. "PostPage"
 	Directive string          // directive name, e.g. "v-if" (may be empty)

@@ -810,7 +810,11 @@ func (e *Engine) Mount(mux *http.ServeMux, routes map[string]string) {
 //
 // This is the text form of CompileToTemplate; see that method for full
 // semantics.  warnings contains any non-fatal conversion warnings emitted by
-// the bridge.
+// the bridge (for example, data-contract notices for v-html and v-bind spread).
+//
+// Error types follow the same conventions as CompileToTemplate: ErrComponentNotFound
+// when componentName is not registered, and *bridge.ConversionError (wrapped with
+// ErrConversion) when a directive or expression cannot be converted.
 func (e *Engine) TemplateText(componentName string) (text string, warnings []string, err error) {
 	e.mu.RLock()
 	reg := e.buildRegistryLocked()

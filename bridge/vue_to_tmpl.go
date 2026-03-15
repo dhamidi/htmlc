@@ -56,9 +56,14 @@ type VueToTemplateResult struct {
 // block, suitable for combining with other such blocks and parsing via
 // html/template.New("").Parse(combined).
 //
-// componentName is the base name used for the {{define}} block.
+// componentName is the base name used for the {{define}} block.  It is passed
+// through unchanged; callers that require lowercase names (as Engine.CompileToTemplate
+// does) must lowercase before calling.
 //
-// Returns *ConversionError on the first unsupported construct encountered.
+// Non-fatal issues (for example, data-contract warnings for v-html and v-bind
+// spread) are returned in VueToTemplateResult.Warnings.  Fatal issues return
+// nil and a non-nil *ConversionError on the first unsupported construct
+// encountered; no partial output is produced.
 func VueToTemplate(tmpl *html.Node, componentName string) (*VueToTemplateResult, error) {
 	ctx := &vueConvCtx{
 		sb:       new(strings.Builder),

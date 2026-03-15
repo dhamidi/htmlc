@@ -16,6 +16,10 @@ type TemplateToVueResult struct {
 // TemplateToVue converts the text of an html/template file to .vue syntax.
 // src is the raw template source; componentName is used only for error messages.
 //
+// The conversion is explicitly best-effort: only constructs with unambiguous
+// .vue equivalents are translated.  The first unsupported construct halts
+// conversion and returns a *ConversionError; no partial output is produced.
+//
 // # Supported constructs
 //
 //   - Text nodes: emitted verbatim
@@ -32,6 +36,7 @@ type TemplateToVueResult struct {
 //   - {{with .x}}
 //   - Variable assignments ($x := …)
 //   - Actions whose pipeline is not a single FieldNode
+//   - {{template "Name" expr}} where expr is not .
 //
 // Note: {{block "name" .}} is desugared by the template parser into a
 // {{define "name"}} block plus a {{template "name" .}} call.  TemplateToVue
