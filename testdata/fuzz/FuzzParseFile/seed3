@@ -1,0 +1,2 @@
+go test fuzz v1
+string("<template></template><script>export default {}</script><style scoped>p{color:red}</style>")

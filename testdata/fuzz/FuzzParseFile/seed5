@@ -1,0 +1,2 @@
+go test fuzz v1
+string("<template><div v-if=\"show\"><span v-for=\"item in items\">{{ item.name }}</span></div></template>")

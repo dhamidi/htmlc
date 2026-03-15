@@ -1,0 +1,3 @@
+go test fuzz v1
+string("<div v-if=\"show\">yes</div><div v-else>no</div>")
+string("{\"show\":false}")
