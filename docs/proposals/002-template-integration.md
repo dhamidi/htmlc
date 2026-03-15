@@ -38,7 +38,7 @@ The goal of this RFC is to make the two systems interoperable incrementally: ind
 
 ## 3. Non-Goals
 
-1. **Full round-trip fidelity**: `htmlc` directives with no `html/template` equivalent (e.g. scoped slots with complex expressions) produce errors. Lossless round-tripping is not guaranteed and is not a design target.
+1. **Full round-trip fidelity**: `htmlc` directives with no `html/template` equivalent (e.g. scoped slots, complex expression bindings) produce errors. Lossless round-tripping is not guaranteed and is not a design target. Directives that support a partial mapping (`v-show`, `v-html`, `v-text`, `v-bind` spread, `v-switch`) still produce errors when used with complex expressions; only simple identifiers and dot-paths are supported.
 2. **Client-side Vue.js features**: This RFC is strictly server-side. No JavaScript reactivity, `<script setup>`, or Composition API features are in scope.
 3. **Automatic live sync**: Changes to a `.vue` file are not automatically propagated to a cached `*html/template.Template` at runtime; consumers re-compile explicitly.
 4. **CSS/`<style>` block export**: Scoped styles are stripped in the vue-to-tmpl direction. Style handling is out of scope for the initial bridge.
@@ -68,15 +68,130 @@ Each entry below specifies the exact input that triggers it, the exact output pr
 | `v-else` | `{{ else }}` | Direct equivalent |
 | `v-else-if="ident"` | `{{ else if .ident }}` | Same constraints as `v-if` |
 | `v-for="item in list"` | `{{ range .list }} … {{ end }}` | Loop variable becomes dot inside the range block |
-| `v-show="cond"` | — | **Produces an error**; no `html/template` equivalent exists |
-| `v-html="expr"` | — | **Produces an error**; unsafe with no direct equivalent |
-| `v-text="expr"` | — | **Produces an error**; no direct equivalent |
-| `v-bind="obj"` (spread) | — | **Produces an error**; no direct equivalent |
-| `v-switch` | — | **Produces an error**; no direct equivalent |
+| `v-show="ident"` (simple identifier or dot-path) | `style="{{ if not .ident }}display:none{{ end }}"` | Prepends `display:none` when falsy; merges with existing static `style` by emitting `{{ if not .ident }}display:none;{{ end }}<static-style>`; combined with dynamic `:style` produces an error; see §4.1.1 |
+| `v-show="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
+| `v-html="ident"` (simple identifier or dot-path) | `<el>{{ .ident }}</el>` (all children replaced) | Data field must be `html/template.HTML`; plain `string` values are auto-escaped by `html/template`, diverging from htmlc semantics; see §4.1.2 |
+| `v-html="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
+| `v-text="ident"` (simple identifier or dot-path) | `<el>{{ .ident }}</el>` (all children replaced) | Direct equivalent; `html/template` auto-escapes output, matching `v-text` semantics; all existing children are discarded |
+| `v-text="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
+| `v-bind="ident"` (argument-less spread, simple identifier or dot-path) | `<el {{ .ident }}>` | Data field must be `html/template.HTMLAttr` (pre-formatted attribute string); map-to-attribute conversion and class/style merging semantics are not preserved; see §4.1.3 |
+| `v-bind="expr"` (argument-less spread, complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
+| `<template v-switch="ident">` | `{{ if eq .ident … }}{{ else if eq .ident … }}{{ else }}{{ end }}` | Switch expression must be a simple identifier or dot-path; complex expressions produce an error; `<template>` element is not emitted; see §4.1.4 |
+| `<el v-case="literal">` | `{{ if eq .switchExpr literal }}` or `{{ else if eq .switchExpr literal }}` | String, number, and boolean literals are emitted as Go template literals; identifier and dot-path case expressions become `.ident`; equality uses Go's `eq`, not htmlc's JavaScript-style `==` |
+| `<el v-default>` | `{{ else }}` | Direct equivalent; only the first `v-default` child is emitted; subsequent `v-default` children are silently dropped |
+| `v-switch` on non-`<template>` element | — | **Produces an error** |
 | Custom directives | — | **Produce an error**; no direct equivalent |
 | `<slot>` (default) | `{{ block "default" . }} … {{ end }}` | Overridable block |
 | `<slot name="N">` | `{{ block "N" . }} … {{ end }}` | Named block |
 | `<ComponentName>` | `{{ template "ComponentName" . }}` | Sub-component call |
+
+#### 4.1.1 `v-show` — Style Injection
+
+`v-show="ident"` evaluates the expression and, when falsy, prepends `display:none` to the element's `style` attribute. The mapping uses `html/template`'s `not` built-in inside the `style` attribute value.
+
+**No existing `style` attribute:**
+
+```html
+<!-- htmlc input -->
+<div v-show="visible">…</div>
+
+<!-- html/template output -->
+<div style="{{ if not .visible }}display:none{{ end }}">…</div>
+```
+
+**With existing static `style` attribute** — the static style is appended after the conditional `display:none`, so the existing declarations follow the injected one:
+
+```html
+<!-- htmlc input -->
+<div v-show="visible" style="color:red">…</div>
+
+<!-- html/template output -->
+<div style="{{ if not .visible }}display:none;{{ end }}color:red">…</div>
+```
+
+**Combining `v-show` with `:style`** — the dynamic `:style` binding cannot be merged safely into a static template string; this combination **produces an error**.
+
+**CSS context note**: `html/template` applies CSS-value filtering to dynamic `{{ .variable }}` outputs inside `style` attributes. The literal string `display:none` in the template source is static text, not a dynamic output; `html/template` writes it directly without filtering, making this pattern safe.
+
+#### 4.1.2 `v-html` — Raw HTML Output
+
+`v-html="ident"` discards all child nodes of the element and writes the expression value as raw, unescaped HTML. In `html/template`, a data field of type `template.HTML` is passed through verbatim in an HTML body context without escaping.
+
+```html
+<!-- htmlc input -->
+<div v-html="content">fallback</div>
+
+<!-- html/template output (fallback child discarded) -->
+<div>{{ .content }}</div>
+```
+
+**Data contract change**: the caller must supply `.content` as `html/template.HTML`. If supplied as a plain `string`, `html/template` will HTML-escape it — producing visibly escaped markup — silently diverging from htmlc's unescaped behaviour. The generated template source should include a comment documenting this requirement:
+
+```html
+{{/* .content must be html/template.HTML; plain strings are auto-escaped */}}
+<div>{{ .content }}</div>
+```
+
+#### 4.1.3 `v-bind` Spread — Pre-Formatted Attributes
+
+Argument-less `v-bind="ident"` (no `:attr` suffix) evaluates the expression and spreads the result as attributes onto the element's opening tag. In `html/template`, a value of type `template.HTMLAttr` emitted between a tag name and `>` is written verbatim without escaping.
+
+```html
+<!-- htmlc input -->
+<a v-bind="linkProps">text</a>
+
+<!-- html/template output -->
+<a {{ .linkProps }}>text</a>
+```
+
+**Data contract change**: in htmlc, `v-bind="obj"` accepts a `map[string]any` and performs per-key handling (class merging, style merging, boolean attribute toggling, per-key escaping). The `html/template` mapping requires the caller to pre-format the attributes as a single string of type `html/template.HTMLAttr`, for example:
+
+```go
+// In application code — not implementation
+data["linkProps"] = template.HTMLAttr(`href="https://example.com" target="_blank"`)
+```
+
+None of htmlc's rich map semantics (class/style merging, boolean toggling) carry over; callers must handle all formatting themselves. If the caller supplies a plain `string`, `html/template` will escape `=` and `"` characters, producing broken HTML. The generated template source should include a comment:
+
+```html
+{{/* .linkProps must be html/template.HTMLAttr; plain strings produce broken HTML */}}
+<a {{ .linkProps }}>text</a>
+```
+
+#### 4.1.4 `v-switch` / `v-case` / `v-default` — Conditional Switch
+
+`v-switch` on a `<template>` element compiles to a chain of `{{ if eq … }}` / `{{ else if eq … }}` / `{{ else }}` / `{{ end }}` actions. The `<template>` wrapper element is not emitted.
+
+```html
+<!-- htmlc input -->
+<template v-switch="tab">
+  <div v-case="'home'">Home content</div>
+  <div v-case="'settings'">Settings content</div>
+  <div v-default>Default content</div>
+</template>
+
+<!-- html/template output -->
+{{ if eq .tab "home" }}<div>Home content</div>{{ else if eq .tab "settings" }}<div>Settings content</div>{{ else }}<div>Default content</div>{{ end }}
+```
+
+**Case expression translation rules**:
+
+| `v-case` expression | `html/template` equivalent |
+|---|---|
+| String literal `'home'` | `"home"` |
+| Number literal `42` | `42` |
+| Boolean literal `true` | `true` |
+| Simple identifier `caseVar` | `.caseVar` |
+| Dot-path `a.b` | `.a.b` |
+| Complex expression | **Error** |
+
+**Equality semantics**: htmlc's `==` uses JavaScript-style abstract equality (e.g. `null == undefined` is true; numeric string coercion applies). `html/template`'s `eq` uses Go's `==`, which requires comparable operands of the same type. Edge cases such as `float64(2) == int(2)` behave differently. The numeric type difference is the most common practical issue: the htmlc expression evaluator stores all numbers as `float64`, so `v-case="1"` compiles to `{{ if eq .tab 1 }}` where `1` is a Go `int` — callers whose switch value is `float64` will see a mismatch. Implementers should document this constraint clearly.
+
+**`v-switch` on non-`<template>` elements**: already produces an error in the renderer; the compiler mirrors this.
+
+**Multiple `v-default` elements**: only the first is emitted as the `{{ else }}` branch; subsequent `v-default` children are silently dropped, matching the renderer's behaviour.
+
+**Nested `v-switch`**: each switch compiles to its own `{{ if }}` block; nesting works naturally.
 
 ### 4.2 Go API — `.vue` → `*html/template.Template`
 
@@ -213,10 +328,15 @@ DESCRIPTION
   (or stdout). The output is a valid Go html/template source file
   containing {{ define }} blocks for each sub-component.
 
-  Constructs with no html/template equivalent (v-show, v-html, complex
+  Constructs with no html/template equivalent (custom directives, complex
   expressions, etc.) cause the command to exit with a non-zero status and
   print an error to stderr identifying the offending construct, its source
   file, and its approximate location. No partial output is written.
+
+  v-show, v-html, v-text, v-bind (spread), and v-switch are partially
+  supported: they translate successfully when used with simple identifiers
+  or dot-paths, and produce an error only when used with complex
+  expressions.
 ```
 
 **`htmlc template tmpl-to-vue`**
@@ -429,6 +549,175 @@ This example illustrates the limits of the interoperability guarantee: supported
 ### Example 5 — Backward compatibility (no change for existing projects)
 
 An existing `htmlc` project that calls only `RenderPage`, `RenderFragment`, `RenderPageString`, or `RenderFragmentString` and does not invoke `ExportTemplate`, `ExportTemplateSource`, `ImportTemplate`, `ForceImportTemplate`, or the `htmlc template` CLI subcommand sees no change in behaviour. No existing method signatures are modified. No existing CLI subcommands (`render`, `page`, `props`, `ast`, `build`) change. The `entries`, `nsEntries`, and `mu` fields of `Engine` are unchanged.
+
+### Example 6 — `v-show` visibility toggle
+
+`Tooltip.vue`:
+
+```html
+<template>
+  <div class="tooltip" v-show="visible" style="position:absolute">
+    {{ message }}
+  </div>
+</template>
+```
+
+Command:
+
+```text
+htmlc template vue-to-tmpl -dir ./components Tooltip
+```
+
+Expected stdout:
+
+```html
+{{ define "Tooltip" }}
+<div class="tooltip" style="{{ if not .visible }}display:none;{{ end }}position:absolute">
+  {{ .message }}
+</div>
+{{ end }}
+```
+
+When `.visible` is falsy, the rendered output includes `display:none;position:absolute` in the `style` attribute. When truthy, only `position:absolute` appears. The static style value follows the conditional injection, matching the htmlc renderer's prepend-then-append behaviour.
+
+### Example 7 — `v-html` raw HTML insertion
+
+`RichText.vue`:
+
+```html
+<template>
+  <article v-html="body">Loading…</article>
+</template>
+```
+
+Command:
+
+```text
+htmlc template vue-to-tmpl -dir ./components RichText
+```
+
+Expected stdout:
+
+```html
+{{ define "RichText" }}
+{{/* .body must be html/template.HTML; plain strings are auto-escaped */}}
+<article>{{ .body }}</article>
+{{ end }}
+```
+
+The child node `Loading…` is discarded. The caller must supply `.body` as `html/template.HTML`:
+
+```go
+// In application code — not implementation
+import "html/template"
+
+data := map[string]any{
+    "body": template.HTML("<p>Hello <strong>world</strong></p>"),
+}
+engine.ExportTemplate("RichText") // then Execute with data
+```
+
+If `.body` is a plain `string`, `html/template` will HTML-escape it, producing `&lt;p&gt;Hello…&lt;/p&gt;` — visibly broken markup. The generated comment reminds callers of this contract.
+
+### Example 8 — `v-text` text content replacement
+
+`Badge.vue`:
+
+```html
+<template>
+  <span class="badge" v-text="count">0</span>
+</template>
+```
+
+Command:
+
+```text
+htmlc template vue-to-tmpl -dir ./components Badge
+```
+
+Expected stdout:
+
+```html
+{{ define "Badge" }}
+<span class="badge">{{ .count }}</span>
+{{ end }}
+```
+
+The fallback child `0` is discarded; `.count` is HTML-escaped by `html/template`, matching `v-text`'s behaviour exactly. No data contract change: `.count` can be any type whose string representation is safe to display.
+
+### Example 9 — `v-bind` spread attributes
+
+`Link.vue`:
+
+```html
+<template>
+  <a v-bind="attrs">click here</a>
+</template>
+```
+
+Command:
+
+```text
+htmlc template vue-to-tmpl -dir ./components Link
+```
+
+Expected stdout:
+
+```html
+{{ define "Link" }}
+{{/* .attrs must be html/template.HTMLAttr; plain strings produce broken HTML */}}
+<a {{ .attrs }}>click here</a>
+{{ end }}
+```
+
+The caller must supply `.attrs` as `html/template.HTMLAttr`:
+
+```go
+// In application code — not implementation
+import "html/template"
+
+data := map[string]any{
+    "attrs": template.HTMLAttr(`href="https://example.com" target="_blank"`),
+}
+```
+
+Map-based attribute spreading (class merging, style merging, boolean toggling) is not available through this mapping. Callers that need rich spread semantics must pre-format the attribute string themselves.
+
+### Example 10 — `v-switch` tab switcher
+
+`Tabs.vue`:
+
+```html
+<template>
+  <section>
+    <template v-switch="activeTab">
+      <div v-case="'home'"><h2>Home</h2><p>Welcome.</p></div>
+      <div v-case="'profile'"><h2>Profile</h2><p>Your settings.</p></div>
+      <div v-default><h2>Not found</h2></div>
+    </template>
+  </section>
+</template>
+```
+
+Command:
+
+```text
+htmlc template vue-to-tmpl -dir ./components Tabs
+```
+
+Expected stdout:
+
+```html
+{{ define "Tabs" }}
+<section>
+{{ if eq .activeTab "home" }}<div><h2>Home</h2><p>Welcome.</p></div>{{ else if eq .activeTab "profile" }}<div><h2>Profile</h2><p>Your settings.</p></div>{{ else }}<div><h2>Not found</h2></div>{{ end }}
+</section>
+{{ end }}
+```
+
+The `<template v-switch>` wrapper is not emitted. Each `v-case` string literal is translated to a Go double-quoted string. The `v-default` branch becomes the trailing `{{ else }}` block.
+
+**Type note**: when the switch expression is numeric (e.g. `v-switch="page"` with `v-case="1"`), callers must supply `.page` as `float64` (the type used by the htmlc expression evaluator) to avoid a type mismatch with `html/template`'s `eq`.
 
 ---
 
