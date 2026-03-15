@@ -1307,4 +1307,4 @@ Registering the same name twice keeps the latest value ("last write wins").
 `{{with}}`, variable assignments, and multi-command pipelines return
 `*ConversionError`.
 
-For step-by-step recipes, see `docs/howto-template-integration.md`.
+For a complete walkthrough, see `docs/tutorial-template-integration.md`.

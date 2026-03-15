@@ -166,6 +166,5 @@ The library receives a rendered HTML string. It never sees the `.vue` source.
 
 ## What's next
 
-- **How-to guides** (`docs/howto-template-integration.md`): focused recipes for specific tasks — handling `v-html` data contracts, working around `v-for` scope limits, suppressing warnings.
-- **Reference** (`docs/reference-template-bridge.md`): exhaustive tables of directive mappings, type contracts, and error catalogue.
-- **Explanation** (`docs/explanation-template-bridge.md`): the design rationale behind the bridge — why the mapping is conservative, why `v-for` scope is restricted, and why bidirectional conversion is the right model.
+- The Go API reference is in `doc.go` and inline go doc comments.
+- The bridge design rationale is covered in the README under *html/template Integration*.

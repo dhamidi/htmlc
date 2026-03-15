@@ -153,3 +153,9 @@ Before submitting an RFC for review, verify:
 - [ ] Code blocks have language identifiers.
 - [ ] Pseudocode is labelled as pseudocode.
 - [ ] The file is named `NNN-short-slug.md` with the correct sequential number.
+
+---
+
+## Post-implementation documentation
+
+Once an RFC is implemented, write a tutorial on the `docs` branch to show users how to use the feature. Use `docs/tutorial-template-integration.md` as the style reference.
