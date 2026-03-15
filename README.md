@@ -18,11 +18,10 @@ A server-side Go template engine that uses Vue.js Single File Component (`.vue`)
 4. [Component System](#component-system)
 5. [Special Attributes](#special-attributes)
 6. [Go API Quick Reference](#go-api-quick-reference)
-7. [html/template Interoperability](#htmltemplate-interoperability)
-8. [Expression Language Reference](#expression-language-reference)
-9. [Debug Mode](#debug-mode)
-10. [Custom Directives](#custom-directives)
-11. [Compatibility with Vue.js](#compatibility-with-vuejs)
+7. [Expression Language Reference](#expression-language-reference)
+8. [Debug Mode](#debug-mode)
+9. [Custom Directives](#custom-directives)
+10. [Compatibility with Vue.js](#compatibility-with-vuejs)
 
 ---
 
@@ -845,86 +844,7 @@ if errs := engine.ValidateAll(); len(errs) > 0 {
 
 ---
 
-## 7. html/template Interoperability
-
-htmlc provides bidirectional interoperability with Go's standard `html/template`
-package. This enables gradual adoption in projects that already use stdlib
-templates, and allows htmlc components to be consumed by libraries that expect
-`*html/template.Template`.
-
-### Exporting .vue components to `*html/template.Template`
-
-`Engine.ExportTemplate` compiles a `.vue` component (and all statically
-reachable sub-components) to a `*html/template.Template`:
-
-```go
-t, err := engine.ExportTemplate("Card")
-// t is a *html/template.Template containing {{ define "Card" }}...{{ end }}
-// Sub-components are included as separate {{ define }} blocks.
-t.ExecuteTemplate(w, "Card", map[string]any{"title": "Hello"})
-```
-
-Use `Engine.ExportTemplateSource` to get the raw template source string instead
-of a parsed template, for example for code generation or debugging.
-
-**Supported htmlc constructs** (translated to html/template equivalents):
-
-| htmlc | html/template |
-|---|---|
-| `{{ identifier }}` | `{{ .identifier }}` |
-| `{{ identifier.path }}` | `{{ .identifier.path }}` |
-| `:attr="expr"` | `attr="{{ .expr }}"` |
-| `v-bind:attr="expr"` | `attr="{{ .expr }}"` |
-| `v-if="cond"` | `{{ if .cond }}` |
-| `v-else-if="cond"` | `{{ else if .cond }}` |
-| `v-else` | `{{ else }}` |
-| `v-for="item in list"` | `{{ range .list }}` |
-| `<slot>` | `{{ block "default" . }}` |
-| `<slot name="N">` | `{{ block "N" . }}` |
-| `<ComponentName>` | `{{ template "ComponentName" . }}` |
-
-**Unsupported constructs** (return an error instead of emitting comments):
-`v-show`, `v-html`, `v-text`, `v-bind` spread, `v-switch`, custom directives,
-and complex expressions (operators, function calls, array indexing, etc.).
-
-### Importing `*html/template.Template` as htmlc components
-
-`Engine.ImportTemplate` registers an existing stdlib template as a virtual
-htmlc component usable as a `<Name>` tag in any `.vue` file:
-
-```go
-t := template.Must(template.ParseFiles("legacy/nav.html"))
-engine.ImportTemplate(t)
-// <Nav> is now usable inside .vue component trees.
-// Props are discovered from the template's parse tree.
-html, _ := engine.RenderPageString("Page", map[string]any{"user": "Alice"})
-```
-
-Named `{{ define "N" }}` blocks within the imported template are registered as
-separate virtual components under `"N"`.
-
-`Engine.ForceImportTemplate` works the same way but overwrites any existing
-component registration with the same name.
-
-**Props introspection for imported templates** is performed by walking the
-stdlib parse tree (`text/template/parse`): every `.field` access in the
-template source contributes a prop entry, visible to `ValidateAll` and other
-introspection tools.
-
-### CLI: `htmlc template`
-
-```text
-htmlc template vue-to-tmpl [-dir <components>] [-out <file>] <component-name>
-    Compile a .vue component tree to a Go html/template file.
-
-htmlc template tmpl-to-vue [-out <file>] <template-file>
-    Convert a Go html/template file to a best-effort .vue component.
-    Output begins with a review-required notice.
-```
-
----
-
-## 8. Expression Language Reference
+## 7. Expression Language Reference
 
 Expressions are JavaScript-compatible in syntax and truthiness rules but are evaluated entirely in Go.
 

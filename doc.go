@@ -457,52 +457,6 @@
 // and responding with a result envelope.  See the README for the full
 // protocol description.
 //
-// # html/template interoperability
-//
-// htmlc provides bidirectional interoperability with Go's standard
-// html/template package, enabling gradual migration and integration with
-// existing Go web applications.
-//
-// ## Exporting .vue components to *html/template.Template
-//
-// Use ExportTemplate (or ExportTemplateSource for the raw source text) to
-// compile a .vue component tree into a stdlib template:
-//
-//	t, err := engine.ExportTemplate("Card")
-//	// t is a *html/template.Template with {{ define "Card" }}...{{ end }}
-//	// Sub-components are included as additional {{ define }} blocks.
-//
-// Only htmlc constructs with unambiguous html/template equivalents are
-// translated. Supported constructs include text interpolations with simple
-// identifiers, v-bind:attr / :attr attribute bindings, v-if/else/for, <slot>
-// elements, and component references. Unsupported constructs (v-show, v-html,
-// complex expressions, etc.) return an error.
-//
-// ## Importing *html/template.Template as htmlc components
-//
-// Use ImportTemplate to register an existing stdlib template as a virtual
-// htmlc component, usable as a <Name> tag inside any .vue file without
-// materialising a file on disk:
-//
-//	t := template.Must(template.ParseFiles("legacy/nav.html"))
-//	engine.ImportTemplate(t)
-//	// Now <Nav> is available in any .vue component tree.
-//
-// Named {{ define "N" }} blocks within t are registered as separate
-// components under "N". ForceImportTemplate overwrites existing registrations.
-//
-// Props of imported templates are discovered by inspecting the html/template
-// parse tree: every .field access ({{ .user }}, {{ .title }}) contributes a
-// prop entry, which ValidateAll and other introspection tools can see.
-//
-// ## CLI
-//
-//	htmlc template vue-to-tmpl [-dir d] [-out f] <component-name>
-//	    Compiles a .vue component tree to a Go html/template file.
-//
-//	htmlc template tmpl-to-vue [-out f] <template-file>
-//	    Converts a Go html/template file to a best-effort .vue component.
-//
 // # Tutorial
 //
 // The fastest path to a working server is Engine + RenderPage:

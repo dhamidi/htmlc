@@ -38,7 +38,7 @@ The goal of this RFC is to make the two systems interoperable incrementally: ind
 
 ## 3. Non-Goals
 
-1. **Full round-trip fidelity**: `htmlc` directives with no `html/template` equivalent (e.g. `v-bind`, scoped slots with complex expressions) are emitted as HTML comments or best-effort approximations. Lossless round-tripping is not guaranteed and is not a design target.
+1. **Full round-trip fidelity**: `htmlc` directives with no `html/template` equivalent (e.g. scoped slots with complex expressions) produce errors. Lossless round-tripping is not guaranteed and is not a design target.
 2. **Client-side Vue.js features**: This RFC is strictly server-side. No JavaScript reactivity, `<script setup>`, or Composition API features are in scope.
 3. **Automatic live sync**: Changes to a `.vue` file are not automatically propagated to a cached `*html/template.Template` at runtime; consumers re-compile explicitly.
 4. **CSS/`<style>` block export**: Scoped styles are stripped in the vue-to-tmpl direction. Style handling is out of scope for the initial bridge.
@@ -50,21 +50,33 @@ The goal of this RFC is to make the two systems interoperable incrementally: ind
 
 ### 4.1 Directive and Syntax Mapping Table
 
-Before describing the API, this section establishes the mapping between the two template languages. The mapping is intentionally conservative: only constructs with unambiguous equivalents are translated; the rest are preserved as HTML comments with a `<!-- htmlc: … -->` annotation so a developer can address them manually.
+Before describing the API, this section establishes the mapping between the two template languages. The mapping is intentionally conservative: only constructs with unambiguous equivalents are translated; all others produce an error, aborting compilation.
+
+Each entry below specifies the exact input that triggers it, the exact output produced, and what counts as unsupported (which produces an error).
 
 | htmlc construct | `html/template` equivalent | Notes |
 |---|---|---|
-| `{{ expr }}` | `{{ .Field }}` or `{{ call .Fn }}` | Expression evaluation is approximated; complex expressions emit a comment |
-| `v-if="cond"` | `{{ if .Cond }} … {{ end }}` | Condition hoisted to dot access |
+| `{{ ident }}` (single identifier) | `{{ .ident }}` | Identifier is prefixed with `.` for dot-access |
+| `{{ a.b.c }}` (dot-path expression) | `{{ .a.b.c }}` | Dot-path is prefixed with `.` |
+| `{{ expr }}` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
+| `:attr="name"` (simple identifier) | `attr="{{.name}}"` | Shorthand `:attr` with a simple identifier binding |
+| `:attr="a.b.c"` (dot-path) | `attr="{{.a.b.c}}"` | Shorthand `:attr` with a dot-path binding |
+| `v-bind:attr="name"` (simple identifier) | `attr="{{.name}}"` | Long-form equivalent of the shorthand above |
+| `v-bind:attr="a.b.c"` (dot-path) | `attr="{{.a.b.c}}"` | Long-form equivalent of the shorthand above |
+| `:attr="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
+| `v-if="ident"` | `{{ if .ident }} … {{ end }}` | Condition must be a simple identifier or dot-path; complex expressions produce an error |
 | `v-else` | `{{ else }}` | Direct equivalent |
-| `v-else-if="cond"` | `{{ else if .Cond }}` | Direct equivalent |
-| `v-for="item in list"` | `{{ range .List }} … {{ end }}` | Loop variable becomes dot inside the range block |
-| `v-show="cond"` | `{{ if .Cond }}` + inline `style` attribute | No CSS class fallback; emits `style="display:none"` on false branch |
-| `<slot>` (default) | `{{ block "content" . }} … {{ end }}` | Overridable block |
+| `v-else-if="ident"` | `{{ else if .ident }}` | Same constraints as `v-if` |
+| `v-for="item in list"` | `{{ range .list }} … {{ end }}` | Loop variable becomes dot inside the range block |
+| `v-show="cond"` | — | **Produces an error**; no `html/template` equivalent exists |
+| `v-html="expr"` | — | **Produces an error**; unsafe with no direct equivalent |
+| `v-text="expr"` | — | **Produces an error**; no direct equivalent |
+| `v-bind="obj"` (spread) | — | **Produces an error**; no direct equivalent |
+| `v-switch` | — | **Produces an error**; no direct equivalent |
+| Custom directives | — | **Produce an error**; no direct equivalent |
+| `<slot>` (default) | `{{ block "default" . }} … {{ end }}` | Overridable block |
 | `<slot name="N">` | `{{ block "N" . }} … {{ end }}` | Named block |
 | `<ComponentName>` | `{{ template "ComponentName" . }}` | Sub-component call |
-| `v-bind:attr="expr"` | emitted as `<!-- htmlc: v-bind:attr="expr" -->` | No direct equivalent |
-| `v-html="expr"` | `{{ .Field \| html }}` | Caller must mark output safe explicitly |
 
 ### 4.2 Go API — `.vue` → `*html/template.Template`
 
@@ -201,8 +213,10 @@ DESCRIPTION
   (or stdout). The output is a valid Go html/template source file
   containing {{ define }} blocks for each sub-component.
 
-  Constructs with no html/template equivalent are preserved as
-  HTML comments: <!-- htmlc: original directive here -->.
+  Constructs with no html/template equivalent (v-show, v-html, complex
+  expressions, etc.) cause the command to exit with a non-zero status and
+  print an error to stderr identifying the offending construct, its source
+  file, and its approximate location. No partial output is written.
 ```
 
 **`htmlc template tmpl-to-vue`**
@@ -383,28 +397,34 @@ Produces:
 
 ```html
 {{ define "Button" }}
-{{ if .enabled }}<button <!-- htmlc: :class="variant" -->>{{ .label }}</button>{{ end }}
+{{ if .enabled }}<button class="{{.variant}}">{{ .label }}</button>{{ end }}
 {{ end }}
 ```
 
-The `v-if` translates cleanly to `{{ if .enabled }}`. The `v-bind:class` directive has no direct `html/template` equivalent and is preserved as `<!-- htmlc: :class="variant" -->`.
+The `v-if` translates cleanly to `{{ if .enabled }}`. The `:class="variant"` binding uses a simple identifier, so it translates to `class="{{.variant}}"`.
 
-Running `tmpl-to-vue` on this output:
+If the template used a complex expression such as `:class="isActive ? 'active' : ''"`, `vue-to-tmpl` would return an error:
+
+```text
+htmlc template vue-to-tmpl: Button.vue: :class="isActive ? 'active' : ''": complex expression not supported; only simple identifiers and dot-paths are allowed
+```
+
+Running `tmpl-to-vue` on the generated output:
 
 ```text
 htmlc template tmpl-to-vue Button.html
 ```
 
-Produces a `.vue` file with `v-if="enabled"` restored and the bound attribute preserved as a comment, with a header warning:
+Produces a `.vue` file with `v-if="enabled"` restored and the bound attribute approximated, with a header warning:
 
 ```html
 <!-- generated by htmlc template tmpl-to-vue; review required -->
 <template>
-  <button v-if="enabled" <!-- tmpl: :class="variant" -->>{{ label }}</button>
+  <button v-if="enabled" :class="variant">{{ label }}</button>
 </template>
 ```
 
-This example illustrates the limits of the interoperability guarantee: supported constructs survive the round-trip; unsupported ones require manual review.
+This example illustrates the limits of the interoperability guarantee: supported constructs survive the round-trip; unsupported ones produce errors at export time, forcing the developer to resolve them before proceeding.
 
 ### Example 5 — Backward compatibility (no change for existing projects)
 
@@ -453,16 +473,16 @@ This section describes Go-level changes at a high level. Full implementations ar
 
 4. **`ForceImportTemplate(t *html/template.Template) error`** — new exported method: same as `ImportTemplate` but skips the collision check at step 2.
 
-5. **`compileToTemplateSource(entry *engineEntry, visited map[string]bool) string`** — new private function (~100–200 lines):
+5. **`compileToTemplateSource(entry *engineEntry, visited map[string]bool) (string, error)`** — new private function (~100–200 lines):
    - Walks `entry.comp.Template` (the `*html.Node` tree stored by `ParseFile`).
    - For each node type, emits the `html/template` equivalent from the mapping in §4.1.
    - Tracks `visited` to prevent infinite recursion in circular component graphs.
    - Sub-component references recurse into `entries` to compile the referenced component's source as a `{{ define }}` block.
-   - Emits `<!-- htmlc: … -->` for unrecognised directives and complex expressions.
+   - Returns an error for any unrecognised directive, unsupported construct, or complex expression that cannot be translated.
 
 ### `renderer.go`
 
-No changes. Synthetic components bypass the renderer entirely and write directly to the `io.Writer` via their `render` function. The engine's existing `renderComponent` method needs a one-line addition to check whether the resolved entry holds a `syntheticComponent` and, if so, call its `render` function in place of constructing a `Renderer`.
+No changes. Synthetic components bypass the renderer entirely and write directly to the `io.Writer` via their `render` function. The engine's existing `renderComponent` method checks whether the resolved entry holds a `syntheticComponent` and, if so, calls its `render` function in place of constructing a `Renderer`.
 
 ### `cmd/htmlc/template_command.go` (new file)
 
@@ -474,8 +494,8 @@ No changes. Synthetic components bypass the renderer entirely and write directly
    - Parses `-dir` (default `"."`) and `-out` flags.
    - Creates an engine with `htmlc.New(htmlc.Options{ComponentDir: dir})`.
    - Calls `engine.ExportTemplateSource(name)`.
-   - Writes the result to `-out` (or `stdout` if `-out` is omitted).
-   - Emits one line to `stderr` per untranslatable node (suppressible with a future `-quiet` flag; see §10).
+   - On success, writes the result to `-out` (or `stdout` if `-out` is omitted).
+   - On error (unsupported construct encountered), writes the error to `stderr` and exits with a non-zero status. No partial output is written.
 
 3. **`runTmplToVue(args []string, stdout, stderr io.Writer, strict bool) error`**:
    - Parses `-out` flag.
@@ -572,9 +592,9 @@ Rejected: this would add a directive whose semantics require Go-level side effec
 
 ## 10. Open Questions
 
-1. **Prop introspection for imported templates** (`non-blocking`): When a `*html/template.Template` is imported, there is no mechanism to infer its expected data shape. Should `ImportTemplate` accept an optional typed example value (e.g. `ImportTemplate(t, MyData{})`) to enable prop validation in strict mode? The `Component.Props()` method on native components uses AST inspection; no equivalent exists for stdlib templates. Tentative recommendation: defer to a follow-up RFC once strict-mode prop validation (`ValidateAll` with prop-shape checking) is more mature.
+1. **Prop introspection for imported templates** (`non-blocking`): When a `*html/template.Template` is imported, the stdlib exports its parse tree via the `text/template/parse` package. Walking the parse tree and collecting all `.field` accesses (e.g. `{{ .user }}`, `{{ .title }}`) gives us the set of props the template expects. This is the same strategy used by `Component.Props()` for native `.vue` components. Prop introspection for imported templates is therefore not a blocker — we CAN inspect the parse tree to find `.field` accesses and populate the prop list visible to `ValidateAll` and other introspection tools.
 
-2. **Expression translation fidelity** (`blocking`): The `htmlc` expression language supports operators, optional chaining (`?.`), and function calls that have no direct `html/template` equivalent. The RFC proposes emitting `<!-- htmlc: … -->` comments for these. Should `runVueToTmpl` emit a warning to stderr listing untranslated constructs? Recommendation: yes, one line per untranslated node (including the source file path and approximate line number from `Component.Source`), suppressible with a `-quiet` flag. This must be decided before implementation because it affects the CLI contract.
+2. **Expression translation fidelity** (`blocking`): The `htmlc` expression language supports operators, optional chaining (`?.`), and function calls that have no direct `html/template` equivalent. The RFC requires that these produce **errors**, not warnings or HTML comments. `runVueToTmpl` exits with a non-zero status and writes one error line to stderr per untranslatable construct (including the source file path and approximate line number from `Component.Source`). This is resolved: errors, not comments or warnings.
 
 3. **Sub-component recursion depth** (`non-blocking`): `ExportTemplate` walks sub-components recursively via `compileToTemplateSource`. Should there be a depth limit to prevent accidental infinite recursion in pathological component graphs (e.g. a component that references itself)? Tentative recommendation: track `visited map[string]bool` as proposed, which already prevents cycles; add a `MaxDepth` option (default 50) consistent with other tree-walking limits in the engine.
 

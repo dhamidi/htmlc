@@ -159,10 +159,6 @@ type Renderer struct {
 	debug              bool
 	debugW             *debugWriter
 	funcs              map[string]any // engine-registered functions, propagated to child renderers
-	// synthComponents maps component names to render functions for synthetic
-	// components (imported via Engine.ImportTemplate). When a component tag
-	// is not found in registry, synthComponents is checked next.
-	synthComponents map[string]func(io.Writer, map[string]any) error
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -241,15 +237,6 @@ func (r *Renderer) withDebug(dw *debugWriter) *Renderer {
 // Returns the Renderer for chaining.
 func (r *Renderer) WithFuncs(funcs map[string]any) *Renderer {
 	r.funcs = funcs
-	return r
-}
-
-// WithSynthComponents attaches a map of synthetic component render functions
-// to this renderer. When a component tag is encountered that cannot be found
-// in the normal Registry, the renderer checks synthComponents and calls the
-// render function directly if found. Returns the Renderer for chaining.
-func (r *Renderer) WithSynthComponents(sc map[string]func(io.Writer, map[string]any) error) *Renderer {
-	r.synthComponents = sc
 	return r
 }
 
@@ -991,7 +978,7 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 	var preRendered bool
 	_, hasVText := attrValue(n, "v-text")
 	_, hasVHTML := attrValue(n, "v-html")
-	isComponentElement := n.Data == "component" || r.resolveComponent(n.Data) != nil || r.synthComponents[n.Data] != nil
+	isComponentElement := n.Data == "component" || r.resolveComponent(n.Data) != nil
 	if !isVoidElement(n.Data) && !hasVText && !hasVHTML && !isComponentElement {
 		if err := r.renderChildren(&childBuf, n, scope); err != nil {
 			return err
@@ -1082,13 +1069,8 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 	if comp := r.resolveComponent(working.Data); comp != nil {
 		return r.renderComponentElement(w, working, scope, comp)
 	}
-	// Synthetic component (imported via Engine.ImportTemplate): build the child
-	// scope from the element's attributes and call the render function directly.
-	if synthFn := r.synthComponents[working.Data]; synthFn != nil {
-		return r.renderSynthComponentElement(w, working, scope, synthFn)
-	}
 	// Unknown component-like tag (kebab-case with hyphen, not in registry).
-	if (r.registry != nil || r.synthComponents != nil) && isComponentLike(working.Data) {
+	if r.registry != nil && isComponentLike(working.Data) {
 		return fmt.Errorf("unknown component: %q", working.Data)
 	}
 
@@ -1685,7 +1667,6 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		debug:              r.debug,
 		debugW:             r.debugW,
 		funcs:              r.funcs,              // propagate engine functions to child renderers
-		synthComponents:    r.synthComponents,    // propagate synthetic component registry
 	}
 
 	if err := childRenderer.Render(w, childScope); err != nil {
@@ -1703,61 +1684,6 @@ func (r *Renderer) rendererWithComponent(comp *Component) *Renderer {
 		copy.component = comp
 	}
 	return &copy
-}
-
-// renderSynthComponentElement renders a synthetic component (imported via
-// Engine.ImportTemplate) as if it were a native .vue component. It evaluates
-// the element's attribute expressions to build a child scope and passes that
-// scope to the synthetic render function. Slots are not supported for synthetic
-// components (the render function controls its own output).
-func (r *Renderer) renderSynthComponentElement(w io.Writer, n *html.Node, scope map[string]any, synthFn func(io.Writer, map[string]any) error) error {
-	childScope := make(map[string]any)
-
-	for _, attr := range n.Attr {
-		switch attr.Key {
-		case "v-if", "v-else-if", "v-else", "v-for",
-			"v-pre", "v-once", "v-show", "v-text", "v-html",
-			"v-model", "v-bind", "v-switch", "v-case", "v-default":
-			continue
-		}
-		if isClientSideDirective(attr.Key) {
-			continue
-		}
-		if _, ok := parseSlotDirective(attr.Key); ok {
-			continue
-		}
-		if strings.HasPrefix(attr.Key, ":") {
-			propName := attr.Key[1:]
-			val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
-			if err != nil {
-				return fmt.Errorf("%s %q: %w", attr.Key, attr.Val, err)
-			}
-			childScope[propName] = val
-		} else if strings.HasPrefix(attr.Key, "v-bind:") {
-			propName := attr.Key[7:]
-			val, err := expr.Eval(strings.TrimSpace(attr.Val), scope)
-			if err != nil {
-				return fmt.Errorf("%s %q: %w", attr.Key, attr.Val, err)
-			}
-			childScope[propName] = val
-		} else {
-			childScope[attr.Key] = attr.Val
-		}
-	}
-
-	// Apply engine funcs at lower priority than explicit props.
-	if len(r.funcs) > 0 {
-		merged := make(map[string]any, len(r.funcs)+len(childScope))
-		for k, v := range r.funcs {
-			merged[k] = v
-		}
-		for k, v := range childScope {
-			merged[k] = v
-		}
-		childScope = merged
-	}
-
-	return synthFn(w, childScope)
 }
 
 // renderVFor renders n repeatedly for each element in the v-for collection.

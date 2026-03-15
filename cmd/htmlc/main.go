@@ -178,12 +178,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	type cmdFn func([]string, io.Writer, io.Writer, bool) error
 	cmds := map[string]cmdFn{
-		"render":   runRender,
-		"page":     runPage,
-		"props":    runProps,
-		"ast":      runAst,
-		"build":    runBuild,
-		"template": runTemplateCommand,
+		"render": runRender,
+		"page":   runPage,
+		"props":  runProps,
+		"ast":    runAst,
+		"build":  runBuild,
 	}
 	fn, ok := cmds[subcmd]
 	if !ok {
