@@ -22,6 +22,7 @@ A server-side Go template engine that uses Vue.js Single File Component (`.vue`)
 8. [Debug Mode](#debug-mode)
 9. [Custom Directives](#custom-directives)
 10. [Compatibility with Vue.js](#compatibility-with-vuejs)
+11. [bridge: .vue ↔ html/template Conversion](#bridge-vue--htmltemplate-conversion)
 
 ---
 
@@ -1224,3 +1225,86 @@ component, and CSS selectors are rewritten to target that attribute.
 htmlc has no virtual DOM, no reactivity system, and no JavaScript runtime.
 Every render call produces a fixed HTML string. Props are plain Go values
 passed at render time.
+
+---
+
+## 11. bridge: .vue ↔ html/template Conversion
+
+The `bridge` sub-package (`github.com/dhamidi/htmlc/bridge`) provides
+bidirectional conversion between `.vue` components and Go's standard
+`html/template` format.
+
+### vue → tmpl
+
+`VueToTemplate` converts a parsed `*htmlc.Component` to a string containing
+`{{define "name"}}…{{end}}` blocks suitable for `html/template`:
+
+```go
+import (
+    "github.com/dhamidi/htmlc"
+    "github.com/dhamidi/htmlc/bridge"
+)
+
+comp, err := htmlc.ParseFile("Card.vue", src)
+result, err := bridge.VueToTemplate(comp, "Card")
+// result.Text contains {{define "Card"}}…{{end}}
+// result.Warnings lists non-fatal issues (v-html, v-bind spread, etc.)
+
+tmpl, err := html/template.New("").Parse(result.Text)
+tmpl.ExecuteTemplate(w, "Card", data)
+```
+
+#### Supported constructs
+
+| Vue syntax | Go template output |
+|---|---|
+| `{{ ident }}` | `{{.ident}}` |
+| `{{ a.b.c }}` | `{{.a.b.c}}` |
+| `:attr="ident"` / `v-bind:attr="ident"` | `attr="{{.ident}}"` |
+| `v-if="ident"` | `{{if .ident}}…{{end}}` |
+| `v-else-if="ident"` | `{{else if .ident}}` |
+| `v-else` | `{{else}}` |
+| `v-for="item in list"` | `{{range .list}}…{{end}}` |
+| `v-show="ident"` | injects `style="display:none"` conditionally |
+| `v-html="ident"` | `{{.ident}}` + warning |
+| `v-text="ident"` | `{{.ident}}` (children discarded) |
+| `v-bind="ident"` (spread) | `{{.ident}}` + warning |
+| `<template v-switch="ident">` | `{{if eq .ident "…"}}…` chain |
+| `<slot>` | `{{block "default" .}}…{{end}}` |
+| `<slot name="N">` | `{{block "N" .}}…{{end}}` |
+| `<my-component>` (zero props) | `{{template "my-component" .}}` |
+
+Complex expressions, bound props on child components, and custom directives
+return `*bridge.ConversionError`.
+
+### tmpl → vue (best-effort)
+
+`TemplateToVue` converts `html/template` source to `.vue` syntax.
+This direction is best-effort; some constructs cannot be round-tripped.
+
+```go
+result, err := bridge.TemplateToVue(tmplSrc, "Card")
+// result.Text is a .vue source string with <template>…</template>
+```
+
+| Template syntax | Vue output |
+|---|---|
+| `{{.name}}` | `{{ name }}` |
+| `{{.a.b}}` | `{{ a.b }}` |
+| `{{if .cond}}…{{end}}` | `<div v-if="cond">…</div>` |
+| `{{range .items}}…{{end}}` | `<ul><li v-for="item in items">…</li></ul>` |
+| `{{block "N" .}}…{{end}}` | `<slot name="N">…</slot>` |
+| `{{template "Name" .}}` | `<Name />` |
+
+`{{with}}`, variable assignments, and multi-command pipelines return
+`*bridge.ConversionError`.
+
+### Expression classifier
+
+The `bridge` package also exposes `ClassifyExpr`, `DotPrefix`, and `Snippet`
+as utilities for inspecting and transforming htmlc expressions:
+
+```go
+kind := bridge.ClassifyExpr("post.title") // bridge.ExprDotPath
+dot, err := bridge.DotPrefix("post.title") // ".post.title", nil
+```
