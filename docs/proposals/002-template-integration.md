@@ -38,11 +38,12 @@ The goal of this RFC is to make the two systems interoperable incrementally: ind
 
 ## 3. Non-Goals
 
-1. **Full round-trip fidelity**: `htmlc` directives with no `html/template` equivalent (e.g. scoped slots, complex expression bindings) produce errors. Lossless round-tripping is not guaranteed and is not a design target. Directives that support a partial mapping (`v-show`, `v-html`, `v-text`, `v-bind` spread, `v-switch`) still produce errors when used with complex expressions; only simple identifiers and dot-paths are supported.
+1. **Source-text round-trip fidelity**: Rendered-output equivalence for constructs within the defined scope (all §4.1 rows that do not produce errors) IS a design target — `vue → tmpl → render(data)` must produce the same HTML as `vue → render(data)` for the same data, and `tmpl → vue → render(data)` must equal `tmpl → render(data)` for all constructs the `tmpl-to-vue` direction claims to support. Source-text identity after a round-trip is NOT a goal: whitespace, attribute ordering, and comment formatting may differ. Constructs outside the defined scope (complex expressions, arbitrary pipelines, `with` blocks, `$var` assignment) are not guaranteed to round-trip. Directives that support a partial mapping (`v-show`, `v-html`, `v-text`, `v-bind` spread, `v-switch`) still produce errors when used with complex expressions; only simple identifiers and dot-paths are supported.
 2. **Client-side Vue.js features**: This RFC is strictly server-side. No JavaScript reactivity, `<script setup>`, or Composition API features are in scope.
 3. **Automatic live sync**: Changes to a `.vue` file are not automatically propagated to a cached `*html/template.Template` at runtime; consumers re-compile explicitly.
 4. **CSS/`<style>` block export**: Scoped styles are stripped in the vue-to-tmpl direction. Style handling is out of scope for the initial bridge.
 5. **Changing the htmlc expression language**: This RFC does not alter the existing expression evaluator or add Go template action syntax to `.vue` files.
+6. **Graceful degradation for unsupported `html/template` constructs in `tmpl-to-vue`**: unsupported constructs (arbitrary pipelines, `with` blocks, `$var` assignment, `{{ template "Name" expr }}` with non-`.` data) produce errors and halt conversion. The converter does not produce partial output. Templates containing unsupported constructs must be manually translated. This is a deliberate symmetry with `vue-to-tmpl`, which also errors rather than emitting partial output.
 
 ---
 
@@ -54,36 +55,36 @@ Before describing the API, this section establishes the mapping between the two 
 
 Each entry below specifies the exact input that triggers it, the exact output produced, and what counts as unsupported (which produces an error).
 
-| htmlc construct | `html/template` equivalent | Notes |
-|---|---|---|
-| `{{ ident }}` (single identifier) | `{{ .ident }}` | Identifier is prefixed with `.` for dot-access |
-| `{{ a.b.c }}` (dot-path expression) | `{{ .a.b.c }}` | Dot-path is prefixed with `.` |
-| `{{ expr }}` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
-| `:attr="name"` (simple identifier) | `attr="{{.name}}"` | Shorthand `:attr` with a simple identifier binding |
-| `:attr="a.b.c"` (dot-path) | `attr="{{.a.b.c}}"` | Shorthand `:attr` with a dot-path binding |
-| `v-bind:attr="name"` (simple identifier) | `attr="{{.name}}"` | Long-form equivalent of the shorthand above |
-| `v-bind:attr="a.b.c"` (dot-path) | `attr="{{.a.b.c}}"` | Long-form equivalent of the shorthand above |
-| `:attr="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
-| `v-if="ident"` | `{{ if .ident }} … {{ end }}` | Condition must be a simple identifier or dot-path; complex expressions produce an error |
-| `v-else` | `{{ else }}` | Direct equivalent |
-| `v-else-if="ident"` | `{{ else if .ident }}` | Same constraints as `v-if` |
-| `v-for="item in list"` | `{{ range .list }} … {{ end }}` | Loop variable becomes dot inside the range block |
-| `v-show="ident"` (simple identifier or dot-path) | `style="{{ if not .ident }}display:none{{ end }}"` | Prepends `display:none` when falsy; merges with existing static `style` by emitting `{{ if not .ident }}display:none;{{ end }}<static-style>`; combined with dynamic `:style` produces an error; see §4.1.1 |
-| `v-show="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
-| `v-html="ident"` (simple identifier or dot-path) | `<el>{{ .ident }}</el>` (all children replaced) | Data field must be `html/template.HTML`; plain `string` values are auto-escaped by `html/template`, diverging from htmlc semantics; see §4.1.2 |
-| `v-html="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
-| `v-text="ident"` (simple identifier or dot-path) | `<el>{{ .ident }}</el>` (all children replaced) | Direct equivalent; `html/template` auto-escapes output, matching `v-text` semantics; all existing children are discarded |
-| `v-text="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
-| `v-bind="ident"` (argument-less spread, simple identifier or dot-path) | `<el {{ .ident }}>` | Data field must be `html/template.HTMLAttr` (pre-formatted attribute string); map-to-attribute conversion and class/style merging semantics are not preserved; see §4.1.3 |
-| `v-bind="expr"` (argument-less spread, complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported |
-| `<template v-switch="ident">` | `{{ if eq .ident … }}{{ else if eq .ident … }}{{ else }}{{ end }}` | Switch expression must be a simple identifier or dot-path; complex expressions produce an error; `<template>` element is not emitted; see §4.1.4 |
-| `<el v-case="literal">` | `{{ if eq .switchExpr literal }}` or `{{ else if eq .switchExpr literal }}` | String, number, and boolean literals are emitted as Go template literals; identifier and dot-path case expressions become `.ident`; equality uses Go's `eq`, not htmlc's JavaScript-style `==` |
-| `<el v-default>` | `{{ else }}` | Direct equivalent; only the first `v-default` child is emitted; subsequent `v-default` children are silently dropped |
-| `v-switch` on non-`<template>` element | — | **Produces an error** |
-| Custom directives | — | **Produce an error**; no direct equivalent |
-| `<slot>` (default) | `{{ block "default" . }} … {{ end }}` | Overridable block |
-| `<slot name="N">` | `{{ block "N" . }} … {{ end }}` | Named block |
-| `<ComponentName>` | `{{ template "ComponentName" . }}` | Sub-component call |
+| htmlc construct | `html/template` equivalent | Notes | Round-Trip Status |
+|---|---|---|---|
+| `{{ ident }}` (single identifier) | `{{ .ident }}` | Identifier is prefixed with `.` for dot-access | ✅ Lossless |
+| `{{ a.b.c }}` (dot-path expression) | `{{ .a.b.c }}` | Dot-path is prefixed with `.` | ✅ Lossless |
+| `{{ expr }}` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported | — (error) |
+| `:attr="name"` (simple identifier) | `attr="{{.name}}"` | Shorthand `:attr` with a simple identifier binding | ✅ Lossless |
+| `:attr="a.b.c"` (dot-path) | `attr="{{.a.b.c}}"` | Shorthand `:attr` with a dot-path binding | ✅ Lossless |
+| `v-bind:attr="name"` (simple identifier) | `attr="{{.name}}"` | Long-form equivalent of the shorthand above | ✅ Lossless |
+| `v-bind:attr="a.b.c"` (dot-path) | `attr="{{.a.b.c}}"` | Long-form equivalent of the shorthand above | ✅ Lossless |
+| `:attr="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported | — (error) |
+| `v-if="ident"` | `{{ if .ident }} … {{ end }}` | Condition must be a simple identifier or dot-path; complex expressions produce an error | ⚠️ Scope restriction — Go and htmlc/JS truthiness match for `bool`, non-empty `string`, non-zero numeric, and non-nil values; diverge for empty slices and maps (falsy in Go, truthy in JS/htmlc); restrict to types where truthiness is equivalent |
+| `v-else` | `{{ else }}` | Direct equivalent | ✅ Lossless |
+| `v-else-if="ident"` | `{{ else if .ident }}` | Same constraints as `v-if` | ⚠️ Scope restriction — same truthiness caveat as `v-if` |
+| `v-for="item in list"` | `{{ range .list }} … {{ end }}` | Loop variable `item` translates to `.` inside the range block; loop body must not reference outer-scope variables; see §4.1.5 | ⚠️ Scope restriction — lossless only when the loop body does not reference outer-scope variables; see §4.1.5 |
+| `v-show="ident"` (simple identifier or dot-path) | `style="{{ if not .ident }}display:none{{ end }}"` | Prepends `display:none` when falsy; merges with existing static `style` by emitting `{{ if not .ident }}display:none;{{ end }}<static-style>`; combined with dynamic `:style` produces an error; see §4.1.1 | ✅ Lossless — static literal `display:none` is not filtered by `html/template`'s CSS context |
+| `v-show="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported | — (error) |
+| `v-html="ident"` (simple identifier or dot-path) | `<el>{{ .ident }}</el>` (all children replaced) | Data field must be `html/template.HTML`; plain `string` values are auto-escaped by `html/template`, diverging from htmlc semantics; see §4.1.2 | ⚠️ Data contract — caller must supply `html/template.HTML`; `html/template` passes `template.HTML` values through verbatim without additional escaping in an HTML body context |
+| `v-html="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported | — (error) |
+| `v-text="ident"` (simple identifier or dot-path) | `<el>{{ .ident }}</el>` (all children replaced) | Direct equivalent; `html/template` auto-escapes output, matching `v-text` semantics; all existing children are discarded | ✅ Lossless |
+| `v-text="expr"` (complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported | — (error) |
+| `v-bind="ident"` (argument-less spread, simple identifier or dot-path) | `<el {{ .ident }}>` | Data field must be `html/template.HTMLAttr` (pre-formatted attribute string); map-to-attribute conversion and class/style merging semantics are not preserved; see §4.1.3 | ⚠️ Data contract — caller must supply `html/template.HTMLAttr`; map-based spread semantics are not preserved |
+| `v-bind="expr"` (argument-less spread, complex expression) | — | **Produces an error**; only simple identifiers and dot-paths are supported | — (error) |
+| `<template v-switch="ident">` | `{{ if eq .ident … }}{{ else if eq .ident … }}{{ else }}{{ end }}` | Switch expression must be a simple identifier or dot-path; complex expressions produce an error; `<template>` element is not emitted; see §4.1.4 | ⚠️ Scope restriction — string case literals are lossless; numeric case literals require the caller to supply the switch value as Go `int` (not `float64`); see §4.1.4 |
+| `<el v-case="literal">` | `{{ if eq .switchExpr literal }}` or `{{ else if eq .switchExpr literal }}` | String, number, and boolean literals are emitted as Go template literals; identifier and dot-path case expressions become `.ident`; equality uses Go's `eq`, not htmlc's JavaScript-style `==` | ⚠️ Data contract — string literals: ✅ lossless; numeric literals: caller must supply `int` to match Go template `eq`; see §4.1.4 |
+| `<el v-default>` | `{{ else }}` | Direct equivalent; only the first `v-default` child is emitted; subsequent `v-default` children are silently dropped | ✅ Lossless |
+| `v-switch` on non-`<template>` element | — | **Produces an error** | — (error) |
+| Custom directives | — | **Produce an error**; no direct equivalent | — (error) |
+| `<slot>` (default) | `{{ block "default" . }} … {{ end }}` | Overridable block | ⚠️ Scope restriction — fallback content renders identically when no caller override is provided; caller-override case (`<template #default>`) has no round-trippable equivalent in static tmpl output |
+| `<slot name="N">` | `{{ block "N" . }} … {{ end }}` | Named block | ⚠️ Scope restriction — same as default slot |
+| `<ComponentName>` | `{{ template "ComponentName" . }}` | Sub-component call; zero static props only — calls with static prop values produce an error; see §4.1.6 | ⚠️ Scope restriction — lossless only for components called with zero static props; see §4.1.6 |
 
 #### 4.1.1 `v-show` — Style Injection
 
@@ -185,13 +186,95 @@ None of htmlc's rich map semantics (class/style merging, boolean toggling) carry
 | Dot-path `a.b` | `.a.b` |
 | Complex expression | **Error** |
 
-**Equality semantics**: htmlc's `==` uses JavaScript-style abstract equality (e.g. `null == undefined` is true; numeric string coercion applies). `html/template`'s `eq` uses Go's `==`, which requires comparable operands of the same type. Edge cases such as `float64(2) == int(2)` behave differently. The numeric type difference is the most common practical issue: the htmlc expression evaluator stores all numbers as `float64`, so `v-case="1"` compiles to `{{ if eq .tab 1 }}` where `1` is a Go `int` — callers whose switch value is `float64` will see a mismatch. Implementers should document this constraint clearly.
+**Equality semantics**: htmlc's `==` uses JavaScript-style abstract equality (e.g. `null == undefined` is true; numeric string coercion applies). `html/template`'s `eq` uses Go's `==`, which requires comparable operands of the same type. Edge cases such as `float64(2) == int(2)` behave differently.
+
+**Numeric type constraint**: the htmlc expression evaluator stores all numbers as `float64`. Numeric case literals in `.vue` source (e.g. `v-case="1"`) compile to Go integer literals in the template source (`{{ if eq .tab 1 }}`), where `1` is a Go `int`. If the caller supplies the switch value as `float64(1)` — as htmlc's own evaluator would — `html/template`'s `eq` will report `false` at runtime due to the type mismatch between `float64` and `int`. To avoid this, callers must supply the switch value as Go `int` when using numeric case literals. Alternatively, restrict numeric `v-case` usage to cases where the switch value is already a Go `int` in the data map. String case literals (`v-case="'home'"`) are unaffected by this constraint: Go `string` equality is type-safe. The `tmpl-to-vue` direction adds a comment to generated output documenting this restriction whenever numeric cases are present.
 
 **`v-switch` on non-`<template>` elements**: already produces an error in the renderer; the compiler mirrors this.
 
 **Multiple `v-default` elements**: only the first is emitted as the `{{ else }}` branch; subsequent `v-default` children are silently dropped, matching the renderer's behaviour.
 
 **Nested `v-switch`**: each switch compiles to its own `{{ if }}` block; nesting works naturally.
+
+#### 4.1.5 `v-for` — Loop Variable Handling
+
+The `v-for` / `{{ range }}` mapping is the most semantically complex in this RFC because the two loop models differ in variable scoping and naming.
+
+**Vue → tmpl direction**
+
+`v-for="item in list"` generates `{{ range .list }}`. Inside the range body:
+
+- References to the loop variable `{{ item }}` are translated to `{{ . }}` (the current range dot).
+- References to `{{ item.field }}` are translated to `{{ .field }}`.
+- References to any other outer-scope variable (e.g. `{{ title }}` from the parent data) are **flagged as errors**. Inside `{{ range }}`, `html/template` sets dot to the current element; the outer dot is inaccessible. Any loop body that references an outer-scope identifier that is not the loop variable cannot be translated faithfully and causes `vue-to-tmpl` to exit with a non-zero status.
+- The index variable form `v-for="(item, index) in list"` is **out of scope** — it has no direct equivalent without `{{ range $i, $v := .list }}`; this form produces an error.
+
+**tmpl → Vue direction**
+
+`{{ range .list }} … {{ end }}` generates `<el v-for="item in list"> … </el>` (where `el` is the loop body's root element, or a `<template>` wrapper if the body has multiple sibling roots). Inside the range body:
+
+- `{{ . }}` (bare dot) is translated to `{{ item }}`.
+- `{{ .field }}` is translated to `{{ item.field }}`.
+- The outer dot is inaccessible inside `{{ range }}` in `html/template`; this matches the constraint imposed in the Vue → tmpl direction — no outer-scope access is possible or promised.
+
+**Nested loops**
+
+Nested `v-for` loops require distinct loop variable names to avoid shadowing. The naming convention is:
+
+- Outermost loop: `item`
+- Second nesting level: `item2`
+- Third nesting level: `item3`
+- And so on (`item4`, `item5`, …)
+
+In the tmpl → Vue direction, the converter tracks nesting depth and assigns variable names accordingly. In the Vue → tmpl direction, the Vue source already names its variables; the converter verifies that the innermost loop variable name is used consistently within its body and that no outer variable name (from an enclosing `v-for`) is referenced inside the inner loop body.
+
+**Index variable**
+
+`{{ range $i, $v := .list }}` is supported in `html/template` but has no direct htmlc equivalent. `tmpl-to-vue` produces an **error** for this form. `vue-to-tmpl` does not generate this form (the index is not accessible in a translated template).
+
+**Concrete round-trip example**
+
+tmpl input:
+
+```html
+<ul>{{ range .items }}<li>{{ .name }} ({{ .count }})</li>{{ end }}</ul>
+```
+
+tmpl → Vue output:
+
+```html
+<ul><li v-for="item in items">{{ item.name }} ({{ item.count }})</li></ul>
+```
+
+Vue → tmpl round-trip back:
+
+```html
+<ul>{{ range .items }}<li>{{ .name }} ({{ .count }})</li>{{ end }}</ul>
+```
+
+Rendered output for `data = {"items": [{"name": "Alice", "count": 3}]}` is identical at each stage:
+
+```html
+<ul><li>Alice (3)</li></ul>
+```
+
+The loop variable name `item` used in the intermediate Vue form does not collide with an outer-scope field named `item` because the `vue-to-tmpl` converter errors on any outer-scope reference from within the loop body — there is no path where `item` the field and `item` the loop variable are both accessed in the same body.
+
+#### 4.1.6 `<ComponentName>` — Static Props
+
+When a sub-component is called with static string prop values in htmlc — e.g. `<Card title="Welcome" body="Hello">` — those values cannot be forwarded to the generated `{{ template "Card" . }}` call, because `{{ template "Name" . }}` passes the entire parent dot unchanged; it has no mechanism for injecting additional key-value pairs into a new data scope without a helper function.
+
+Three options were evaluated:
+
+- ✅ **Option A — Restrict to zero static props**: calls with static prop values produce an **error** in `vue-to-tmpl`. The developer must move static values into the caller's data map before conversion. This is simple, consistent with the conservative mapping philosophy throughout §4.1, and avoids runtime dependencies.
+- ⚠️ **Option B — Emit `{{ template "Name" (dict "k" "v" …) }}`**: uses a `dict` helper function registered on the template to construct a new map at render time. Requires the caller to register a `dict` function; adds a runtime dependency; the `dict` function is not part of `html/template`'s standard library, though it is common in template frameworks.
+- ❌ **Option C — Inline the sub-component body**: substitutes the sub-component's template source inline instead of emitting a `{{ template }}` call. Eliminates the data-passing problem but loses the sub-component boundary and prevents deduplication when the same component is used multiple times.
+
+**Verdict**: Option A. `vue-to-tmpl` produces an **error** for any `<ComponentName>` call that carries one or more static prop attributes. The error message identifies the component name and the offending prop, and suggests moving the static value into the caller's data map.
+
+**Impact on round-trip status**: the `<ComponentName>` row in §4.1 carries ⚠️ Scope restriction — the rendered-output round-trip guarantee holds only for sub-component calls with zero static props.
+
+**`tmpl-to-vue` direction**: `{{ template "Name" . }}` translates to `<Name />` (no props). The reverse mapping is unambiguous and lossless for the zero-static-prop case.
 
 ### 4.2 Go API — `.vue` → `*html/template.Template`
 
@@ -351,12 +434,53 @@ FLAGS
 DESCRIPTION
   Reads <template-file> as a Go html/template source. Translates
   html/template actions to htmlc equivalents and emits a .vue Single
-  File Component. Named {{ define }} blocks become separate <template>
-  sections or slot definitions.
+  File Component.
 
-  Actions with no htmlc equivalent are preserved as
-  <!-- tmpl: original action here --> comments.
+  Unsupported constructs (arbitrary pipelines, with blocks, $var
+  assignment, {{ template "Name" expr }} with non-dot data, index
+  variable range {{ range $i, $v := .list }}) cause the command to
+  exit with a non-zero status and print an error to stderr. No partial
+  output is written.
+
+  The output file is prefixed with a generated-by comment.
 ```
+
+**Inverse mapping table** — defines the `html/template` → htmlc translation for every supported action type:
+
+| `html/template` action | htmlc / Vue equivalent | Notes |
+|---|---|---|
+| `{{ .field }}` | `{{ field }}` | Strip leading `.` |
+| `{{ .a.b.c }}` | `{{ a.b.c }}` | Strip leading `.` on first segment |
+| `{{ if .cond }} … {{ end }}` | `<el v-if="cond"> … </el>` or `<template v-if="cond"> … </template>` | Use `<template>` wrapper when the body has multiple sibling root elements |
+| `{{ if .cond }} … {{ else }} … {{ end }}` | `v-if` + `v-else` pair | `{{ else }}` block wraps its root element(s) with `v-else` or `<template v-else>` |
+| `{{ if .cond }} … {{ else if .cond2 }} … {{ end }}` | `v-if` + `v-else-if` chain | Translated recursively |
+| `{{ if eq .x "a" }} … {{ else if eq .x "b" }} … {{ end }}` | `<template v-switch="x"><el v-case="'a'"> … </el><el v-case="'b'"> … </el></template>` | Pattern-matched as a `v-switch` chain when all branches are `eq` comparisons against the same left-hand variable |
+| `{{ range .list }} … {{ end }}` | `<el v-for="item in list"> … </el>` | Loop body `{{ . }}` → `{{ item }}`; `{{ .field }}` → `{{ item.field }}`; nested ranges use `item2`, `item3`, …; see §4.1.5 |
+| `{{ range $i, $v := .list }}` | — | **Produces an error**; no htmlc equivalent |
+| `{{ template "Name" . }}` | `<Name />` | Sub-component call |
+| `{{ block "N" . }} … {{ end }}` | `<slot name="N"> … </slot>` | Default content preserved as slot children |
+| `{{ block "default" . }} … {{ end }}` | `<slot> … </slot>` | Unnamed (default) slot |
+| `{{ define "N" }} … {{ end }}` | Separate component file | Cannot be inlined; **produces an error** with a message directing the author to extract into a separate `.vue` file |
+| `{{ not .x }}` | Not directly usable as a directive expression | Only valid inside `v-if` / `v-else-if` values; translated as the condition |
+| `{{ funcCall .arg }}` | — | **Produces an error**; arbitrary pipeline with function calls has no htmlc equivalent |
+| `{{ $ }}` | — | **Produces an error**; root dot reference has no htmlc equivalent |
+| `{{ $var := .field }}` | — | **Produces an error**; variable assignment has no htmlc equivalent |
+| `{{ with .obj }} … {{ end }}` | — | **Produces an error**; `with` block has no htmlc equivalent (it differs from `v-if` by also rebinding dot) |
+| `{{ template "Name" expr }}` (non-`.` data) | — | **Produces an error**; only `{{ template "Name" . }}` is translatable |
+
+**`{{ if .cond }}` wrapping rule**: when a `{{ if .cond }}` block wraps multiple sibling elements with no single root element, `tmpl-to-vue` wraps them in a `<template v-if="cond">` element. This preserves the conditional without introducing a spurious HTML element. Example:
+
+```html
+<!-- html/template input -->
+{{ if .showHeader }}<h1>Title</h1><p>Subtitle</p>{{ end }}
+
+<!-- tmpl-to-vue output -->
+<template v-if="showHeader"><h1>Title</h1><p>Subtitle</p></template>
+```
+
+**`{{ range }}` loop variable renaming rule**: inside a `{{ range .list }}` body, every occurrence of `{{ . }}` is renamed to `{{ item }}` and every occurrence of `{{ .field }}` is renamed to `{{ item.field }}`. Nested ranges increment the variable name suffix: the second nesting level uses `item2`, the third uses `item3`, and so on. See §4.1.5 for the full specification.
+
+**`{{ if eq }}` chain pattern-matching rule**: a chain of `{{ if eq .x "a" }} … {{ else if eq .x "b" }} … {{ end }}` blocks is recognised as a `v-switch` pattern when all `if`/`else if` conditions use `eq` with the same left-hand variable and literal right-hand values. The chain is emitted as a `<template v-switch="x">` with `v-case` children. If any branch breaks the pattern (e.g. a non-`eq` condition, or a different left-hand variable), the entire chain is treated as a `v-if` / `v-else-if` sequence instead.
 
 Both subcommands are implemented in a new file `cmd/htmlc/template_command.go`. The dispatch in `run()` adds `"template"` to the `cmds` map; the registered `cmdFn` extracts the first remaining argument as the sub-subcommand name and dispatches internally.
 
@@ -497,7 +621,7 @@ When the renderer encounters `<Nav>`, it looks up `"Nav"` in `entries`, finds th
 
 If `legacy/nav.html` contains named `{{ define }}` blocks (e.g. `{{ define "NavItem" }}`), `ImportTemplate` registers each as a separate synthetic component — `"NavItem"` becomes usable as `<NavItem>` in any `.vue` file.
 
-### Example 4 — Round-trip check (non-goal illustration)
+### Example 4 — Round-trip check (supported constructs)
 
 Starting with `components/Button.vue`:
 
@@ -544,7 +668,7 @@ Produces a `.vue` file with `v-if="enabled"` restored and the bound attribute ap
 </template>
 ```
 
-This example illustrates the limits of the interoperability guarantee: supported constructs survive the round-trip; unsupported ones produce errors at export time, forcing the developer to resolve them before proceeding.
+This example illustrates the round-trip guarantee for supported constructs: `v-if` and simple identifier bindings survive the round-trip with identical rendered output. Unsupported constructs (complex expressions) produce errors at export time, forcing the developer to resolve them before proceeding — consistent with the rendered-output equivalence guarantee described in §3.
 
 ### Example 5 — Backward compatibility (no change for existing projects)
 
@@ -717,7 +841,113 @@ Expected stdout:
 
 The `<template v-switch>` wrapper is not emitted. Each `v-case` string literal is translated to a Go double-quoted string. The `v-default` branch becomes the trailing `{{ else }}` block.
 
-**Type note**: when the switch expression is numeric (e.g. `v-switch="page"` with `v-case="1"`), callers must supply `.page` as `float64` (the type used by the htmlc expression evaluator) to avoid a type mismatch with `html/template`'s `eq`.
+**Type note**: when the switch expression is numeric (e.g. `v-switch="page"` with `v-case="1"`), callers must supply `.page` as Go `int` (not `float64`) to avoid a type mismatch with `html/template`'s `eq`. See §4.1.4 for the full numeric type constraint.
+
+### Example 11 — Full round-trip fidelity demonstration
+
+This example demonstrates rendered-output equivalence in both directions for constructs within the defined scope.
+
+**Step 1 — Source `.vue` component** (`components/ArticleList.vue`):
+
+```html
+<template>
+  <section>
+    <h1>{{ title }}</h1>
+    <ul v-if="hasItems">
+      <li v-for="item in items">{{ item.name }}</li>
+    </ul>
+    <p v-else>No items.</p>
+  </section>
+</template>
+```
+
+The component uses `{{ ident }}` interpolation, `v-if` / `v-else`, and `v-for` — all within the defined round-trip scope. The `v-for` loop body references only the loop variable `item`; no outer-scope variables are accessed inside the loop.
+
+**Step 2 — `vue-to-tmpl` output**:
+
+```text
+htmlc template vue-to-tmpl -dir ./components ArticleList
+```
+
+```html
+{{ define "ArticleList" }}
+<section>
+  <h1>{{ .title }}</h1>
+  {{ if .hasItems }}<ul>
+    {{ range .items }}<li>{{ .name }}</li>{{ end }}
+  </ul>{{ else }}<p>No items.</p>{{ end }}
+</section>
+{{ end }}
+```
+
+Translation notes:
+- `{{ title }}` → `{{ .title }}` (identifier prefixed with `.`)
+- `v-if="hasItems"` → `{{ if .hasItems }}` / `{{ else }}` / `{{ end }}`
+- `v-for="item in items"` → `{{ range .items }}`
+- `{{ item.name }}` → `{{ .name }}` (loop variable `item` replaced with dot)
+
+**Step 3 — Rendered output equivalence**
+
+Data `D`:
+
+```json
+{"title": "News", "hasItems": true, "items": [{"name": "First"}, {"name": "Second"}]}
+```
+
+Rendering the original `.vue` with data `D` via `htmlc`:
+
+```html
+<section>
+  <h1>News</h1>
+  <ul>
+    <li>First</li><li>Second</li>
+  </ul>
+</section>
+```
+
+Rendering the generated `html/template` with data `D` via `html/template.Execute`:
+
+```html
+<section>
+  <h1>News</h1>
+  <ul>
+    <li>First</li><li>Second</li>
+  </ul>
+</section>
+```
+
+The rendered HTML is identical. (Whitespace within the template source may differ, but the HTML content is byte-for-byte equivalent.)
+
+**Step 4 — `tmpl-to-vue` round-trip back**:
+
+```text
+htmlc template tmpl-to-vue ArticleList.html
+```
+
+```html
+<!-- generated by htmlc template tmpl-to-vue; review required -->
+<template>
+  <section>
+    <h1>{{ title }}</h1>
+    <template v-if="hasItems"><ul>
+      <li v-for="item in items">{{ item.name }}</li>
+    </ul></template><p v-else>No items.</p>
+  </section>
+</template>
+```
+
+The round-tripped `.vue` differs from the original in source formatting (the `v-if` / `v-else` pair uses a `<template v-if>` wrapper because the original `{{ if }}` block had multiple sibling elements in the else branch), but the rendered output for data `D` is again identical:
+
+```html
+<section>
+  <h1>News</h1>
+  <ul>
+    <li>First</li><li>Second</li>
+  </ul>
+</section>
+```
+
+**Constructs deliberately excluded from this example**: static props on sub-components (`<Card title="Welcome">`), outer-scope variable access inside `v-for`, and numeric `v-switch` cases — these all fall outside the round-trip scope and would produce errors if used.
 
 ---
 
@@ -886,6 +1116,12 @@ Rejected: this would add a directive whose semantics require Go-level side effec
 2. **Naming collision on `ImportTemplate`** (`blocking`): If `ImportTemplate` is called with a template whose name matches an already-registered component (whether auto-discovered or manually registered via `Register`), should it error, silently overwrite, or require an explicit opt-in? Recommendation: error by default to prevent silent shadowing; provide `ForceImportTemplate` for deliberate overwrite. This aligns with Go's general principle of explicit over implicit and must be decided before implementation because it defines the observable API contract.
 
 3. **`tmpl-to-vue` output quality** (`non-blocking`): `html/template` action syntax is more terse than `htmlc` directives, and the conversion from tmpl→vue is inherently lossy. Should `runTmplToVue` produce a warning header in the output file reminding the developer that manual review is required? Tentative recommendation: yes, emit `<!-- generated by htmlc template tmpl-to-vue; review required -->` at the top of the output. This is low-cost, visible, and prevents the false impression that the conversion is lossless.
+
+4. **`<ComponentName>` with static props translation** (`blocking`): How should `vue-to-tmpl` handle a sub-component call that carries one or more static prop attributes (e.g. `<Card title="Welcome">`)? Three options are described in §4.1.6. **Verdict**: Option A — produce an error, require the developer to move static values into the caller's data map. This is the simplest approach, consistent with the conservative mapping philosophy, and avoids runtime dependencies. Resolved by §4.1.6; recorded here for traceability.
+
+5. **`tmpl-to-vue` error-on-unsupported vs. partial output with markers** (`blocking`): Should `tmpl-to-vue` error on unsupported constructs (no partial output, non-zero exit) or emit HTML comments for them (partial output with `<!-- tmpl: … -->` markers) to support gradual migration? The rendered-output round-trip fidelity goal requires erroring — a partial output with markers does not round-trip. The "gradual migration" use case benefits from partial output. **Verdict**: error on unsupported constructs, no partial output. This is consistent with `vue-to-tmpl` behaviour and with Non-Goal 6 (§3). Resolved here; recorded for traceability. A `--permissive` flag may be added in a future RFC to opt out of the round-trip guarantee and enable partial output with markers (see question 6).
+
+6. **`--permissive` flag for `tmpl-to-vue`** (`non-blocking`): Should a `--permissive` flag be added to `tmpl-to-vue` that falls back to `<!-- tmpl: original action -->` HTML comments instead of erroring, explicitly opting out of the round-trip guarantee? This would serve the "I just want a starting point" gradual-migration use case without compromising the default strict mode. Tentative recommendation: defer to a follow-up RFC; the default strict mode must be established first before introducing an opt-out.
 
 ---
 
