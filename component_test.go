@@ -16,12 +16,6 @@ const fullSFC = `<template>
   </div>
 </template>
 
-<script>
-export default {
-  data() { return { msg: "hello" } }
-}
-</script>
-
 <style scoped>
 .hello { color: red; }
 </style>
@@ -48,11 +42,6 @@ func TestParseFile_AllSections(t *testing.T) {
 
 	if c.Path != "test.vue" {
 		t.Errorf("path = %q, want %q", c.Path, "test.vue")
-	}
-
-	// Script content should contain "export default"
-	if !strings.Contains(c.Script, "export default") {
-		t.Errorf("script = %q, want it to contain 'export default'", c.Script)
 	}
 
 	// Style content should contain ".hello"
@@ -147,7 +136,7 @@ func TestParseFile_UnclosedTemplateError(t *testing.T) {
 }
 
 func TestParseFile_MissingTemplate(t *testing.T) {
-	src := `<script>/* nothing */</script>`
+	src := `<style>.a { color: red; }</style>`
 	_, err := ParseFile("notmpl.vue", src)
 	if err == nil {
 		t.Fatal("expected error for missing <template>, got nil")
@@ -211,6 +200,34 @@ func TestParseFile_TemplateContentExtracted(t *testing.T) {
 		if !found {
 			t.Errorf("expected <%s> in template tree, but not found (got %v)", tag, names)
 		}
+	}
+}
+
+func TestParseFile_ScriptBlockError(t *testing.T) {
+	src := "<template><p>hi</p></template>\n<script>\nconsole.log('hi')\n</script>"
+	_, err := ParseFile("comp.vue", src)
+	if err == nil {
+		t.Fatal("expected error for <script> block, got nil")
+	}
+	if !strings.Contains(err.Error(), "<script> blocks are not supported") {
+		t.Errorf("error %q should mention '<script> blocks are not supported'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "customelement") {
+		t.Errorf("error %q should mention 'customelement'", err.Error())
+	}
+}
+
+func TestParseFile_ScriptSetupBlockError(t *testing.T) {
+	src := "<template><p>hi</p></template>\n<script setup>\nconst x = 1\n</script>"
+	_, err := ParseFile("comp.vue", src)
+	if err == nil {
+		t.Fatal("expected error for <script setup> block, got nil")
+	}
+	if !strings.Contains(err.Error(), "<script setup> blocks are not supported") {
+		t.Errorf("error %q should mention '<script setup> blocks are not supported'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "customelement") {
+		t.Errorf("error %q should mention 'customelement'", err.Error())
 	}
 }
 
@@ -590,7 +607,7 @@ func TestParseFile_UnclosedTemplate_HasNonZeroLine(t *testing.T) {
 }
 
 func TestParseFile_MissingTemplate_IsParseError(t *testing.T) {
-	src := `<script>/* nothing */</script>`
+	src := `<style>/* nothing */</style>`
 	_, err := ParseFile("notmpl.vue", src)
 	if err == nil {
 		t.Fatal("expected error, got nil")

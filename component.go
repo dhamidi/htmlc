@@ -82,6 +82,21 @@ func ParseFile(path, src string) (*Component, error) {
 		return nil, &ParseError{Path: path, Msg: msg}
 	}
 
+	if sections["script"] != "" {
+		return nil, &ParseError{
+			Path: path,
+			Msg: `<script> blocks are not supported by htmlc; ` +
+				`use <script customelement> to define a Custom Element`,
+		}
+	}
+	if sections["script:setup"] != "" {
+		return nil, &ParseError{
+			Path: path,
+			Msg: `<script setup> blocks are not supported by htmlc; ` +
+				`use <script customelement> to define a Custom Element`,
+		}
+	}
+
 	tmplContent, ok := sections["template"]
 	if !ok {
 		return nil, &ParseError{Path: path, Msg: "missing <template> section"}
@@ -140,6 +155,7 @@ func locateInSource(path, src, _ /*section*/, _ /*errMsg*/ string) *SourceLocati
 // sectionInfo tracks state while collecting a top-level section.
 type sectionInfo struct {
 	tag    string
+	key    string // result map key; may differ from tag (e.g. "script:setup")
 	depth  int
 	scoped bool
 	buf    strings.Builder
@@ -178,24 +194,27 @@ func extractSections(src string) (map[string]string, error) {
 				// Top-level start tag: begin a new section if it's one we care about.
 				switch tagName {
 				case "template", "script", "style":
-					if _, dup := result[tagName]; dup {
-						return nil, fmt.Errorf("duplicate <%s> section", tagName)
-					}
+					sectionKey := tagName
 					scoped := false
 					for _, attr := range tok.Attr {
 						if attr.Key == "scoped" {
 							scoped = true
-							break
 						}
+						if tagName == "script" && attr.Key == "setup" {
+							sectionKey = "script:setup"
+						}
+					}
+					if _, dup := result[sectionKey]; dup {
+						return nil, fmt.Errorf("duplicate <%s> section", tagName)
 					}
 					if tt == html.SelfClosingTagToken {
 						// Self-closing: treat as empty section.
-						result[tagName] = ""
+						result[sectionKey] = ""
 						if tagName == "style" && scoped {
 							result["style:scoped"] = "true"
 						}
 					} else {
-						current = &sectionInfo{tag: tagName, depth: 1, scoped: scoped}
+						current = &sectionInfo{tag: tagName, key: sectionKey, depth: 1, scoped: scoped}
 					}
 				}
 			} else {
@@ -215,7 +234,7 @@ func extractSections(src string) (map[string]string, error) {
 				current.depth--
 				if current.depth == 0 {
 					// Finished collecting this section.
-					result[current.tag] = current.buf.String()
+					result[current.key] = current.buf.String()
 					if current.tag == "style" && current.scoped {
 						result["style:scoped"] = "true"
 					}
