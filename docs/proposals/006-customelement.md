@@ -52,6 +52,8 @@ Custom Elements (part of the Web Components standard) let any DOM element regist
 - **Dynamic imports or lazy loading.** All emitted scripts are eager.
 - **Customised built-in elements (`is="..."` syntax).** Safari does not support them; autonomous custom elements are the only viable cross-browser target.
 - **Generating class boilerplate or autoregistering elements.** The compiler emits the author's script verbatim. Authors who want a `class extends HTMLElement` pattern write it themselves.
+- **No `RenderFragmentWithElements` convenience method for v1.** Authors use `{{importMap()}}` explicitly in fragment templates; the combined return-value API adds API surface for marginal ergonomic gain and is deferred. See §10 Q3.
+- **Shadow DOM is not implemented in v1.** Declarative Shadow DOM requires non-trivial changes to SSR wrapping, `StyleCollector`, and the compiled custom element scripts. The design is outlined in §4.10 for future implementation.
 
 ---
 
@@ -368,15 +370,46 @@ Using `type="module"` is the correct approach because:
 - `type="module"` scripts execute after the document is parsed, which is appropriate for custom element registration (elements are already in the DOM when `connectedCallback` fires).
 - `async` is redundant for modules that have no inline body and no dynamic imports; the browser handles execution ordering automatically.
 
-The `src` value is `scriptURLPrefix + "index.js"`, where `scriptURLPrefix` is the configurable prefix (default `/components/`).
+The `src` value is constructed using `url.JoinPath(scriptURLPrefix, "index.js")`, where `scriptURLPrefix` is the configurable prefix (default `/components/`). Using `url.JoinPath` prevents double-slash issues when the prefix does not end with `/` and correctly handles path escaping — see §4.5 below for the general note on URL construction.
 
 When `RenderPage` injects no importmap (collector is empty), the loader script is also omitted.
+
+#### URL construction
+
+All URL construction in pseudocode uses `net/url` primitives rather than string concatenation. String joining is error-prone: a missing or doubled trailing slash produces an invalid URL that silently misroutes requests. `url.JoinPath` (Go 1.19+) normalises separators and percent-encodes path segments correctly.
+
+#### Nonce support
+
+When a Content Security Policy requires a nonce on inline scripts, the auto-injected `<script type="importmap">` tag must carry a `nonce` attribute. The engine supports this via a `WithNonceFunc` option:
+
+```go
+// pseudo-code — not implementation
+engine, err := htmlc.Load("components/",
+    htmlc.WithNonceFunc(func(ctx context.Context) string {
+        return nonceFromContext(ctx) // application-supplied nonce for this request
+    }),
+)
+```
+
+When `WithNonceFunc` is set, `RenderPage` calls it with the render context on each pass and injects the returned value as a `nonce` attribute on the importmap tag:
+
+```html
+<script type="importmap" nonce="abc123">
+{"imports":{"widgets-counter":"/components/widgets-counter.a1b2c3d4.js"}}
+</script>
+```
+
+If `WithNonceFunc` is not set, no `nonce` attribute is emitted. The `scriptFor` template function returns only the script body (not the tag), so authors supply the nonce themselves on the surrounding `<script nonce="...">` tag — no special engine support is needed for the inline case.
 
 #### Pseudocode
 
 ```go
 // pseudo-code — not implementation
-func (r *Renderer) buildImportMap(prefix string) template.HTML {
+import (
+    "net/url"
+)
+
+func (r *Renderer) buildImportMap(ctx context.Context, prefix string) template.HTML {
     if len(r.customElementCollector.entries) == 0 {
         return ""
     }
@@ -386,10 +419,16 @@ func (r *Renderer) buildImportMap(prefix string) template.HTML {
     m := importMapJSON{Imports: make(map[string]string)}
     for _, e := range r.customElementCollector.entries {
         hashedFile := r.engine.hashedFilename[e.TagName]
-        m.Imports[e.TagName] = prefix + hashedFile
+        u, _ := url.JoinPath(prefix, hashedFile) // url.JoinPath preferred over string concat
+        m.Imports[e.TagName] = u
     }
     raw, _ := json.Marshal(m)
-    return template.HTML("<script type=\"importmap\">\n" + string(raw) + "\n</script>")
+
+    nonceAttr := ""
+    if r.engine.nonceFunc != nil {
+        nonceAttr = fmt.Sprintf(` nonce="%s"`, html.EscapeString(r.engine.nonceFunc(ctx)))
+    }
+    return template.HTML(fmt.Sprintf("<script type=\"importmap\"%s>\n%s\n</script>", nonceAttr, raw))
 }
 ```
 
@@ -445,13 +484,18 @@ index.js
 
 #### `index.js` barrel file
 
-In addition to the per-component hashed files, `ScriptsFS` contains a single `index.js` at the root. This file contains one side-effect import per custom element component, using the hashed filenames as relative paths:
+In addition to the per-component hashed files, `ScriptsFS` contains a single `index.js` at the root. This file contains one side-effect import per custom element component, using the hashed filenames as relative paths.
+
+**Example generated `index.js`** for a project with three custom element components (`widgets/Counter.vue`, `widgets/Toggle.vue`, `ui/Tabs.vue`):
 
 ```js
+// generated by htmlc — do not edit
 import "./widgets-counter.a1b2c3d4.js";
+import "./widgets-toggle.b2c3d4e5.js";
 import "./ui-tabs.e5f6a7b8.js";
-import "./admin-card.9f3c21aa.js";
 ```
+
+The `// generated by htmlc — do not edit` comment is included to signal that this file should not be modified manually and will be overwritten on the next engine load. The hashed filenames are consistent with the 8-character SHA-256 scheme above; for example `widgets-counter.a1b2c3d4.js` matches the filename used in Examples 1, 3, and 5 in §6.
 
 `index.js` is regenerated at engine load time whenever components change. It is intentionally **not** content-hashed because it changes whenever any component's hash changes; it is served with a short `Cache-Control` max-age (see §4.9).
 
@@ -592,9 +636,37 @@ Cache-Control: no-cache
 
 This ensures browsers always fetch the latest `index.js` on each deployment, while keeping hashed component files cached indefinitely.
 
-#### Application responsibility
+#### `NewScriptFSServer` — built-in HTTP handler
 
-`htmlc` does not set HTTP headers — it provides an `fs.FS`. Applications that serve `ScriptsFS` via `http.FileServer` must wrap the handler to apply these headers. Example pattern:
+`htmlc` provides a convenience constructor that returns an `http.Handler` preconfigured with the correct caching headers, `Content-Type`, and content-encoding negotiation:
+
+```go
+// NewScriptFSServer returns an http.Handler that serves ScriptsFS with
+// correct Cache-Control headers and Content-Encoding (gzip/br) negotiation.
+// Strip the URL prefix before passing requests to this handler, e.g.:
+//
+//   http.Handle("/components/", http.StripPrefix("/components/", engine.NewScriptFSServer()))
+func (e *Engine) NewScriptFSServer() http.Handler
+```
+
+The handler applies the following behaviour on each request:
+
+- Parses the request path using `url.Parse` to avoid ambiguity from raw string checks.
+- Serves hashed component files (`*.a1b2c3d4.js`) with `Cache-Control: public, max-age=31536000, immutable`.
+- Serves `index.js` with `Cache-Control: public, max-age=0, must-revalidate`.
+- Sets `Content-Type: text/javascript; charset=utf-8` on all responses.
+- Negotiates compressed responses (`Content-Encoding: gzip`, `br`) if pre-compressed variants exist in the FS, or compresses on-the-fly via `compress/gzip`.
+
+**Recommended usage:**
+
+```go
+// pseudo-code — not implementation
+http.Handle("/components/", http.StripPrefix("/components/", engine.NewScriptFSServer()))
+```
+
+#### Manual handler (if you need more control)
+
+Authors who need custom header logic (e.g. additional `Vary` headers, auth checks, or a different compression strategy) can build their own handler. Use `url.Parse` rather than `strings.HasSuffix` to identify `index.js`:
 
 ```go
 // pseudo-code — not implementation
@@ -603,7 +675,9 @@ http.Handle("/components/", http.StripPrefix("/components/", withCacheHeaders(sc
 
 func withCacheHeaders(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        if r.URL.Path == "/index.js" || strings.HasSuffix(r.URL.Path, "/index.js") {
+        // Use url.Parse to avoid ambiguity with raw path string matching
+        parsed, err := url.Parse(r.URL.Path)
+        if err == nil && path.Base(parsed.Path) == "index.js" {
             w.Header().Set("Cache-Control", "no-cache")
         } else {
             w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -613,7 +687,83 @@ func withCacheHeaders(next http.Handler) http.Handler {
 }
 ```
 
-This is documented guidance, not enforced by `htmlc`.
+`NewScriptFSServer` is the recommended default. The manual pattern is documented for completeness only.
+
+---
+
+### 4.10 Shadow DOM (future)
+
+Shadow DOM is **not implemented in v1**. This section outlines the design for a future opt-in so that reviewers can evaluate feasibility and scope the work.
+
+#### 1. Attachment model
+
+With Shadow DOM, the compiled custom element script would call `attachShadow` in `connectedCallback` rather than operating directly on the element's light-DOM children:
+
+```js
+// future example — not v1
+connectedCallback() {
+    const root = this.attachShadow({ mode: 'open' });
+    // ... populate root
+}
+```
+
+The `mode` would default to `'open'` (inspectable from JS). `'closed'` would be available as a sub-option. The opt-in attribute on the `<script>` block would be `<script customelement shadowdom>` (boolean, open mode) or `<script customelement shadowdom="closed">`.
+
+#### 2. SSR interaction
+
+The server currently renders the component's `<template>` content as **light-DOM children** inside the custom element tag. With Shadow DOM, the rendered HTML would need to be wrapped in a `<template shadowrootmode="open">` element for **Declarative Shadow DOM** (DSD), enabling the browser to attach the shadow root during HTML parsing before JavaScript runs:
+
+```html
+<!-- future SSR output with shadowdom opt-in -->
+<widgets-counter>
+  <template shadowrootmode="open">
+    <button>Click me</button>
+    <span>0</span>
+  </template>
+</widgets-counter>
+```
+
+DSD is supported in all evergreen browsers as of 2024 (Chrome 90+, Safari 16.4+, Firefox 123+). A progressive-enhancement story would render light DOM as a fallback for older browsers and upgrade to DSD when available.
+
+#### 3. Scoped styles
+
+Today, `<style scoped>` contributions are injected into `<head>` via `StyleCollector`. With Shadow DOM, scoped styles for a shadow-DOM component should instead be injected into the shadow root to achieve true encapsulation. This requires:
+
+- A new `ShadowStyleCollector` (or an extended `StyleCollector`) that distinguishes between head-injected styles and shadow-root-injected styles.
+- The SSR output for a shadow-DOM component would include the scoped `<style>` inside the `<template shadowrootmode>` wrapper:
+
+```html
+<widgets-counter>
+  <template shadowrootmode="open">
+    <style>.counter-btn { font-weight: bold; }</style>
+    <button class="counter-btn">Click me</button>
+    <span>0</span>
+  </template>
+</widgets-counter>
+```
+
+- The existing `StyleCollector` path for light-DOM components is unaffected.
+
+#### 4. Opt-in syntax
+
+The Shadow DOM opt-in is a boolean attribute on `<script customelement>`:
+
+```html
+<script customelement shadowdom>
+<!-- or, for closed mode: -->
+<script customelement shadowdom="closed">
+```
+
+This is the same attribute family as `customelement` itself: a boolean attribute (`shadowdom` = open mode) with an optional string value (`shadowdom="closed"` = closed mode). Components without the `shadowdom` attribute continue to use light DOM — this is not a breaking change.
+
+#### 5. Why it is deferred
+
+Shadow DOM is explicitly out of scope for v1 for the following reasons:
+
+- **Complexity**: Declarative Shadow DOM changes the SSR wrapping logic, the style injection pipeline, and requires browsers to support the `<template shadowrootmode>` attribute. These are non-trivial coordinated changes.
+- **Declarative Shadow DOM browser support**: While broad in evergreen browsers, DSD is absent in IE11 and was only standardised in 2024. Shipping it without a polyfill story is premature.
+- **Scoped-style rework**: The `StyleCollector` refactor to support shadow-root injection is a separate, non-trivial work item.
+- **v1 scope**: The primary goal of v1 is light-DOM custom elements with importmap-based script delivery. Shadow DOM can be layered on as a v2 feature without breaking the v1 API.
 
 ---
 
@@ -630,6 +780,8 @@ This is documented guidance, not enforced by `htmlc`.
 | `{{scriptFor("path/to/Component")}}` | relative path, no `.vue` extension | Returns the raw script body of the named component as `template.HTML`. Author wraps in `<script>…</script>`. Error if path unknown or component has no `<script customelement>`. |
 | `{{importMap()}}` | *(none)* | Emits `<script type="importmap">` for all custom elements used so far in the render pass. Automatic in `RenderPage` (before `</head>`); explicit in `RenderFragment`. |
 | `<script customelement src="...">` | `src` | **Error**: `src` attribute not supported on `<script customelement>` |
+| `engine.NewScriptFSServer()` | *(none)* | Returns an `http.Handler` that serves `ScriptsFS` with correct `Cache-Control`, `Content-Type`, and compressed-response negotiation. Hashed files get `immutable`; `index.js` gets `no-cache`. |
+| `htmlc.WithNonceFunc(f)` | `func(context.Context) string` | Engine option. When set, the returned nonce is injected as `nonce="…"` on the auto-generated `<script type="importmap">` tag. No effect if not set. |
 
 ### Tag name derivation
 
@@ -931,7 +1083,27 @@ An existing project with no interactive components.
 
 ### Example 5 — Serving Scripts via `ScriptsFS`
 
-The application serves compiled custom element scripts as static files, enabling browser caching independent of the HTML page.
+The application serves compiled custom element scripts as static files, enabling browser caching independent of the HTML page. This example uses the three components from the project in Examples 1–3 (`widgets/Counter.vue`, `widgets/Toggle.vue`, `ui/Tabs.vue`).
+
+**`ScriptsFS` layout** (as described in §4.6):
+
+```
+widgets-counter.a1b2c3d4.js
+widgets-toggle.b2c3d4e5.js
+ui-tabs.e5f6a7b8.js
+index.js
+```
+
+**Generated `index.js`** (see §4.6 for the full barrel file example):
+
+```js
+// generated by htmlc — do not edit
+import "./widgets-counter.a1b2c3d4.js";
+import "./widgets-toggle.b2c3d4e5.js";
+import "./ui-tabs.e5f6a7b8.js";
+```
+
+**Serving with `NewScriptFSServer`** (recommended):
 
 ```go
 // pseudo-code — not implementation
@@ -942,8 +1114,8 @@ if err != nil {
     log.Fatal(err)
 }
 
-// Serve all custom element scripts under /assets/ce/
-http.Handle("/assets/ce/", http.StripPrefix("/assets/ce/", http.FileServer(http.FS(engine.ScriptsFS()))))
+// NewScriptFSServer sets Cache-Control, Content-Type, and encoding headers automatically.
+http.Handle("/assets/ce/", http.StripPrefix("/assets/ce/", engine.NewScriptFSServer()))
 
 // The importmap references hashed URLs automatically:
 // {"imports":{"widgets-counter":"/assets/ce/widgets-counter.a1b2c3d4.js"}}
@@ -1064,13 +1236,15 @@ The importmap is injected immediately before `</head>`, after any `<style>` cont
 
 1. Add `scripts fs.FS` and `hashedFilename map[string]string` fields to `Engine`.
 2. Add `scriptURLPrefix string` field (set via `WithScriptURLPrefix` option; default `"/components/"`).
-3. During component loading (in `Load` or equivalent), call `DeriveTagName` for each component and set `component.CustomElementTag`.
-4. After all components are loaded, call `BuildScriptsFS` and store the result in `Engine.scripts` and `Engine.hashedFilename`.
-5. Add `ScriptsFS() fs.FS` public method that returns `Engine.scripts`.
-6. Register `scriptFor` as a template function: looks up `relPath` in a `map[relPath]*Component` built at load time, returns `template.HTML(comp.CustomElementScript)` or an error.
-7. Register `importMap` as a template function: delegates to the per-pass renderer's `buildImportMap(e.scriptURLPrefix)`.
-8. In `RenderPage`, after injecting style blocks and before returning, inject the importmap immediately before `</head>` when the collector is non-empty.
-9. In `RenderPage`, immediately after injecting the importmap, inject `<script type="module" src="{prefix}index.js"></script>` before `</head>`.
+3. Add `nonceFunc func(context.Context) string` field (set via `WithNonceFunc` option; nil if not configured).
+4. During component loading (in `Load` or equivalent), call `DeriveTagName` for each component and set `component.CustomElementTag`.
+5. After all components are loaded, call `BuildScriptsFS` and store the result in `Engine.scripts` and `Engine.hashedFilename`.
+6. Add `ScriptsFS() fs.FS` public method that returns `Engine.scripts`.
+7. Add `NewScriptFSServer() http.Handler` public method: wraps `http.FileServer(http.FS(e.scripts))` with middleware that (a) sets `Content-Type: text/javascript; charset=utf-8`, (b) uses `url.Parse` on the request path to determine whether the file is `index.js` and sets `Cache-Control: public, max-age=0, must-revalidate` for it and `Cache-Control: public, max-age=31536000, immutable` for all other files, and (c) negotiates `Content-Encoding: gzip` / `br` if pre-compressed variants exist or compresses on-the-fly.
+8. Register `scriptFor` as a template function: looks up `relPath` in a `map[relPath]*Component` built at load time, returns `template.HTML(comp.CustomElementScript)` or an error.
+9. Register `importMap` as a template function: delegates to the per-pass renderer's `buildImportMap(ctx, e.scriptURLPrefix)`.
+10. In `RenderPage`, after injecting style blocks and before returning, inject the importmap immediately before `</head>` when the collector is non-empty. Pass the render context to `buildImportMap` so the nonce function can be called.
+11. In `RenderPage`, immediately after injecting the importmap, inject `<script type="module" src="{prefix}index.js"></script>` before `</head>`, where `prefix` is constructed with `url.JoinPath`.
 
 ### `renderer.go`
 
@@ -1111,6 +1285,8 @@ No change for components without `<script customelement>`. For components that d
 ### `Engine` public API
 
 - New method `ScriptsFS() fs.FS` — additive, no break.
+- New method `NewScriptFSServer() http.Handler` — additive, no break. Provides the recommended serving pattern with correct caching headers; authors may continue using `http.FileServer(http.FS(engine.ScriptsFS()))` directly if they need custom header logic.
+- New option `htmlc.WithNonceFunc(func(context.Context) string)` — additive, no break. When not set, behaviour is identical to today (no `nonce` attribute on the generated importmap tag).
 - `scriptFor(path)` and `importMap()` are registered as template functions — additive, no break.
 - No existing methods are removed or have their signatures changed.
 
@@ -1166,16 +1342,16 @@ Expose a `FlushCustomElements()` method/template function that emits all used co
 
 ## 10. Open Questions
 
-1. **Shadow DOM opt-in** — Should shadow DOM be opt-in via `<script customelement shadowdom>`? If so, should `open` or `closed` mode be the default? *Tentative recommendation*: reserve the `shadowdom` attribute for a future RFC. **Non-blocking** for v1.
+1. **Shadow DOM opt-in** — *See §4.10* for the full design outline. Shadow DOM is explicitly deferred to a future version; the `shadowdom` attribute is reserved on `<script customelement>`. **Non-blocking** for v1.
 
 2. **`FlushCustomElements` placement** — *Resolved*. The inline flush design is replaced by `scriptFor` (explicit, per-component) and automatic importmap injection (zero author burden for `RenderPage`). No placement decision is required.
 
-3. **`RenderFragment` ergonomics** — If an author calls `RenderFragment` to render a snippet containing a custom element, the element is in the DOM but no importmap is emitted. Authors must call `{{importMap()}}` explicitly. Should a combined `RenderFragmentWithElements() (html, importmap template.HTML, err error)` API be added? *Tentative recommendation*: yes, as a convenience method. **Non-blocking** for v1.
+3. **`RenderFragment` ergonomics** — *Resolved: no `RenderFragmentWithElements` for v1.* A combined `RenderFragmentWithElements() (html, importmap template.HTML, err error)` API adds public API surface for marginal ergonomic gain; `{{importMap()}}` already covers the case explicitly. The method is deferred — see §3 Non-Goals.
 
-4. **Nonce support for `scriptFor` inline scripts** — CSP `script-src` policies require a nonce on inline `<script>` tags. Since `scriptFor` returns only the body (not the tag), authors supply the nonce themselves on the surrounding `<script nonce="...">` tag. No special `htmlc` support is needed for the inline case. For the auto-injected importmap (`RenderPage`), the engine must be able to inject a nonce attribute on the generated `<script type="importmap">` tag. *Tentative recommendation*: add a `WithNonceFunc(func() string)` option to the engine that is called per render pass; the result is added as a `nonce` attribute on the auto-injected importmap tag. **Non-blocking** — can be added without API break.
+4. **Nonce support for `scriptFor` inline scripts** — *Resolved*. Since `scriptFor` returns only the body (not the tag), authors supply the nonce themselves on the surrounding `<script nonce="...">` tag — no engine support is needed for the inline case. For the auto-injected importmap, the `WithNonceFunc(func(context.Context) string)` engine option is now specified in §4.5 and §5. **Resolved — incorporated into design.**
 
 5. **`ScriptsFS` file naming** — *Resolved*. Hashed filenames (`<tagName>.<8-char-hex-hash>.js`) are included from v1. Content hash uses SHA-256 truncated to 4 bytes. No follow-up needed.
 
 6. **Top-level components and single-word tag names** — `Counter.vue` derives `counter`, which is not a valid browser custom element name. Should `htmlc` emit a warning (not an error) when a component with `<script customelement>` derives a single-word tag name? *Tentative recommendation*: yes, warn at load time. **Blocking** — authors need to know this constraint.
 
-7. **CSP and importmap nonce** — The auto-injected `<script type="importmap">` is an inline script and is subject to CSP `script-src` policy. Should `htmlc` support injecting a `nonce` attribute on the importmap tag to satisfy strict CSP policies? *Tentative recommendation*: yes, via the `WithNonceFunc` option described in Q4 above — the same nonce mechanism covers both the importmap tag and any other engine-generated inline scripts. **Non-blocking** — can be added without breaking the API.
+7. **CSP and importmap nonce** — *Resolved*. Covered by the `WithNonceFunc` option specified in §4.5 and §5 — the same nonce function is called per render pass and the result is injected as a `nonce` attribute on the auto-generated `<script type="importmap">` tag. **Resolved — incorporated into design.**
