@@ -989,7 +989,7 @@ func (e *Engine) Mount(mux *http.ServeMux, routes map[string]string) {
 //
 // This is the text form of CompileToTemplate; see that method for full
 // semantics.  warnings contains any non-fatal conversion warnings emitted by
-// the bridge (for example, data-contract notices for v-html and v-bind spread).
+// the html/template conversion (for example, data-contract notices for v-html and v-bind spread).
 //
 // Error types follow the same conventions as CompileToTemplate: ErrComponentNotFound
 // when componentName is not registered, and *ConversionError (wrapped with
@@ -1105,7 +1105,7 @@ func (e *Engine) CompileToTemplate(componentName string) (*htmltmpl.Template, er
 
 // RegisterTemplate registers an existing *html/template.Template as a virtual
 // htmlc component under name.  The template is converted to htmlc's internal
-// representation using the tmpl→vue bridge.
+// representation using the tmpl→vue conversion.
 //
 // All named {{ define }} blocks within tmpl are also registered as components
 // accessible by their block names.

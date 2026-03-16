@@ -16,7 +16,7 @@ var (
 	// scope and no MissingPropFunc has been set.
 	ErrMissingProp = errors.New("htmlc: missing required prop")
 
-	// ErrConversion is returned (wrapped) when a bridge conversion fails.
+	// ErrConversion is returned (wrapped) when an html/template conversion fails.
 	// Callers can use errors.As to extract the underlying *ConversionError:
 	//
 	//	var cerr *ConversionError

@@ -96,8 +96,8 @@ func (ctx *vueConvCtx) withForVar(v string) *vueConvCtx {
 	return &vueConvCtx{sb: ctx.sb, warnings: ctx.warnings, forVar: v}
 }
 
-// bridgeMustacheRe matches {{ expression }} patterns in text nodes.
-var bridgeMustacheRe = regexp.MustCompile(`\{\{(.*?)\}\}`)
+// htmlTemplateMustacheRe matches {{ expression }} patterns in text nodes.
+var htmlTemplateMustacheRe = regexp.MustCompile(`\{\{(.*?)\}\}`)
 
 // convertExpr converts a Vue/htmlc expression to a Go template dot-accessor
 // string (e.g. ".name", ".a.b.c", or ".").
@@ -276,7 +276,7 @@ func (ctx *vueConvCtx) writeNode(n *html.Node) error {
 // to Go template actions and HTML-escaping the surrounding literal text.
 func (ctx *vueConvCtx) writeTextNode(text string) error {
 	lastEnd := 0
-	for _, match := range bridgeMustacheRe.FindAllStringSubmatchIndex(text, -1) {
+	for _, match := range htmlTemplateMustacheRe.FindAllStringSubmatchIndex(text, -1) {
 		if match[0] > lastEnd {
 			ctx.sb.WriteString(stdhtml.EscapeString(text[lastEnd:match[0]]))
 		}

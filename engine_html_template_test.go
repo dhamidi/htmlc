@@ -117,7 +117,7 @@ func TestEngine_CompileToTemplate_ScopedStyleStripped(t *testing.T) {
 
 func TestEngine_CompileToTemplate_UnsupportedConstruct(t *testing.T) {
 	dir := t.TempDir()
-	// Complex expression not supported by bridge.
+	// Complex expression not supported by html/template conversion.
 	writeVue(t, filepath.Join(dir, "Bad.vue"), `<template><p>{{ items[0] }}</p></template>`)
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
