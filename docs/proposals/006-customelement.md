@@ -40,6 +40,7 @@ Custom Elements (part of the Web Components standard) let any DOM element regist
 5. **Deduplication across the render pass**: the same custom element script is referenced at most once per page, via the importmap and `ScriptsFS`.
 6. **In-memory script FS**: compiled scripts are collected into an in-memory `fs.FS` accessible on the engine, enabling the application to serve, cache-bust, or embed them however it chooses.
 7. **Zero impact on components without `<script customelement>`**: server-side rendering behaviour is identical to today for all existing components.
+8. **Declarative Shadow DOM opt-in**: when `<script customelement shadowdom>` is declared, `htmlc` wraps the rendered template output in `<template shadowrootmode="open">` (or `"closed"` when `shadowdom="closed"` is set), enabling server-side DSD without any author boilerplate.
 
 ---
 
@@ -53,7 +54,7 @@ Custom Elements (part of the Web Components standard) let any DOM element regist
 - **Customised built-in elements (`is="..."` syntax).** Safari does not support them; autonomous custom elements are the only viable cross-browser target.
 - **Generating class boilerplate or autoregistering elements.** The compiler emits the author's script verbatim. Authors who want a `class extends HTMLElement` pattern write it themselves.
 - **No `RenderFragmentWithElements` convenience method for v1.** Authors use `{{importMap()}}` explicitly in fragment templates; the combined return-value API adds API surface for marginal ergonomic gain and is deferred. See §10 Q3.
-- **Shadow DOM is not implemented in v1.** Declarative Shadow DOM requires non-trivial changes to SSR wrapping, `StyleCollector`, and the compiled custom element scripts. The design is outlined in §4.10 for future implementation.
+- **JavaScript-side Shadow DOM helpers.** `htmlc` inserts the DSD `<template shadowrootmode>` wrapper in SSR output but does not generate any `attachShadow` call or shadow-root boilerplate in the custom element script. Authors write their own `connectedCallback` to interact with the pre-attached shadow root.
 
 ---
 
@@ -96,6 +97,7 @@ type Component struct {
     Warnings            []string
     CustomElementScript string   // new: verbatim body of <script customelement>, empty if absent
     CustomElementTag    string   // new: derived tag name (set during load, not parsing)
+    ShadowDOMMode       string   // "": no shadow DOM; "open": open; "closed": closed
 }
 ```
 
@@ -109,9 +111,16 @@ switch {
 case attrs["setup"] != "":
     // existing: record as "script:setup"
     sections["script:setup"] = rawBody(tokenizer)
-case attrs["customelement"] != "":
+case attrs["customelement"] != "" || attrPresent(attrs, "customelement"):
     // new: record as custom element body (verbatim)
     sections["script:customelement"] = rawBody(tokenizer)
+    if v, ok := attrs["shadowdom"]; ok {
+        if v == "closed" {
+            sections["script:customelement:shadowdom"] = "closed"
+        } else {
+            sections["script:customelement:shadowdom"] = "open"
+        }
+    }
 default:
     // existing: plain <script> — stored; will be rejected later
     sections["script"] = rawBody(tokenizer)
@@ -124,6 +133,7 @@ default:
 // pseudo-code — not implementation
 comp.CustomElementScript = sections["script:customelement"]
 // CustomElementTag is set by the engine after load, derived from the component path
+comp.ShadowDOMMode = sections["script:customelement:shadowdom"] // "" if absent
 
 // Keep existing error for plain <script>:
 if sections["script"] != "" {
@@ -151,6 +161,8 @@ if comp.CustomElementScript != "" &&
 - ✅ The `customelement` attribute is confirmed absent from Vue's SFC spec (`lang`, `src`, `generic`, `setup` are the only recognised attributes on `<script>`). No collision.
 - ✅ No `tag` override attribute — the tag name is always derived from the component file path, making it predictable and greppable.
 - ⚠️ `sections` map grows one new key; ensure the "duplicate section" guard covers all key combinations.
+- ✅ `shadowdom` is a boolean attribute (open mode) with an optional `"closed"` value — consistent with the `customelement` boolean attribute on the same tag.
+- ✅ No new block type or file: the opt-in lives on the same `<script>` tag.
 
 **Verdict**: extend attribute reading in `extractSections` to detect `customelement`; store verbatim body as the new `CustomElementScript` field.
 
@@ -208,18 +220,33 @@ Components without a `<script customelement>` block are unaffected by this restr
 
 ### 4.3 SSR Wrapping
 
-When `Component.CustomElementScript` is non-empty, `htmlc` wraps the fully rendered template output in the component's derived tag name. This happens automatically — the author does not need to place the custom element tag in their `<template>` root.
+When `Component.CustomElementScript` is non-empty, `htmlc` wraps the fully rendered template output in the component's derived tag name. This happens automatically — the author does not need to place the custom element tag in their `<template>` root. The wrapping behaviour depends on `ShadowDOMMode`.
 
 #### Wrapping pseudocode
 
 ```go
 // pseudo-code — not implementation
-func wrapInCustomElement(tagName string, renderedHTML template.HTML) template.HTML {
-    return template.HTML(fmt.Sprintf("<%s>%s</%s>", tagName, renderedHTML, tagName))
+func wrapInCustomElement(
+    tagName string,
+    renderedHTML template.HTML,
+    shadowMode string,   // "" = light DOM; "open" or "closed" = DSD
+    scopedStyles template.HTML, // scoped <style> block(s) for this component, if any
+) template.HTML {
+    if shadowMode == "" {
+        // light DOM: existing behaviour
+        return template.HTML(fmt.Sprintf("<%s>%s</%s>", tagName, renderedHTML, tagName))
+    }
+    // Declarative Shadow DOM: wrap content in <template shadowrootmode>
+    inner := scopedStyles + renderedHTML
+    dsd := template.HTML(fmt.Sprintf(
+        `<template shadowrootmode="%s">%s</template>`, shadowMode, inner))
+    return template.HTML(fmt.Sprintf("<%s>%s</%s>", tagName, dsd, tagName))
 }
 ```
 
 The author's `<template>` block contains only the component's inner content:
+
+**Light DOM component — `widgets/Counter.vue` (no `shadowdom`)**
 
 ```html
 <!-- widgets/Counter.vue -->
@@ -252,14 +279,59 @@ This produces the following SSR output when `<Counter />` is used in a parent te
 </widgets-counter>
 ```
 
+**Shadow DOM component — `widgets/Counter.vue` with `shadowdom`**
+
+```html
+<template>
+  <button>Click me</button>
+  <span>0</span>
+</template>
+
+<style scoped>
+button { font-weight: bold; }
+</style>
+
+<script customelement shadowdom>
+customElements.define('widgets-counter', class extends HTMLElement {
+  connectedCallback() {
+    // shadowRoot is already attached by the browser via DSD
+    const btn = this.shadowRoot.querySelector('button');
+    const display = this.shadowRoot.querySelector('span');
+    let count = 0;
+    btn.addEventListener('click', () => {
+      count++;
+      display.textContent = count;
+    });
+  }
+});
+</script>
+```
+
+SSR output:
+
+```html
+<widgets-counter>
+  <template shadowrootmode="open">
+    <style>button[data-v-a1b2c3d4] { font-weight: bold; }</style>
+    <button data-v-a1b2c3d4>Click me</button>
+    <span data-v-a1b2c3d4>0</span>
+  </template>
+</widgets-counter>
+```
+
 **Evaluation**
 
 - ✅ Authors do not duplicate the tag name inside the template — the compiler derives and applies it.
 - ✅ Template content is identical to a component without `<script customelement>`, keeping the mental model consistent.
 - ✅ The browser upgrades the element automatically when the script (referenced via the importmap in `<head>`) executes.
 - ⚠️ Authors using `querySelector` in their custom element class must account for the fact that the matched elements are the direct children of the custom element — the same as they are in the rendered DOM.
+- ✅ DSD is supported in all evergreen browsers (Chrome 90+, Safari 16.4+, Firefox 123+).
+- ✅ The shadow root is attached during HTML parsing, before JavaScript runs, so `connectedCallback` can rely on `this.shadowRoot` immediately.
+- ✅ Scoped styles are emitted inside `<template shadowrootmode>`, achieving true CSS encapsulation without `<head>` injection.
+- ⚠️ Components that use `shadowdom` must query `this.shadowRoot`, not `this`, in their JS. Authors migrating from a light-DOM component must update their `connectedCallback`.
+- ✅ Light-DOM components are unaffected — no `ShadowDOMMode` means the existing wrapping path is taken unchanged.
 
-**Verdict**: automatically wrap rendered template output in the custom element tag when `CustomElementScript` is non-empty.
+**Verdict**: when `ShadowDOMMode` is non-empty, wrap rendered template output in `<template shadowrootmode="open|closed">` inside the custom element tag; include any scoped style block inside the template wrapper. When `ShadowDOMMode` is `""`, use the existing light-DOM wrapping path unchanged.
 
 ---
 
@@ -594,7 +666,11 @@ Callers who need to construct a script URL (e.g. for a `<script src>` tag) shoul
 
 ### 4.7 Interaction with `<style scoped>` and `<style>`
 
-A component that declares `<script customelement>` may also declare a `<style>` block. The style is handled exactly as today by `StyleCollector`. The SSR-wrapped element (e.g. `<admin-card>`) inherits any scoped attribute (e.g. `data-v-a1b2c3d4`) stamped on it by the renderer. No change required.
+A component that declares `<script customelement>` may also declare a `<style>` block. The style handling depends on whether the component uses Shadow DOM.
+
+**For components with `ShadowDOMMode != ""`**: scoped styles are emitted **inside** the `<template shadowrootmode>` wrapper (see §4.3), not into `<head>`. The existing `StyleCollector` path is bypassed for shadow-DOM components. The `StyleCollector` is unchanged — shadow-DOM components simply do not contribute to it.
+
+**For components with `ShadowDOMMode == ""`** (light DOM): behaviour is unchanged; scoped styles continue to be collected and flushed into `<head>`. The SSR-wrapped element (e.g. `<admin-card>`) inherits any scoped attribute (e.g. `data-v-a1b2c3d4`) stamped on it by the renderer.
 
 ---
 
@@ -717,30 +793,30 @@ func withCacheHeaders(next http.Handler) http.Handler {
 
 ---
 
-### 4.10 Shadow DOM (future)
+### 4.10 Shadow DOM
 
-Shadow DOM is **not implemented in v1**. This section outlines the design for a future opt-in so that reviewers can evaluate feasibility and scope the work.
+Shadow DOM is supported in v1 via an opt-in attribute on `<script customelement>`. The feature is built on **Declarative Shadow DOM** (DSD), which allows the server to emit a pre-attached shadow root as part of the HTML document, before any JavaScript runs.
 
 #### 1. Attachment model
 
-With Shadow DOM, the compiled custom element script would call `attachShadow` in `connectedCallback` rather than operating directly on the element's light-DOM children:
+With Shadow DOM, the browser attaches the shadow root automatically during HTML parsing via the `<template shadowrootmode>` element emitted by `htmlc`. The custom element script uses `this.shadowRoot` in `connectedCallback` to access the already-attached shadow root — no explicit `attachShadow` call is required:
 
 ```js
-// future example — not v1
 connectedCallback() {
-    const root = this.attachShadow({ mode: 'open' });
-    // ... populate root
+    // shadowRoot is already attached by the browser via DSD
+    const btn = this.shadowRoot.querySelector('button');
+    // ... operate on shadow-root children
 }
 ```
 
-The `mode` would default to `'open'` (inspectable from JS). `'closed'` would be available as a sub-option. The opt-in attribute on the `<script>` block would be `<script customelement shadowdom>` (boolean, open mode) or `<script customelement shadowdom="closed">`.
+The `mode` defaults to `'open'` (inspectable from JS) when `shadowdom` is used as a boolean attribute. `'closed'` is available via `shadowdom="closed"`. See §4.1 for how `ShadowDOMMode` is populated during parsing.
 
 #### 2. SSR interaction
 
-The server currently renders the component's `<template>` content as **light-DOM children** inside the custom element tag. With Shadow DOM, the rendered HTML would need to be wrapped in a `<template shadowrootmode="open">` element for **Declarative Shadow DOM** (DSD), enabling the browser to attach the shadow root during HTML parsing before JavaScript runs:
+The server renders the component's `<template>` content and wraps it in a `<template shadowrootmode="open|closed">` element (Declarative Shadow DOM), enabling the browser to attach the shadow root during HTML parsing before JavaScript runs. See §4.3 for the full `wrapInCustomElement` pseudocode.
 
 ```html
-<!-- future SSR output with shadowdom opt-in -->
+<!-- SSR output with shadowdom opt-in -->
 <widgets-counter>
   <template shadowrootmode="open">
     <button>Click me</button>
@@ -749,26 +825,23 @@ The server currently renders the component's `<template>` content as **light-DOM
 </widgets-counter>
 ```
 
-DSD is supported in all evergreen browsers as of 2024 (Chrome 90+, Safari 16.4+, Firefox 123+). A progressive-enhancement story would render light DOM as a fallback for older browsers and upgrade to DSD when available.
+DSD is supported in all evergreen browsers (Chrome 90+, Safari 16.4+, Firefox 123+).
 
 #### 3. Scoped styles
 
-Today, `<style scoped>` contributions are injected into `<head>` via `StyleCollector`. With Shadow DOM, scoped styles for a shadow-DOM component should instead be injected into the shadow root to achieve true encapsulation. This requires:
-
-- A new `ShadowStyleCollector` (or an extended `StyleCollector`) that distinguishes between head-injected styles and shadow-root-injected styles.
-- The SSR output for a shadow-DOM component would include the scoped `<style>` inside the `<template shadowrootmode>` wrapper:
+For shadow-DOM components, `<style scoped>` contributions are emitted **inside** the `<template shadowrootmode>` wrapper rather than into `<head>`. This achieves true CSS encapsulation. The existing `StyleCollector` is bypassed for these components — they do not contribute to it. See §4.7 for the full interaction description.
 
 ```html
 <widgets-counter>
   <template shadowrootmode="open">
-    <style>.counter-btn { font-weight: bold; }</style>
-    <button class="counter-btn">Click me</button>
-    <span>0</span>
+    <style>button[data-v-a1b2c3d4] { font-weight: bold; }</style>
+    <button data-v-a1b2c3d4>Click me</button>
+    <span data-v-a1b2c3d4>0</span>
   </template>
 </widgets-counter>
 ```
 
-- The existing `StyleCollector` path for light-DOM components is unaffected.
+The existing `StyleCollector` path for light-DOM components is unaffected.
 
 #### 4. Opt-in syntax
 
@@ -780,16 +853,7 @@ The Shadow DOM opt-in is a boolean attribute on `<script customelement>`:
 <script customelement shadowdom="closed">
 ```
 
-This is the same attribute family as `customelement` itself: a boolean attribute (`shadowdom` = open mode) with an optional string value (`shadowdom="closed"` = closed mode). Components without the `shadowdom` attribute continue to use light DOM — this is not a breaking change.
-
-#### 5. Why it is deferred
-
-Shadow DOM is explicitly out of scope for v1 for the following reasons:
-
-- **Complexity**: Declarative Shadow DOM changes the SSR wrapping logic, the style injection pipeline, and requires browsers to support the `<template shadowrootmode>` attribute. These are non-trivial coordinated changes.
-- **Declarative Shadow DOM browser support**: While broad in evergreen browsers, DSD is absent in IE11 and was only standardised in 2024. Shipping it without a polyfill story is premature.
-- **Scoped-style rework**: The `StyleCollector` refactor to support shadow-root injection is a separate, non-trivial work item.
-- **v1 scope**: The primary goal of v1 is light-DOM custom elements with importmap-based script delivery. Shadow DOM can be layered on as a v2 feature without breaking the v1 API.
+This is the same attribute family as `customelement` itself: a boolean attribute (`shadowdom` = open mode) with an optional string value (`shadowdom="closed"` = closed mode). Components without the `shadowdom` attribute continue to use light DOM — this is not a breaking change. The `ShadowDOMMode` field on `Component` defaults to `""`, and no existing component is affected without author action.
 
 ---
 
@@ -807,6 +871,8 @@ Shadow DOM is explicitly out of scope for v1 for the following reasons:
 | `{{scriptFor("path/to/Component")}}` | relative path, no `.vue` extension | Returns the raw script body of the named component as `template.HTML`. Author wraps in `<script>…</script>`. Error if path unknown, component has no `<script customelement>`, or component is already scheduled for importmap delivery on this render pass. |
 | `{{importMap()}}` | *(none)* | Emits `<script type="importmap">` for all custom elements used so far in the render pass. Automatic in `RenderPage` (before `</head>`); explicit in `RenderFragment`. |
 | `<script customelement src="...">` | `src` | **Error**: `src` attribute not supported on `<script customelement>` |
+| `<script customelement shadowdom>` | *(boolean)* | Shadow DOM opt-in (open mode). SSR output wraps template content in `<template shadowrootmode="open">`. Scoped styles are emitted inside the shadow root, not in `<head>`. |
+| `<script customelement shadowdom="closed">` | `"closed"` | Shadow DOM (closed mode). Same as above but `shadowrootmode="closed"`. Authors must use `this.shadowRoot` inside `connectedCallback`. |
 | `engine.NewScriptFSServer()` | *(none)* | Returns an `http.Handler` that serves `ScriptsFS` with correct `Cache-Control`, `Content-Type`, and compressed-response negotiation. Hashed files get `immutable`; `index.js` gets `no-cache`. |
 | `htmlc.WithNonceFunc(f)` | `func(context.Context) string` | Engine option. When set, the returned nonce is injected as `nonce="…"` on both the auto-generated `<script type="importmap">` tag and the `<script type="module" src="…">` loader tag. No effect if not set. |
 
@@ -1239,15 +1305,103 @@ The importmap is injected immediately before `</head>`, after any `<style>` cont
 
 ---
 
+### Example 8 — Shadow DOM Counter
+
+A counter component that uses `<script customelement shadowdom>` and `<style scoped>`, demonstrating DSD-wrapped SSR output with scoped styles inside the shadow root.
+
+**Directory tree**
+
+```
+components/
+  widgets/
+    Counter.vue
+pages/
+  Home.vue
+```
+
+**`widgets/Counter.vue`**
+
+```html
+<template>
+  <button>Click me</button>
+  <span>0</span>
+</template>
+
+<style scoped>
+button { font-weight: bold; }
+</style>
+
+<script customelement shadowdom>
+customElements.define('widgets-counter', class extends HTMLElement {
+  connectedCallback() {
+    // shadowRoot is already attached by the browser via DSD
+    const btn = this.shadowRoot.querySelector('button');
+    const display = this.shadowRoot.querySelector('span');
+    let count = 0;
+    btn.addEventListener('click', () => {
+      count++;
+      display.textContent = count;
+    });
+  }
+});
+</script>
+```
+
+**`Home.vue`**
+
+```html
+<template>
+  <html>
+    <head><title>Home</title></head>
+    <body>
+      <Counter />
+    </body>
+  </html>
+</template>
+```
+
+**Rendered output**
+
+```html
+<html>
+  <head>
+    <title>Home</title>
+    <script type="importmap">
+{"imports":{"widgets-counter":"/components/widgets-counter.a1b2c3d4.js"}}
+</script>
+    <script type="module" src="/components/index.js"></script>
+  </head>
+  <body>
+    <widgets-counter>
+      <template shadowrootmode="open">
+        <style>button[data-v-a1b2c3d4] { font-weight: bold; }</style>
+        <button data-v-a1b2c3d4>Click me</button>
+        <span data-v-a1b2c3d4>0</span>
+      </template>
+    </widgets-counter>
+  </body>
+</html>
+```
+
+**Observations**
+
+1. The `<style scoped>` block is emitted inside `<template shadowrootmode="open">`, not in `<head>`. True CSS encapsulation is achieved without `<head>` injection.
+2. The importmap injection in `<head>` is unaffected — shadow DOM changes the SSR wrapping, not the script delivery mechanism.
+3. The `connectedCallback` uses `this.shadowRoot` (not `this`) to query elements, because the browser attaches the shadow root during HTML parsing via DSD before JavaScript runs.
+4. Light-DOM components on the same page continue to inject their scoped styles into `<head>` via `StyleCollector` — shadow DOM is a per-component opt-in that does not affect other components.
+
+---
+
 ## 7. Implementation Sketch
 
 ### `component.go`
 
-1. Add two new fields to `Component`: `CustomElementScript string` and `CustomElementTag string`.
+1. Add three new fields to `Component`: `CustomElementScript string`, `CustomElementTag string`, and `ShadowDOMMode string`.
 2. In `extractSections`, after reading a `<script>` start tag, collect all its attributes into a `map[string]string`.
 3. If `attrs["customelement"] != ""` or the attribute name `"customelement"` is present (boolean attribute), store the verbatim body in `sections["script:customelement"]`.
    3a. If `attrs["customelement"] != ""` and `attrs["src"] != ""`, return an error immediately: `<script customelement src="...">` is not supported.
-4. In `ParseFile`, populate `CustomElementScript` from `sections["script:customelement"]`.
+   3b. After reading `attrs["customelement"]`, also read `attrs["shadowdom"]`: if present and equal to `"closed"`, set `sections["script:customelement:shadowdom"]` to `"closed"`; if present with any other value (including empty string / boolean), set it to `"open"`.
+4. In `ParseFile`, populate `CustomElementScript` from `sections["script:customelement"]` and assign `sections["script:customelement:shadowdom"]` (empty string if absent) to `comp.ShadowDOMMode`.
    4a. After populating `CustomElementScript`, if non-empty and the body does not contain the substring `customElements.define`, return an error as defined in §4.8.
 5. Convert the current silent-ignore of `sections["script"]` and `sections["script:setup"]` into explicit error returns with the messages defined in §4.8.
 
@@ -1279,7 +1433,8 @@ The importmap is injected immediately before `</head>`, after any `<style>` cont
 1. Add `customElementCollector *CustomElementCollector` field to `Renderer`.
 2. In `renderElement`, when resolving a component tag: if the resolved `Component.CustomElementScript != ""`:
    a. Call `customElementCollector.Add(CustomElementEntry{...})`.
-   b. Wrap the rendered template output in `<tagName>...</tagName>` (see §4.3).
+   b. When `comp.ShadowDOMMode != ""`, pass the shadow mode and the component's scoped style block to `wrapInCustomElement`. The scoped style block must be extracted from `StyleCollector` before it is contributed to `<head>` — shadow-DOM components bypass `<head>` injection and instead include their styles inline inside the `<template shadowrootmode>` wrapper.
+   c. When `comp.ShadowDOMMode == ""`, wrap the rendered template output in `<tagName>...</tagName>` using the existing light-DOM path (see §4.3).
 3. Propagate the collector into child `Renderer` instances (same pattern as `styleCollector`).
 4. Add `buildImportMap(prefix string) template.HTML` method — iterates `customElementCollector.entries`, maps each tag name to its hashed URL, marshals to JSON importmap format.
 
@@ -1326,6 +1481,10 @@ Pages that use custom elements gain a `<script type="importmap">` in `<head>` th
 
 Unchanged. The new `CustomElementCollector` is a parallel type, not a modification.
 
+### Shadow DOM
+
+Components without `shadowdom` on `<script customelement>` continue to use light DOM. The `ShadowDOMMode` field defaults to `""`. No existing component is affected. The new `ShadowDOMMode` field on `Component` is additive.
+
 ---
 
 ## 9. Alternatives Considered
@@ -1370,7 +1529,7 @@ Expose a `FlushCustomElements()` method/template function that emits all used co
 
 ## 10. Open Questions
 
-1. **Shadow DOM opt-in** — *See §4.10* for the full design outline. Shadow DOM is explicitly deferred to a future version; the `shadowdom` attribute is reserved on `<script customelement>`. **Non-blocking** for v1.
+1. **Shadow DOM opt-in** — *Resolved*. Shadow DOM is implemented in v1 via `<script customelement shadowdom>` (open mode) and `<script customelement shadowdom="closed">` (closed mode). See §4.1, §4.3, and §4.10. **Resolved.**
 
 2. **`FlushCustomElements` placement** — *Resolved*. The inline flush design is replaced by `scriptFor` (explicit, per-component) and automatic importmap injection (zero author burden for `RenderPage`). No placement decision is required.
 
@@ -1558,24 +1717,14 @@ be closed.
 
 RFC 006 has characteristics of a wicked feature in the following respects:
 
-**Shadow DOM deferral (§4.10)**
+**Shadow DOM (§4.10)**
 
-The proposal explicitly defers Shadow DOM to a future version, outlining a
-design that requires coordinated changes to SSR wrapping, `StyleCollector`,
-and the compiled component scripts. Once v1 ships, any author who uses
-`<style scoped>` with a custom element will observe that their scoped styles
-are stamped onto the custom element's light-DOM children but are *not*
-encapsulated. When Shadow DOM arrives as a v2 feature, the SSR output format
-changes (the `<template shadowrootmode>` wrapper is inserted), which is a
-**breaking change** to the rendered HTML structure of any component that
-opts in. Authors must update their JS `connectedCallback` implementations
-accordingly. This deferred work will generate a meaningful migration burden.
-
-- ⚠️ Every v1 custom element component that later opts into Shadow DOM
-  requires a manual update to its JS body.
-- ⚠️ `StyleCollector` will need to understand a new injection path (shadow
-  root vs. `<head>`), adding branching logic to an existing well-defined
-  component.
+**Shadow DOM is now a V1 feature.** The `<template shadowrootmode>` wrapper
+is emitted at SSR time; scoped styles are included inside the shadow root.
+Authors opting in to `shadowdom` after shipping a light-DOM component must
+update their `connectedCallback` to query `this.shadowRoot` instead of
+`this`. This is a per-component, opt-in migration — no existing component is
+affected without author action.
 
 **Two delivery paths (importmap + `scriptFor`) create permanent complexity**
 
