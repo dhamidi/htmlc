@@ -30,11 +30,6 @@
   </Layout>
 </template>
 
-<script>
-export default {
-  props: ['pageTitle', 'description', 'siteTitle', 'navItems']
-}
-</script>
 
 <style>
   p { margin: 1rem 0; }

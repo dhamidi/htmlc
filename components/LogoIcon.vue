@@ -23,10 +23,3 @@
   </svg>
 </template>
 
-<script>
-export default {
-  props: {
-    size: { default: 32 }
-  }
-}
-</script>

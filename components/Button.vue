@@ -5,15 +5,6 @@
   ><slot /></a>
 </template>
 
-<script>
-export default {
-  props: {
-    href:    { type: String,  default: null  },
-    variant: { type: String,  default: 'primary' },
-  },
-}
-</script>
-
 <style scoped>
 .btn {
   display: inline-flex;

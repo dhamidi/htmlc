@@ -5,14 +5,6 @@
   </div>
 </template>
 
-<script>
-export default {
-  props: {
-    label: { type: String, required: true },
-  },
-}
-</script>
-
 <style scoped>
 .qs-step pre {
   margin-top: 0.4rem;

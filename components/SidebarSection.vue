@@ -5,9 +5,6 @@
   </div>
 </template>
 
-<script>
-</script>
-
 <style>
 .sidebar-section { margin-bottom: 1.5rem; }
 .sidebar-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgb(240, 242, 255); margin-bottom: 0.5rem; padding: 0 0.5rem; }

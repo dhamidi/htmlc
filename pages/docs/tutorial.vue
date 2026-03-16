@@ -135,8 +135,3 @@ fmt.Println(html)</code></pre>
   </DocsPage>
 </template>
 
-<script>
-export default {
-  props: ['siteTitle']
-}
-</script>

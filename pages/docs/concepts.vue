@@ -310,11 +310,6 @@ if err != nil {
   </DocsPage>
 </template>
 
-<script>
-export default {
-  props: ['siteTitle']
-}
-</script>
 
 <style>
   .data-flow {

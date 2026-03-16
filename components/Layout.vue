@@ -254,8 +254,3 @@
   </html>
 </template>
 
-<script>
-export default {
-  props: ['pageTitle', 'description', 'siteTitle', 'fullWidth']
-}
-</script>

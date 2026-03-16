@@ -7,15 +7,6 @@
   </div>
 </template>
 
-<script>
-export default {
-  props: {
-    filename: { type: String, default: null },
-    code:     { type: String, default: ''   },
-  },
-}
-</script>
-
 <style scoped>
 .code-example {
   border: 1px solid var(--border);

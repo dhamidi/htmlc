@@ -11,6 +11,7 @@
       {href: '#validate-startup', label: 'Validate at startup'},
       {label: 'Development'},
       {href: '#hot-reload', label: 'Hot reload'},
+      {href: '#expvars', label: 'Monitor engine metrics'},
       {label: 'Customization'},
       {href: '#custom-directive', label: 'Custom directive'},
       {href: '#missing-props', label: 'Missing prop handling'},
@@ -150,6 +151,83 @@ func main() {
 }</code></pre>
 
     <p>Run with <code>go run . -dev</code> locally and without the flag in production. Alternatively, use a build tag to set the constant at compile time so the production binary has zero overhead.</p>
+
+    <!-- ═══════════════════════════════════════════════ Expvars -->
+    <h2 id="expvars">Monitor engine metrics with expvars</h2>
+    <p class="howto-goal">You want to expose htmlc engine metrics at the standard Go <code>/debug/vars</code> endpoint for dashboards and health checks.</p>
+
+    <p>Go's built-in <code>expvar</code> package publishes named variables at <code>/debug/vars</code> as a JSON object. Calling <code>engine.PublishExpvars(prefix)</code> registers counters and configuration state under that prefix so any monitoring tool that can read <code>/debug/vars</code> can observe the engine.</p>
+
+    <h3>Step 1 — Create the engine and publish metrics</h3>
+    <p>Call <code>PublishExpvars</code> once at startup, before serving any requests. A blank import of <code>expvar</code> registers the <code>/debug/vars</code> handler on <code>http.DefaultServeMux</code> automatically:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>package main
+
+import (
+    &#34;log&#34;
+    &#34;net/http&#34;
+    _ &#34;expvar&#34; // registers /debug/vars on http.DefaultServeMux
+
+    &#34;github.com/dhamidi/htmlc&#34;
+)
+
+func main() {
+    engine, err := htmlc.New(htmlc.Options{
+        ComponentDir: &#34;./components&#34;,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register all engine metrics under &#34;myapp&#34; in /debug/vars.
+    engine.PublishExpvars(&#34;myapp&#34;)
+
+    mux := http.NewServeMux()
+    mux.HandleFunc(&#34;GET /{$}&#34;, engine.ServePageComponent(&#34;HomePage&#34;, nil))
+
+    // For a custom mux, add the expvar handler explicitly:
+    // mux.Handle(&#34;GET /debug/vars&#34;, expvar.Handler())
+
+    log.Fatal(http.ListenAndServe(&#34;:8080&#34;, mux))
+}</code></pre>
+
+    <h3>Step 2 — Inspect the output</h3>
+    <p>With the server running, fetch the metrics and pipe through <code>jq</code> to extract the engine block:</p>
+
+    <pre v-syntax-highlight="'bash'"><code v-pre>curl -s http://localhost:8080/debug/vars | jq '.myapp'</code></pre>
+
+    <p>Example output:</p>
+
+    <pre v-syntax-highlight="'json'"><code v-pre>{
+  &#34;reload&#34;: 0,
+  &#34;debug&#34;: 0,
+  &#34;componentDir&#34;: &#34;./components&#34;,
+  &#34;fs&#34;: &#34;&lt;nil&gt;&#34;,
+  &#34;renders&#34;: 42,
+  &#34;renderErrors&#34;: 0,
+  &#34;reloads&#34;: 2,
+  &#34;renderNanos&#34;: 125432100,
+  &#34;components&#34;: 15,
+  &#34;info&#34;: {
+    &#34;directives&#34;: [&#34;myCustom&#34;]
+  }
+}</code></pre>
+
+    <h3>Reading the counters</h3>
+    <p>Use the raw counters to compute derived metrics:</p>
+    <ul>
+      <li><strong>Error rate:</strong> <code>renderErrors / renders</code></li>
+      <li><strong>Average render latency:</strong> <code>renderNanos / renders</code> nanoseconds per render</li>
+      <li><strong>Reload activity:</strong> <code>reloads</code> should only increment during development; a non-zero value in production means hot-reload is accidentally enabled</li>
+    </ul>
+
+    <h3>Live option toggling</h3>
+    <p>The setter methods (<code>SetReload</code>, <code>SetDebug</code>, <code>SetComponentDir</code>, <code>SetFS</code>) update both the live engine option and the corresponding expvar immediately. For example, enabling hot-reload at runtime without restarting the process:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>engine.SetReload(true)
+// curl -s .../debug/vars | jq '.myapp.reload'  →  1</code></pre>
+
+    <Callout><strong>Warning:</strong> calling <code>PublishExpvars</code> twice with the same prefix panics. Register metrics exactly once per engine per process, immediately after creating the engine.</Callout>
 
     <!-- ═══════════════════════════════════════════════ Custom directive -->
     <h2 id="custom-directive">Write a custom directive</h2>
@@ -418,11 +496,6 @@ func TestCard(t *testing.T) {
   </DocsPage>
 </template>
 
-<script>
-export default {
-  props: ['siteTitle']
-}
-</script>
 
 <style>
   .howto-goal {

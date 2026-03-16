@@ -6,6 +6,7 @@
     :navItems="[
       {label: 'Engine'},
       {href: '#creating-engine', label: 'New / Options'},
+      {href: '#expvars', label: 'Runtime Metrics (expvars)'},
       {href: '#component-management', label: 'Register / Has / Components'},
       {href: '#validate', label: 'ValidateAll'},
       {label: 'Rendering'},
@@ -90,6 +91,103 @@ if err != nil {
         </tr>
       </tbody>
     </table>
+
+    <!-- ═══════════════════════════════════════════════ Runtime Metrics -->
+    <h2 id="expvars">Runtime Metrics (expvars)</h2>
+
+    <h3 id="publish-expvars">PublishExpvars</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) PublishExpvars(prefix string) *Engine</code></pre>
+    <p>Registers the engine's metrics in the global <code>expvar</code> registry under <code>prefix</code>. After calling this method all counters and configuration state are visible at the <code>/debug/vars</code> HTTP endpoint as a JSON object keyed by <code>prefix</code>. Returns the engine for method chaining.</p>
+    <p>Internally this creates a top-level <code>*expvar.Map</code> via <code>expvar.NewMap(prefix)</code>. It panics if called twice with the same prefix — the same semantics as <code>expvar.NewMap</code>. Call it exactly once per engine per process, immediately after creating the engine.</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>engine, err := htmlc.New(htmlc.Options{ComponentDir: &#34;./components&#34;})
+if err != nil {
+    log.Fatal(err)
+}
+engine.PublishExpvars(&#34;myapp&#34;) // registers metrics under &#34;myapp&#34; key</code></pre>
+
+    <h3 id="expvars-table">Exposed variables</h3>
+    <p>All variables appear as children of the <code>prefix</code> map in the <code>/debug/vars</code> JSON output:</p>
+    <table>
+      <thead>
+        <tr><th>Key</th><th>Type</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>reload</code></td>
+          <td><code>expvar.Int</code> (0/1)</td>
+          <td>Whether hot-reload is enabled.</td>
+        </tr>
+        <tr>
+          <td><code>debug</code></td>
+          <td><code>expvar.Int</code> (0/1)</td>
+          <td>Whether debug mode is enabled.</td>
+        </tr>
+        <tr>
+          <td><code>componentDir</code></td>
+          <td><code>expvar.String</code></td>
+          <td>Current component directory path.</td>
+        </tr>
+        <tr>
+          <td><code>fs</code></td>
+          <td><code>expvar.String</code></td>
+          <td>Type name of the current <code>fs.FS</code>, or <code>"&lt;nil&gt;"</code> when no custom FS is set.</td>
+        </tr>
+        <tr>
+          <td><code>renders</code></td>
+          <td><code>expvar.Int</code></td>
+          <td>Cumulative number of successful render calls.</td>
+        </tr>
+        <tr>
+          <td><code>renderErrors</code></td>
+          <td><code>expvar.Int</code></td>
+          <td>Cumulative number of failed render calls.</td>
+        </tr>
+        <tr>
+          <td><code>reloads</code></td>
+          <td><code>expvar.Int</code></td>
+          <td>Cumulative number of hot-reload scans performed.</td>
+        </tr>
+        <tr>
+          <td><code>renderNanos</code></td>
+          <td><code>expvar.Int</code></td>
+          <td>Cumulative render time in nanoseconds.</td>
+        </tr>
+        <tr>
+          <td><code>components</code></td>
+          <td><code>expvar.Func</code> → Int</td>
+          <td>Number of currently registered components (computed on each read).</td>
+        </tr>
+        <tr>
+          <td><code>info.directives</code></td>
+          <td><code>expvar.Func</code> → Array</td>
+          <td>Sorted list of registered custom directive names (computed on each read).</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 id="setter-methods">Setter methods</h3>
+    <p>These methods update both the live engine option and the corresponding expvar immediately. They are usable whether or not <code>PublishExpvars</code> has been called.</p>
+
+    <h4>SetDebug</h4>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) SetDebug(enabled bool)</code></pre>
+    <p>Enables or disables debug mode. When <code>enabled</code> is true, rendered HTML is annotated with comments describing component boundaries, expression values, and slot contents. Updates the <code>debug</code> expvar to <code>1</code> or <code>0</code> immediately.</p>
+
+    <h4>SetReload</h4>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) SetReload(enabled bool)</code></pre>
+    <p>Enables or disables hot-reload. When <code>enabled</code> is true, the engine stats every registered component file before each render and re-parses any that have changed. Updates the <code>reload</code> expvar to <code>1</code> or <code>0</code> immediately.</p>
+
+    <h4>SetComponentDir</h4>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) SetComponentDir(dir string) error</code></pre>
+    <p>Changes the component directory to <code>dir</code>, walks the new directory recursively, and rebuilds the component registry. Returns an error if the directory cannot be walked. Updates the <code>componentDir</code> expvar to the new path immediately.</p>
+
+    <h4>SetFS</h4>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) SetFS(fsys fs.FS) error</code></pre>
+    <p>Replaces the engine's filesystem with <code>fsys</code>, then rebuilds the component registry by walking the current <code>ComponentDir</code> inside the new FS. Returns an error if the directory walk fails. Updates the <code>fs</code> expvar to the type name of <code>fsys</code> (or <code>"&lt;nil&gt;"</code>) immediately.</p>
+
+    <p><strong>Integration note:</strong> The <code>/debug/vars</code> handler is registered on <code>http.DefaultServeMux</code> automatically when the <code>expvar</code> package is imported. For a custom <code>*http.ServeMux</code>, register it explicitly:</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>import &#34;expvar&#34;
+
+mux.Handle(&#34;GET /debug/vars&#34;, expvar.Handler())</code></pre>
 
     <!-- ═══════════════════════════════════════════════ Rendering -->
     <h2 id="rendering">Rendering</h2>
@@ -443,8 +541,3 @@ var ErrMissingProp       = errors.New("htmlc: missing required prop")</code></pr
   </DocsPage>
 </template>
 
-<script>
-export default {
-  props: ['siteTitle']
-}
-</script>
