@@ -109,7 +109,6 @@ type Options struct {
     Reload       bool
     Debug        bool
     Directives   DirectiveRegistry
-    OnComponent  ComponentHookFunc  // RFC 004
 
     // Logger, if non-nil, receives one structured log record per component
     // rendered. Records are emitted at slog.LevelDebug for successful renders
@@ -120,8 +119,8 @@ type Options struct {
 }
 ```
 
-`log/slog` is part of the Go standard library since Go 1.21. This field adds
-no external dependencies to the module.
+`log/slog` is part of the Go standard library since Go 1.21. `Logger` is
+independent of any hook field and adds no external dependencies to the module.
 
 ### 4.2 New field in `Renderer` and builder method
 
@@ -129,7 +128,8 @@ no external dependencies to the module.
 // pseudo-code — not implementation
 type Renderer struct {
     // ... existing fields ...
-    logger *slog.Logger // new field
+    logger *slog.Logger   // new field
+    cw     countingWriter // new field — reused across component dispatches
 }
 
 func (r *Renderer) WithLogger(l *slog.Logger) *Renderer {
@@ -162,10 +162,22 @@ func (cw *countingWriter) Write(p []byte) (int, error) {
     cw.n += int64(n)
     return n, err
 }
+
+// Reset reinitialises the counter and sets the underlying writer.
+// Calling Reset before each component dispatch avoids allocating a new
+// countingWriter on every logged render.
+func (cw *countingWriter) Reset(w io.Writer) {
+    cw.w = w
+    cw.n = 0
+}
 ```
 
-This type is private, allocated once per component dispatch when the logger
-is non-nil, and discarded immediately after the log record is emitted.
+This type is private. It is embedded as a value field `cw countingWriter`
+in `Renderer`, so it is allocated once as part of the `Renderer` struct
+(which `rendererWithComponent` already creates for each child dispatch).
+`Reset` reinitialises the counter and redirects writes to the new underlying
+writer, so no additional heap allocation is needed per component when the
+logger is non-nil.
 
 ### 4.4 Emitting the log record at component dispatch
 
@@ -185,23 +197,24 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node,
         return r.rendererWithComponent(comp).Render(w, scope)
     }
 
-    cw := &countingWriter{w: w}
+    child := r.rendererWithComponent(comp)
+    child.cw.Reset(w)
     start := time.Now()
-    renderErr := r.rendererWithComponent(comp).Render(cw, scope)
+    renderErr := child.Render(&child.cw, scope)
     elapsed := time.Since(start)
 
     if renderErr != nil {
         r.logger.ErrorContext(r.ctx, "component render failed",
             slog.String("component", comp.Name),
             slog.Duration("duration", elapsed),
-            slog.Int64("bytes", cw.n),
+            slog.Int64("bytes", child.cw.n),
             slog.Any("error", renderErr),
         )
     } else {
         r.logger.DebugContext(r.ctx, "component rendered",
             slog.String("component", comp.Name),
             slog.Duration("duration", elapsed),
-            slog.Int64("bytes", cw.n),
+            slog.Int64("bytes", child.cw.n),
         )
     }
 
@@ -237,29 +250,35 @@ func (e *Engine) loggedRender(
         return render(w)
     }
 
-    cw := &countingWriter{w: w}
+    e.cw.Reset(w)
     start := time.Now()
-    renderErr := render(cw)
+    renderErr := render(&e.cw)
     elapsed := time.Since(start)
 
     if renderErr != nil {
         e.opts.Logger.ErrorContext(ctx, "component render failed",
             slog.String("component", name),
             slog.Duration("duration", elapsed),
-            slog.Int64("bytes", cw.n),
+            slog.Int64("bytes", e.cw.n),
             slog.Any("error", renderErr),
         )
     } else {
         e.opts.Logger.DebugContext(ctx, "component rendered",
             slog.String("component", name),
             slog.Duration("duration", elapsed),
-            slog.Int64("bytes", cw.n),
+            slog.Int64("bytes", e.cw.n),
         )
     }
 
     return renderErr
 }
 ```
+
+`Engine` embeds a `cw countingWriter` field for root-level logging. Because
+`RenderPageContext` and `RenderFragmentContext` are not called concurrently
+on the same `Engine` with shared output (each call supplies its own `w`),
+the single embedded field is safe for sequential use. If concurrent root
+renders are needed, callers must use separate `Engine` instances.
 
 `RenderPageContext` and `RenderFragmentContext` call `loggedRender`, passing
 a closure that builds the renderer and calls `Render`. This avoids
@@ -297,7 +316,7 @@ Three approaches were evaluated:
 
 | Option | Approach | ✅ Pros | ❌ Cons |
 |---|---|---|---|
-| A (chosen) | `countingWriter` wrapping `w` at dispatch | Exact subtree byte count; no API changes | One heap allocation per component when logger is set |
+| A (chosen) | `countingWriter` wrapping `w` at dispatch | Exact subtree byte count; no API changes | No extra allocation: `cw` is embedded in `Renderer`; `Reset()` reinitialises it at zero additional cost. |
 | B | Return `(int64, error)` from `Render` | No allocation; byte counts propagate up | Breaking change to the `Render` signature |
 | C | Measure at the HTTP response writer | Zero changes to htmlc | Cannot attribute bytes to individual components |
 
@@ -456,10 +475,12 @@ No external test dependencies are needed; `log/slog` and `bytes` are stdlib.
 
 ### `engine.go`
 
-- Add `Logger *slog.Logger` field to the `Options` struct (after `OnComponent`
-  if RFC 004 is implemented, otherwise after `Directives`). One line.
+- Add `Logger *slog.Logger` field to the `Options` struct (after `Directives`). One line.
+- Add `cw countingWriter` value field to the `Engine` struct. One line.
 - Add private `loggedRender(ctx, name, w, renderFn)` helper (~20 lines) that
   wraps a root render with slog instrumentation when `opts.Logger != nil`.
+- Update `loggedRender` to call `e.cw.Reset(w)` and pass `&e.cw` instead of
+  allocating a new `countingWriter`.
 - In `RenderPageContext` and `RenderFragmentContext`: call
   `e.loggedRender(ctx, name, w, ...)` instead of directly constructing and
   invoking the renderer. Each change is a one-liner replacement.
@@ -471,13 +492,23 @@ No external test dependencies are needed; `log/slog` and `bytes` are stdlib.
 
 - Add `logger *slog.Logger` field to the `Renderer` struct
   (`renderer.go:149`). One line.
+- Add `cw countingWriter` value field to the `Renderer` struct (no pointer;
+  embedded inline). One line.
 - Add `WithLogger(l *slog.Logger) *Renderer` builder method (mirrors
   `WithContext`, `WithFuncs`, etc.). Three lines.
-- Add private `countingWriter` struct and its `Write` method (~10 lines).
+- Add private `countingWriter` struct with its `Write` method and a
+  `Reset(w io.Writer)` method that zeroes `n` and sets `w` (~13 lines).
   Place in a small private helper section or a new `slog.go` file.
 - In `renderComponentElement` (`renderer.go:1535`): add the `nil` check and
-  the wrapped render+log block (~15 lines). The existing render path is
-  unchanged in the nil case.
+  the wrapped render+log block (~15 lines). Replace `cw := &countingWriter{w: w}`
+  and the subsequent `r.rendererWithComponent(comp).Render(cw, scope)` with:
+  ```go
+  child := r.rendererWithComponent(comp)
+  child.cw.Reset(w)
+  renderErr = child.Render(&child.cw, scope)
+  ```
+  Access `child.cw.n` for the byte count. No net increase in allocations vs.
+  the non-logging path.
 - `rendererWithComponent` copies the `Renderer` by value, so `logger`
   propagates to child renderers automatically — no additional wiring.
 
@@ -565,9 +596,10 @@ engine, _ := htmlc.New(htmlc.Options{
 byte counting is impossible without changes to the hook type. This approach
 also requires RFC 004 to be implemented first. Since `log/slog` is a stdlib
 package (unlike OTel), there is no dependency-hygiene reason to isolate it
-behind a hook. A supplementary `htmlcslog` package is not precluded by this
-RFC and could be added later for users who prefer the hook-based API and do
-not need byte counts.
+behind a hook. Additionally, RFC-004 (`OnComponent` hook) may not be
+implemented; since the `ComponentHookFunc` signature lacks an `io.Writer`,
+an `htmlcslog` wrapper could not provide byte counts without further changes
+to the hook type. No `htmlcslog` package will be provided.
 
 ### B. Add an `io.Writer` parameter to `ComponentHookFunc`
 
@@ -619,39 +651,28 @@ on the same engine) and diverges from the existing convention.
 ## 10. Open Questions
 
 1. **Minimum Go version** (blocking before implementation)
-   `log/slog` was stabilised in Go 1.21. If `go.mod` currently declares a
-   lower minimum version, the `go` directive must be bumped. Verify the
-   current minimum version before implementing and coordinate the bump with
-   any other in-flight RFC that also requires Go 1.21 features (e.g. RFC 003
-   if it uses `atomic.Int64`).
+   `log/slog` was stabilised in Go 1.21. Verify that `go.mod` declares
+   `go 1.21` or higher before implementing; bump if necessary.
 
 2. **Export log message strings as constants?** (non-blocking)
-   Exporting `const MsgComponentRendered = "component rendered"` and
-   `const MsgComponentFailed = "component render failed"` would allow callers
-   to filter log records by message without hardcoding string literals.
-   Tentative answer: export both constants for testability; the surface is
-   small and the value is clear.
+   Export `const MsgComponentRendered = "component rendered"` and
+   `const MsgComponentFailed = "component render failed"` for testability.
+   Callers can filter by message without hardcoding strings. Tentative answer:
+   export both.
 
-3. **Subtree bytes vs. direct bytes only** (non-blocking)
-   The proposed design counts all bytes written by the component and its
-   entire subtree. An alternative would count only bytes written directly by
-   the component template before any child dispatch. Subtree byte counts are
-   more useful for identifying large output regions; direct-only counts would
-   require a more complex writer that knows which writes belong to the current
-   component vs. a child. Tentative answer: count subtree bytes (the proposed
-   approach).
+3. **Subtree bytes vs. direct bytes only** — *decided: count subtree bytes.*
+   The `bytes` attribute measures the entire subtree rooted at the logged
+   component. This is the most actionable metric for identifying large output
+   regions and is a natural consequence of wrapping `w` in a `countingWriter`
+   before passing it to `Render`.
 
-4. **Should the `htmlcslog` convenience package be provided?** (non-blocking)
-   A thin `htmlcslog` subpackage returning a `ComponentHookFunc` backed by a
-   `*slog.Logger` would serve users who prefer the hook-based API or want to
-   compose slog logging with the OTel hook. It would lack byte-count support
-   unless RFC 004's hook signature is extended. Tentative answer: defer until
-   RFC 004 is accepted; then evaluate whether the hook-based approach covers
-   the remaining use cases.
+4. **`htmlcslog` convenience package** — *decided: not provided.*
+   RFC-004 (`OnComponent` hook) may not be implemented. Even if it is,
+   `ComponentHookFunc` does not receive the `io.Writer`, so byte counts would
+   be unavailable. The direct `Logger *slog.Logger` API in this RFC is
+   sufficient for all structured-logging use cases.
 
-5. **Interaction with `Reload` mode** (non-blocking)
-   In hot-reload mode, components are reparsed on each request. A log record
-   could include a `reloaded=true` attribute when the component was freshly
-   parsed during this render cycle. Tentative answer: out of scope for this
-   RFC; reload counts are tracked by RFC 003 (expvar) and adding this
-   attribute would require threading reload state through the renderer.
+5. **`reloaded=true` log attribute** — *decided: not added.*
+   Reload state is out of scope for this RFC. Reload counts are tracked by
+   RFC-003 (expvar). Adding this attribute would require threading reload state
+   through the renderer for a marginal benefit.
