@@ -1355,3 +1355,257 @@ Expose a `FlushCustomElements()` method/template function that emits all used co
 6. **Top-level components and single-word tag names** — `Counter.vue` derives `counter`, which is not a valid browser custom element name. Should `htmlc` emit a warning (not an error) when a component with `<script customelement>` derives a single-word tag name? *Tentative recommendation*: yes, warn at load time. **Blocking** — authors need to know this constraint.
 
 7. **CSP and importmap nonce** — *Resolved*. Covered by the `WithNonceFunc` option specified in §4.5 and §5 — the same nonce function is called per render pass and the result is injected as a `nonce` attribute on the auto-generated `<script type="importmap">` tag. **Resolved — incorporated into design.**
+
+---
+
+## 11. Implementation Concerns
+
+### 11.1 Critical Implementation Gaps
+
+#### a. Importmap entries are never used by the generated scaffolding
+
+The proposal injects a `<script type="importmap">` mapping each tag name
+(e.g. `"widgets-counter"`) to its hashed URL, and separately loads
+`<script type="module" src="/components/index.js">`. The generated `index.js`
+barrel file uses **relative** imports:
+
+```js
+import "./widgets-counter.a1b2c3d4.js";
+```
+
+Relative imports bypass the importmap entirely — the browser resolves them
+from the `index.js` URL, not from the importmap registry. The importmap
+entries are therefore unreachable through any code the engine itself
+generates. They only become useful if an author manually writes
+`import "widgets-counter"` (a bare specifier) inside their own `<script
+customelement>` body or some other page script. The proposal does not call
+this out or provide a worked example of a bare-specifier import.
+
+**Impact**: the importmap is injected on every page that uses custom
+elements but serves no function unless the author exploits it manually.
+This is dead infrastructure that increases `<head>` size, confuses
+future maintainers, and may trigger CSP violations in projects that
+whitelist `<script type="importmap">` separately. Either the barrel
+`index.js` approach should be dropped in favour of importmap-only loading,
+or the `index.js` approach should be the sole mechanism and the importmap
+should be removed. The two coexist without coordinating.
+
+- ❌ Two delivery mechanisms (`index.js` barrel + importmap) for the same
+  set of scripts, with no clear separation of concerns.
+- ❌ `index.js` relative imports never exercise the importmap, making the
+  importmap dead code in the default setup.
+- ⚠️ Importmap browser support and `<script type="importmap">` CSP
+  classification differ across browser versions; injecting it
+  unconditionally widens the CSP surface for no gain.
+
+**Verdict**: the design must choose one primary delivery mechanism. The
+most likely correct choice is to drop the importmap from the default path
+and rely solely on `index.js` with relative imports. The importmap could
+be offered as an opt-in for authors who need bare-specifier resolution in
+their own scripts.
+
+#### b. `scriptFor` and importmap can silently double-define custom elements
+
+§4.4 notes that authors who use `scriptFor` inline "bypass the importmap"
+and "are responsible for not duplicating `customElements.define()` calls."
+However, the engine provides no guard. A page that uses `<Counter />` (which
+populates the collector and causes the importmap to reference
+`widgets-counter.a1b2c3d4.js`) and also calls
+`{{scriptFor("widgets/Counter")}}` will cause the browser to execute
+`customElements.define('widgets-counter', …)` twice — once from `index.js`
+and once inline. The browser throws a `NotSupportedError: already defined`
+exception, silently breaking the page.
+
+- ❌ No compile-time or render-time detection of the mix.
+- ❌ The error surfaces only at runtime in the browser, far from the
+  template that introduced it.
+- ⚠️ The two delivery paths are presented as alternatives but nothing
+  prevents them from being combined accidentally.
+
+**Verdict**: the engine should track whether a component's script has been
+collected for importmap delivery during a render pass, and `scriptFor`
+should return an error if called for a component that is already in the
+collector. Alternatively, `scriptFor` should suppress collector registration
+for that component so that the importmap entry is not emitted.
+
+#### c. Single-word tag names: blocking open question left unresolved
+
+§10 Q6 identifies as **blocking** whether `htmlc` should warn at load time
+when a component with `<script customelement>` derives a single-word tag
+name (e.g. `Counter.vue` → `counter`). The question is marked blocking but
+the proposal provides no resolution — only a tentative recommendation to
+warn. A component silently compiled with an invalid custom element tag name
+will register without error server-side, produce semantically invalid HTML,
+and cause `customElements.define()` to throw a `SyntaxError` in the browser.
+This needs a definitive answer before implementation begins.
+
+- ❌ The spec violation is silent at the server and explosive in the
+  browser.
+- ⚠️ A warning may not be enough: if the tag name cannot be registered, the
+  component is functionally broken. An error at load time is safer.
+
+**Verdict**: resolve Q6 before cutting code. The recommended resolution is
+a **compile-time error** (not a warning) when a component with
+`<script customelement>` derives a tag name with no hyphen.
+
+#### d. ES module semantics assumed but not enforced
+
+`index.js` loads each component script via a side-effect ES module import.
+This works only if the component script does not rely on non-module global
+state or use syntax incompatible with strict mode. The proposal says scripts
+are emitted **verbatim** with no wrapping or validation. An author who writes
+a script using `var` globals, `document.write`, or relies on
+`window.onload` will get confusing failures when the script is loaded as an
+ES module. There is no guidance on this constraint and no lint step.
+
+- ⚠️ No indication in the SFC block syntax that the script must be
+  ES-module-compatible.
+- ❌ Syntax errors and module-incompatible patterns are invisible at build
+  time.
+
+**Verdict**: document the ES module constraint prominently. Consider adding
+a heuristic check (e.g. presence of `customElements.define` at top level)
+or at minimum a clear error message template for common failures.
+
+#### e. CSP nonce gap on the module loader `<script>`
+
+`WithNonceFunc` covers the auto-injected `<script type="importmap">` tag
+but **not** the `<script type="module" src="/components/index.js">` tag
+emitted immediately after it. A strict CSP that requires `nonce-*` on all
+`<script>` elements will block the module loader silently, with no hint
+from `htmlc`. This is an incomplete CSP integration.
+
+- ❌ The nonce is applied to one of two auto-injected tags; the other is
+  unprotected.
+- ⚠️ Authors relying on `WithNonceFunc` for CSP compliance will receive a
+  false sense of security.
+
+**Verdict**: `WithNonceFunc` must be applied to both the importmap tag and
+the module loader `<script type="module">` tag. The pseudocode in §4.5
+should be updated accordingly.
+
+---
+
+### 11.2 Alignment with htmlc's Philosophy
+
+`htmlc` is explicitly described as a **server-side-only renderer** that
+produces static HTML with no JavaScript runtime, no reactivity, and no
+client-side execution. RFC 006 introduces client-side delivery machinery
+(script hashing, HTTP handlers, importmap injection, CSP nonce hooks) that
+is architecturally distinct from the server-rendering core.
+
+**Alignment — what fits well**:
+
+- ✅ The `<script customelement>` block is an opt-in: components without it
+  behave exactly as today. The "zero impact" guarantee (§2 goal 7) is strong.
+- ✅ Verbatim script emission means no new language features, no runtime,
+  and no compiler to maintain — consistent with the library's avoidance of
+  heavy tooling.
+- ✅ `fs.FS` as the compilation output is idiomatic Go and composes cleanly
+  with `http.FileServer`, `embed.FS`, and `io/fs` utilities.
+- ✅ Tag-name derivation from file paths is deterministic and consistent with
+  how `htmlc` already derives component identities from directory structure.
+- ✅ Compile-time errors for `<script>` and `<script setup>` (§4.8) improve
+  authoring safety without adding runtime complexity.
+
+**Alignment — what fits poorly**:
+
+- ⚠️ `NewScriptFSServer()` adds an `net/http` dependency to what has been a
+  pure rendering library. HTTP serving is outside the library's stated scope.
+  The library grows from "renders .vue files" to "also manages how scripts are
+  served." This couples the rendering engine to deployment topology decisions.
+- ⚠️ The importmap injection, content-hash management, and barrel-file
+  generation constitute a mini build pipeline embedded in the rendering
+  engine. This complexity lives far from the library's rendering core.
+- ❌ The proposal introduces a `WithNonceFunc` option that injects per-request
+  security material into an engine-level option. The engine is currently
+  request-agnostic (stateless after `Load`); `WithNonceFunc` adds a
+  request-scoped callback to an otherwise startup-time-configured object.
+  This is an impedance mismatch with the current architecture.
+
+**Overall verdict**: the core of RFC 006 — `<script customelement>` parsing,
+tag-name derivation, SSR wrapping, and `ScriptsFS` — aligns well with
+`htmlc`'s philosophy. The peripheral machinery (`NewScriptFSServer`,
+importmap injection, nonce hooks) expands the library into HTTP-serving
+territory and should be evaluated carefully. Consider whether
+`NewScriptFSServer` belongs in a separate `htmlchttp` package rather than
+the core library.
+
+---
+
+### 11.3 Feature Maintenance Burden
+
+#### Is this a "wicked feature"?
+
+A "wicked feature" is one where implementing it makes future development
+harder — either because it entangles the codebase, creates long-lived
+conceptual debt, or spawns a cascade of follow-on work that can never quite
+be closed.
+
+RFC 006 has characteristics of a wicked feature in the following respects:
+
+**Shadow DOM deferral (§4.10)**
+
+The proposal explicitly defers Shadow DOM to a future version, outlining a
+design that requires coordinated changes to SSR wrapping, `StyleCollector`,
+and the compiled component scripts. Once v1 ships, any author who uses
+`<style scoped>` with a custom element will observe that their scoped styles
+are stamped onto the custom element's light-DOM children but are *not*
+encapsulated. When Shadow DOM arrives as a v2 feature, the SSR output format
+changes (the `<template shadowrootmode>` wrapper is inserted), which is a
+**breaking change** to the rendered HTML structure of any component that
+opts in. Authors must update their JS `connectedCallback` implementations
+accordingly. This deferred work will generate a meaningful migration burden.
+
+- ⚠️ Every v1 custom element component that later opts into Shadow DOM
+  requires a manual update to its JS body.
+- ⚠️ `StyleCollector` will need to understand a new injection path (shadow
+  root vs. `<head>`), adding branching logic to an existing well-defined
+  component.
+
+**Two delivery paths (importmap + `scriptFor`) create permanent complexity**
+
+The proposal maintains two ways to deliver the same script: importmap
+(external, cached) and `scriptFor` (inline). Every future change to script
+delivery — compression, sub-resource integrity, preloading — must be
+considered for both paths. The existence of two paths also means that
+documentation, tutorials, and error messages must address both, doubling
+the authoring surface.
+
+**`index.js` cache invalidation on every component change**
+
+The unhashed `index.js` barrel file is invalidated whenever any component
+script changes (because the hashed filename of the changed component
+changes). In a project with many custom element components, every deployment
+regenerates `index.js` and forces clients to re-fetch it, even if they only
+use a subset of components. A page-scoped importmap (only the elements used
+on that page) would avoid this, but the current design opts for a global
+barrel file.
+
+- ⚠️ As the number of custom element components grows, `index.js` becomes
+  a progressively larger global invalidation surface.
+
+**Assessment**
+
+RFC 006 is **not fully wicked** but has wicked tendencies in the Shadow DOM
+deferral and the dual-delivery-path design. The core feature (verbatim script
+emission + SSR wrapping + `ScriptsFS`) is well-bounded and maintainable. The
+peripheral concerns (Shadow DOM deferred design, importmap + barrel file
+coexistence, HTTP server methods on the engine) are where the long-term
+maintenance cost will accumulate.
+
+**Recommendations before implementation**:
+
+1. Resolve the importmap vs. `index.js` tension: pick one primary delivery
+   mechanism and remove or clearly relegate the other.
+2. Decide now whether `NewScriptFSServer` and importmap injection belong in
+   the core `htmlc` package or in a thin `htmlchttp` companion package.
+   Deferring this decision makes it harder to refactor later once public API
+   surface exists.
+3. Resolve Q6 (single-word tag names) as an error, not a warning, before
+   implementation begins.
+4. Fix the CSP nonce gap: apply `WithNonceFunc` to both auto-injected
+   `<script>` tags.
+5. Add a guard in the renderer to make the `scriptFor` + importmap
+   double-define scenario a render-time error rather than a silent browser
+   failure.
