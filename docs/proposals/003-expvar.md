@@ -1,6 +1,6 @@
 # RFC 003: expvar-Driven Engine Options and Performance Counters
 
-- **Status**: Draft
+- **Status**: Accepted
 - **Date**: 2026-03-15
 - **Author**: TBD
 

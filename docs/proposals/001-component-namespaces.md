@@ -1,6 +1,6 @@
 # RFC 001: Component Namespaces
 
-- **Status**: Draft
+- **Status**: Accepted
 - **Date**: 2026-03-14
 - **Author**: TBD
 

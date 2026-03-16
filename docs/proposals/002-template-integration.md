@@ -1,6 +1,6 @@
 # RFC 002: Template Integration
 
-- **Status**: Draft
+- **Status**: Accepted
 - **Date**: 2026-03-15
 - **Author**: TBD
 
