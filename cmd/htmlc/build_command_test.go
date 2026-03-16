@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -405,16 +406,21 @@ func TestRun_StrictFlag_ValidateAll_Build(t *testing.T) {
 }
 
 func TestDirHash_StableWhenUnchanged(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "a.vue"), []byte(`<template><div></div></template>`), 0644)
-
-	h1, err := dirHash(dir)
-	if err != nil {
-		t.Fatalf("dirHash error: %v", err)
+	mtime := time.Now()
+	fsys := fstest.MapFS{
+		"pages/a.vue": &fstest.MapFile{
+			Data:    []byte(`<template><div></div></template>`),
+			ModTime: mtime,
+		},
 	}
-	h2, err := dirHash(dir)
+
+	h1, err := dirHashFS(fsys, "pages")
 	if err != nil {
-		t.Fatalf("dirHash error: %v", err)
+		t.Fatalf("dirHashFS error: %v", err)
+	}
+	h2, err := dirHashFS(fsys, "pages")
+	if err != nil {
+		t.Fatalf("dirHashFS error: %v", err)
 	}
 	if h1 != h2 {
 		t.Errorf("expected same hash on unchanged dir, got %q vs %q", h1, h2)
@@ -422,24 +428,27 @@ func TestDirHash_StableWhenUnchanged(t *testing.T) {
 }
 
 func TestDirHash_ChangesOnModification(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "a.vue")
-	os.WriteFile(path, []byte(`<template><div></div></template>`), 0644)
-
-	h1, err := dirHash(dir)
-	if err != nil {
-		t.Fatalf("dirHash error: %v", err)
+	mtime := time.Now()
+	fsys1 := fstest.MapFS{
+		"pages/a.vue": &fstest.MapFile{
+			Data:    []byte(`<template><div></div></template>`),
+			ModTime: mtime,
+		},
+	}
+	fsys2 := fstest.MapFS{
+		"pages/a.vue": &fstest.MapFile{
+			Data:    []byte(`<template><div></div></template>`),
+			ModTime: mtime.Add(time.Second),
+		},
 	}
 
-	// Bump mtime by 1 second.
-	future := time.Now().Add(time.Second)
-	if err := os.Chtimes(path, future, future); err != nil {
-		t.Fatalf("Chtimes: %v", err)
-	}
-
-	h2, err := dirHash(dir)
+	h1, err := dirHashFS(fsys1, "pages")
 	if err != nil {
-		t.Fatalf("dirHash error: %v", err)
+		t.Fatalf("dirHashFS error: %v", err)
+	}
+	h2, err := dirHashFS(fsys2, "pages")
+	if err != nil {
+		t.Fatalf("dirHashFS error: %v", err)
 	}
 	if h1 == h2 {
 		t.Errorf("expected different hash after mtime change, but got same: %q", h1)

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
@@ -200,6 +201,31 @@ func dirHash(dirs ...string) (string, error) {
 	h := sha256.New()
 	for _, dir := range dirs {
 		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(h, "%s\t%d\n", path, info.ModTime().UnixNano())
+			return nil
+		})
+		if err != nil {
+			return "", err
+		}
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+// dirHashFS returns a hex digest summarising the mtimes of all files under dirs in fsys.
+func dirHashFS(fsys fs.FS, dirs ...string) (string, error) {
+	h := sha256.New()
+	for _, dir := range dirs {
+		err := fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}

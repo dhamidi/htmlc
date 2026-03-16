@@ -6,6 +6,14 @@
 - **`docs`** — documentation website content, managed separately. Read access is allowed when working on `main`, but do not commit documentation website changes to `main`.
 - only on the branch you are working on
 
+## Test conventions
+
+Prefer `testing/fstest.MapFS` over `os.WriteFile`/`t.TempDir()` for test input fixtures.
+
+**Accepted exceptions** — tests that must use the real OS filesystem:
+- `cmd/htmlc/build_command_test.go: TestRunBuild_Dev_RebuildsOnChange` — exercises the full dev-server rebuild loop end-to-end, including real mtime-based `dirHash` and `os.Chtimes`; an `fs.FS` abstraction cannot substitute here.
+- `cmd/htmlc/external_directive_test.go: TestBuildExternalDirective` — launches real OS processes (external directive scripts); requires real filesystem paths.
+
 ## How to write a proposal
 
 See [./docs/proposals/CLAUDE.md]
