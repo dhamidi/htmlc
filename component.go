@@ -86,14 +86,14 @@ func ParseFile(path, src string) (*Component, error) {
 		return nil, &ParseError{
 			Path: path,
 			Msg: `<script> blocks are not supported by htmlc; ` +
-				`use <script customelement> to define a Custom Element`,
+				`components are rendered on the server`,
 		}
 	}
 	if sections["script:setup"] != "" {
 		return nil, &ParseError{
 			Path: path,
 			Msg: `<script setup> blocks are not supported by htmlc; ` +
-				`use <script customelement> to define a Custom Element`,
+				`components are rendered on the server`,
 		}
 	}
 

@@ -212,8 +212,8 @@ func TestParseFile_ScriptBlockError(t *testing.T) {
 	if !strings.Contains(err.Error(), "<script> blocks are not supported") {
 		t.Errorf("error %q should mention '<script> blocks are not supported'", err.Error())
 	}
-	if !strings.Contains(err.Error(), "customelement") {
-		t.Errorf("error %q should mention 'customelement'", err.Error())
+	if !strings.Contains(err.Error(), "server") {
+		t.Errorf("error %q should mention server-side rendering", err.Error())
 	}
 }
 
@@ -226,8 +226,8 @@ func TestParseFile_ScriptSetupBlockError(t *testing.T) {
 	if !strings.Contains(err.Error(), "<script setup> blocks are not supported") {
 		t.Errorf("error %q should mention '<script setup> blocks are not supported'", err.Error())
 	}
-	if !strings.Contains(err.Error(), "customelement") {
-		t.Errorf("error %q should mention 'customelement'", err.Error())
+	if !strings.Contains(err.Error(), "server") {
+		t.Errorf("error %q should mention server-side rendering", err.Error())
 	}
 }
 
