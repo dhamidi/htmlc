@@ -45,15 +45,6 @@ inside `htmlc`'s recursive render loop. Components are `.vue` files, not Go
 code, so manual instrumentation of individual components is impossible. The
 only place to instrument component dispatch is inside the renderer itself.
 
-### Why `log/slog` and not only OTel (RFC 004)
-
-`log/slog` has been part of the Go standard library since Go 1.21. Using it
-adds **no external dependencies** to the `htmlc` core module. OTel (RFC 004)
-provides distributed tracing across services; `slog` provides structured logs
-for a single process. Both are complementary. Applications that only need
-log-based observability should not be required to configure an OTel provider,
-export spans, or depend on `go.opentelemetry.io/otel`.
-
 ---
 
 ## 2. Goals
@@ -77,8 +68,8 @@ export spans, or depend on `go.opentelemetry.io/otel`.
 
 ## 3. Non-Goals
 
-1. **Distributed tracing** — span creation and cross-service propagation
-   belong in RFC 004 (OTel integration).
+1. **Distributed tracing** — span creation and cross-service propagation are
+   out of scope for this RFC; use an OTel integration directly.
 2. **Aggregate performance counters** — total render counts, cumulative
    latency, and similar aggregate metrics belong in RFC 003 (expvar
    integration).
@@ -431,21 +422,7 @@ engine, err := htmlc.New(htmlc.Options{
 `countingWriter` is allocated, no timing is recorded, and no log record is
 emitted. Behaviour is identical to the current version.
 
-### Example 5: Combined with RFC 004 OTel tracing
-
-```go
-engine, err := htmlc.New(htmlc.Options{
-    ComponentDir: "templates/",
-    Logger:       slog.Default(),              // structured logs
-    OnComponent:  htmlcotel.WithGlobalTracer(), // OTel spans (RFC 004)
-})
-```
-
-Both instruments are independent. The `OnComponent` hook fires at the top of
-`renderComponentElement`; the slog record is emitted at the bottom after the
-render returns. No interaction between the two paths.
-
-### Example 6: Verifying log output in unit tests
+### Example 5: Verifying log output in unit tests
 
 ```go
 func TestRendererEmitsLogRecords(t *testing.T) {
@@ -569,20 +546,14 @@ in `go.mod`. If `htmlc` currently declares a minimum Go version lower than
 only potential compatibility concern and must be verified before
 implementation (see §10, question 1).
 
-### Interaction with RFC 004 (`OnComponent` hook)
-
-If RFC 004 is not yet implemented, this RFC stands alone: the `Logger` field
-is independent of `OnComponent`. If both are implemented, they operate on the
-same component dispatch path independently and do not interact.
-
 ---
 
 ## 9. Alternatives Considered
 
-### A. Wrap `ComponentHookFunc` (RFC 004) as the slog integration point
+### A. Wrap `ComponentHookFunc` as the slog integration point
 
 Provide an `htmlcslog` subpackage that returns a `ComponentHookFunc` backed
-by a `*slog.Logger`, mirroring the `htmlcotel` pattern from RFC 004:
+by a `*slog.Logger`, using a hypothetical hook-based approach:
 
 ```go
 // hypothetical
@@ -593,27 +564,22 @@ engine, _ := htmlc.New(htmlc.Options{
 
 **Rejected as the primary surface**: The `ComponentHookFunc` signature
 (`func(ctx, name) (ctx, func(error))`) does not receive the `io.Writer`, so
-byte counting is impossible without changes to the hook type. This approach
-also requires RFC 004 to be implemented first. Since `log/slog` is a stdlib
-package (unlike OTel), there is no dependency-hygiene reason to isolate it
-behind a hook. Additionally, RFC-004 (`OnComponent` hook) may not be
-implemented; since the `ComponentHookFunc` signature lacks an `io.Writer`,
-an `htmlcslog` wrapper could not provide byte counts without further changes
-to the hook type. No `htmlcslog` package will be provided.
+byte counting is impossible without changes to the hook type. Since `log/slog`
+is a stdlib package (unlike OTel), there is no dependency-hygiene reason to
+isolate it behind a hook. No `htmlcslog` package will be provided.
 
 ### B. Add an `io.Writer` parameter to `ComponentHookFunc`
 
-Extend the hook signature proposed in RFC 004 to include the writer, enabling
-byte counting from within a hook:
+Extend the hook signature to include the writer, enabling byte counting from
+within a hook:
 
 ```go
 // hypothetical
 type ComponentHookFunc func(ctx context.Context, name string, w io.Writer) (context.Context, io.Writer, func(error))
 ```
 
-**Rejected**: This changes the RFC 004 type signature, which would be a
-breaking change to that proposal. It also forces all hook implementations —
-including the OTel tracer, which has no interest in counting bytes — to handle
+**Rejected**: This would change the hook type signature and force all hook
+implementations — including ones with no interest in counting bytes — to handle
 a writer parameter they do not need.
 
 ### C. Log at `slog.LevelInfo` instead of `slog.LevelDebug`
@@ -666,13 +632,7 @@ on the same engine) and diverges from the existing convention.
    regions and is a natural consequence of wrapping `w` in a `countingWriter`
    before passing it to `Render`.
 
-4. **`htmlcslog` convenience package** — *decided: not provided.*
-   RFC-004 (`OnComponent` hook) may not be implemented. Even if it is,
-   `ComponentHookFunc` does not receive the `io.Writer`, so byte counts would
-   be unavailable. The direct `Logger *slog.Logger` API in this RFC is
-   sufficient for all structured-logging use cases.
-
-5. **`reloaded=true` log attribute** — *decided: not added.*
+4. **`reloaded=true` log attribute** — *decided: not added.*
    Reload state is out of scope for this RFC. Reload counts are tracked by
    RFC-003 (expvar). Adding this attribute would require threading reload state
    through the renderer for a marginal benefit.
