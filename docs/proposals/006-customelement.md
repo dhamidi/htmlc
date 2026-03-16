@@ -137,6 +137,12 @@ if sections["script:setup"] != "" {
         "%s: <script setup> blocks are not supported by htmlc; " +
         "use <script customelement> to define a Custom Element", path)
 }
+// New: require customElements.define in the script body
+if comp.CustomElementScript != "" &&
+    !strings.Contains(comp.CustomElementScript, "customElements.define") {
+    return nil, fmt.Errorf(
+        "%s: <script customelement> body must contain a customElements.define() call", path)
+}
 ```
 
 **Evaluation**
@@ -182,7 +188,9 @@ Examples:
 | `blog/Counter.vue`                      | `blog-counter`   |
 | `ui/form/TextInput.vue`                 | `ui-form-text-input` |
 
-**Note on the Custom Elements specification**: the browser's `customElements.define()` API requires tag names to contain at least one hyphen. A top-level component such as `Counter.vue` derives the tag name `counter`, which does not satisfy this requirement and cannot be registered as a browser custom element. Authors who want to register a component as a browser custom element must place it in at least one subdirectory (e.g. `widgets/Counter.vue` → `widgets-counter`). Components without a `<script customelement>` block are unaffected by this restriction regardless of location.
+**Compile-time error**: if a component carries `<script customelement>` and its derived tag name contains no hyphen (e.g. `Counter.vue` → `counter`), `htmlc` returns an error at engine load time: `Counter.vue: custom element tag name "counter" is invalid — tag names must contain at least one hyphen; move the component to a subdirectory (e.g. widgets/Counter.vue → widgets-counter)`
+
+Components without a `<script customelement>` block are unaffected by this restriction regardless of location.
 
 **Collision considerations**: two distinct components that produce the same derived tag name (e.g. `blog/counter.vue` and `blog/Counter.vue` on a case-insensitive filesystem) are a load-time error. The engine detects this during component loading and aborts with a descriptive message.
 
@@ -191,10 +199,10 @@ Examples:
 - ✅ Deterministic: same path always produces the same tag name.
 - ✅ No synthetic prefix — the tag name is the component's identity, readable at a glance.
 - ✅ Directory path encodes namespace — `admin/Card` and `blog/Card` produce distinct tag names automatically.
-- ⚠️ Top-level single-word components (`Counter.vue` → `counter`) cannot be registered as browser custom elements. Documented above; authors are expected to namespace components in subdirectories.
+- ✅ Top-level single-word components with `<script customelement>` are rejected at load time with an actionable error message.
 - ⚠️ Acronym sequences (e.g. `XMLParser.vue`) produce `x-m-l-parser` inside a segment. Authors should name files consistently (e.g. `XmlParser.vue` → `xml-parser`).
 
-**Verdict**: derive from the full component path; no prefix; PascalCase segments kebab-cased; directory and file joined with `-`.
+**Verdict**: derive from the full component path; no prefix; PascalCase segments kebab-cased; directory and file joined with `-`. Single-word derived tag names (no hyphen) are a compile-time error for components that carry `<script customelement>`.
 
 ---
 
@@ -273,24 +281,32 @@ The argument is the component path **relative to the root component directory**,
 
 #### Error behaviour
 
-`scriptFor` returns an error (surfaced as a template execution error) in two cases:
+`scriptFor` returns an error (surfaced as a template execution error) in three cases:
 
 1. **Unknown component path**: the argument does not match any component registered with the engine (after stripping the `.vue` extension).
 2. **No `<script customelement>` block**: the component exists but has an empty `CustomElementScript`.
+3. **Already collected for importmap delivery**: the component's tag name is already in the `CustomElementCollector` for this render pass (i.e. the component has been rendered on this page and its script will be delivered via the importmap). Mixing inline delivery via `scriptFor` with importmap delivery on the same render pass would cause `customElements.define()` to execute twice. Error message: `scriptFor: component %q is already scheduled for importmap delivery on this render pass; use either scriptFor or the importmap, not both`
 
-Both errors name the offending path and are emitted at render time.
+All errors name the offending path and are emitted at render time.
 
 #### Implementation pseudocode
 
+`scriptFor` is a closure over the per-render `Renderer` so it can access the current render-pass collector:
+
 ```go
 // pseudo-code — not implementation
-func (e *Engine) scriptFor(relPath string) (template.HTML, error) {
-    comp, ok := e.componentsByRelPath[relPath]
+func (r *Renderer) scriptFor(relPath string) (template.HTML, error) {
+    comp, ok := r.engine.componentsByRelPath[relPath]
     if !ok {
         return "", fmt.Errorf("scriptFor: no component found at path %q", relPath)
     }
     if comp.CustomElementScript == "" {
         return "", fmt.Errorf("scriptFor: component %q has no <script customelement> block", relPath)
+    }
+    if r.customElementCollector.Has(comp.CustomElementTag) {
+        return "", fmt.Errorf(
+            "scriptFor: component %q is already scheduled for importmap delivery on this render pass; "+
+            "use either scriptFor or the importmap, not both", relPath)
     }
     return template.HTML(comp.CustomElementScript), nil
 }
@@ -305,7 +321,7 @@ func (e *Engine) scriptFor(relPath string) (template.HTML, error) {
 - ✅ Inline opt-in is explicit: a page that does not call `scriptFor` does not get inline scripts.
 - ✅ Verbatim emission means any JS pattern is supported: bare functions, IIFE, class bodies, ES module syntax.
 - ⚠️ `htmlc` cannot validate JS syntax. Syntax errors surface in the browser console, not at build time.
-- ⚠️ Authors who inline scripts via `scriptFor` bypass the importmap; they are responsible for not duplicating `customElements.define()` calls.
+- ✅ Mixing `scriptFor` and importmap delivery for the same component on the same page is detected at render time and reported as an error.
 
 **Verdict**: expose `scriptFor` as a template function returning the raw script body as `template.HTML`; leave `<script>` tag construction to the page author.
 
@@ -370,6 +386,8 @@ Using `type="module"` is the correct approach because:
 - `type="module"` scripts execute after the document is parsed, which is appropriate for custom element registration (elements are already in the DOM when `connectedCallback` fires).
 - `async` is redundant for modules that have no inline body and no dynamic imports; the browser handles execution ordering automatically.
 
+The bare specifiers in `index.js` (e.g. `import 'widgets-counter'`) are resolved by the importmap to the corresponding hashed URLs. This is why both the `index.js` loader tag and the importmap tag are emitted together — neither is functional without the other.
+
 The `src` value is constructed using `url.JoinPath(scriptURLPrefix, "index.js")`, where `scriptURLPrefix` is the configurable prefix (default `/components/`). Using `url.JoinPath` prevents double-slash issues when the prefix does not end with `/` and correctly handles path escaping — see §4.5 below for the general note on URL construction.
 
 When `RenderPage` injects no importmap (collector is empty), the loader script is also omitted.
@@ -391,12 +409,13 @@ engine, err := htmlc.Load("components/",
 )
 ```
 
-When `WithNonceFunc` is set, `RenderPage` calls it with the render context on each pass and injects the returned value as a `nonce` attribute on the importmap tag:
+When `WithNonceFunc` is set, `RenderPage` calls it with the render context on each pass and injects the returned value as a `nonce` attribute on both auto-injected script tags (the importmap tag and the module loader tag):
 
 ```html
 <script type="importmap" nonce="abc123">
 {"imports":{"widgets-counter":"/components/widgets-counter.a1b2c3d4.js"}}
 </script>
+<script type="module" src="/components/index.js" nonce="abc123"></script>
 ```
 
 If `WithNonceFunc` is not set, no `nonce` attribute is emitted. The `scriptFor` template function returns only the script body (not the tag), so authors supply the nonce themselves on the surrounding `<script nonce="...">` tag — no special engine support is needed for the inline case.
@@ -428,7 +447,10 @@ func (r *Renderer) buildImportMap(ctx context.Context, prefix string) template.H
     if r.engine.nonceFunc != nil {
         nonceAttr = fmt.Sprintf(` nonce="%s"`, html.EscapeString(r.engine.nonceFunc(ctx)))
     }
-    return template.HTML(fmt.Sprintf("<script type=\"importmap\"%s>\n%s\n</script>", nonceAttr, raw))
+    importMapTag := template.HTML(fmt.Sprintf("<script type=\"importmap\"%s>\n%s\n</script>", nonceAttr, raw))
+    loaderURL, _ := url.JoinPath(prefix, "index.js")
+    loaderTag := template.HTML(fmt.Sprintf("<script type=\"module\" src=\"%s\"%s></script>", loaderURL, nonceAttr))
+    return importMapTag + "\n" + loaderTag
 }
 ```
 
@@ -484,18 +506,18 @@ index.js
 
 #### `index.js` barrel file
 
-In addition to the per-component hashed files, `ScriptsFS` contains a single `index.js` at the root. This file contains one side-effect import per custom element component, using the hashed filenames as relative paths.
+In addition to the per-component hashed files, `ScriptsFS` contains a single `index.js` at the root. This file contains one side-effect import per custom element component, using **bare specifiers** (the tag name) so that the importmap is exercised for URL resolution.
 
 **Example generated `index.js`** for a project with three custom element components (`widgets/Counter.vue`, `widgets/Toggle.vue`, `ui/Tabs.vue`):
 
 ```js
 // generated by htmlc — do not edit
-import "./widgets-counter.a1b2c3d4.js";
-import "./widgets-toggle.b2c3d4e5.js";
-import "./ui-tabs.e5f6a7b8.js";
+import 'widgets-counter';
+import 'widgets-toggle';
+import 'ui-tabs';
 ```
 
-The `// generated by htmlc — do not edit` comment is included to signal that this file should not be modified manually and will be overwritten on the next engine load. The hashed filenames are consistent with the 8-character SHA-256 scheme above; for example `widgets-counter.a1b2c3d4.js` matches the filename used in Examples 1, 3, and 5 in §6.
+The `// generated by htmlc — do not edit` comment is included to signal that this file should not be modified manually and will be overwritten on the next engine load. The importmap resolves each bare specifier to the corresponding hashed URL (e.g. `widgets-counter` → `/components/widgets-counter.a1b2c3d4.js`). This is why both `index.js` and the importmap are emitted together — `index.js` uses bare specifiers that only the importmap can resolve.
 
 `index.js` is regenerated at engine load time whenever components change. It is intentionally **not** content-hashed because it changes whenever any component's hash changes; it is served with a short `Cache-Control` max-age (see §4.9).
 
@@ -541,14 +563,13 @@ func BuildScriptsFS(components []*Component) (fs.FS, map[string]string, error) {
         archive.WriteFile(filename, []byte(comp.CustomElementScript))
         hashedNames[comp.CustomElementTag] = filename
     }
-    // Generate index.js barrel file with one side-effect import per component
+    // Generate index.js barrel file with one bare-specifier import per component
     var imports []string
     for _, comp := range components {
         if comp.CustomElementScript == "" {
             continue
         }
-        filename := hashedNames[comp.CustomElementTag]
-        imports = append(imports, fmt.Sprintf("import \"./%s\";", filename))
+        imports = append(imports, fmt.Sprintf("import '%s';", comp.CustomElementTag))
     }
     indexBody := strings.Join(imports, "\n") + "\n"
     archive.WriteFile("index.js", []byte(indexBody))
@@ -601,6 +622,11 @@ Both errors are emitted at component-load time (engine startup or first `ParseFi
   path/to/Component.vue: <script customelement src="..."> is not supported;
   write the script body inline inside the <script customelement> block
   ```
+- **`<script customelement>` without `customElements.define`**: `ParseFile` returns an error:
+  ```
+  path/to/Component.vue: <script customelement> body must contain a customElements.define() call
+  ```
+  This is a substring check — `htmlc` does not parse JS. Authors whose script calls `customElements.define` via a helper that does not literally contain the substring must include a call-site comment or restructure their registration.
 
 **Verdict**: promote the current silent ignore to a loud compile-time error with an actionable message.
 
@@ -771,17 +797,18 @@ Shadow DOM is explicitly out of scope for v1 for the following reasons:
 
 | Block / Function | Attribute / Argument | Meaning in `htmlc` |
 |---|---|---|
-| `<script customelement>` | *(none)* | Marks component as a custom element. SSR output is wrapped in the derived tag name. Script body is stored verbatim; accessible via `scriptFor` and `ScriptsFS`. |
+| `<script customelement>` | *(none)* | Marks component as a custom element. SSR output is wrapped in the derived tag name. Script body is stored verbatim; accessible via `scriptFor` and `ScriptsFS`. Script body must contain `customElements.define`; compile-time error if absent. |
+| `<script customelement>` on a component whose derived tag name contains no hyphen | *(n/a)* | **Error at load time**: tag name must contain at least one hyphen |
 | `<script>` | *(any)* | **Error**: `<script> blocks are not supported by htmlc` |
 | `<script setup>` | `setup` | **Error**: `<script setup> blocks are not supported by htmlc` |
 | `<style>` | *(none)* | Global stylesheet contribution; unchanged from today |
 | `<style scoped>` | `scoped` | Scoped stylesheet contribution; unchanged from today |
 | `<template>` | *(none)* | Server-side render template; unchanged from today |
-| `{{scriptFor("path/to/Component")}}` | relative path, no `.vue` extension | Returns the raw script body of the named component as `template.HTML`. Author wraps in `<script>…</script>`. Error if path unknown or component has no `<script customelement>`. |
+| `{{scriptFor("path/to/Component")}}` | relative path, no `.vue` extension | Returns the raw script body of the named component as `template.HTML`. Author wraps in `<script>…</script>`. Error if path unknown, component has no `<script customelement>`, or component is already scheduled for importmap delivery on this render pass. |
 | `{{importMap()}}` | *(none)* | Emits `<script type="importmap">` for all custom elements used so far in the render pass. Automatic in `RenderPage` (before `</head>`); explicit in `RenderFragment`. |
 | `<script customelement src="...">` | `src` | **Error**: `src` attribute not supported on `<script customelement>` |
 | `engine.NewScriptFSServer()` | *(none)* | Returns an `http.Handler` that serves `ScriptsFS` with correct `Cache-Control`, `Content-Type`, and compressed-response negotiation. Hashed files get `immutable`; `index.js` gets `no-cache`. |
-| `htmlc.WithNonceFunc(f)` | `func(context.Context) string` | Engine option. When set, the returned nonce is injected as `nonce="…"` on the auto-generated `<script type="importmap">` tag. No effect if not set. |
+| `htmlc.WithNonceFunc(f)` | `func(context.Context) string` | Engine option. When set, the returned nonce is injected as `nonce="…"` on both the auto-generated `<script type="importmap">` tag and the `<script type="module" src="…">` loader tag. No effect if not set. |
 
 ### Tag name derivation
 
@@ -1098,9 +1125,9 @@ index.js
 
 ```js
 // generated by htmlc — do not edit
-import "./widgets-counter.a1b2c3d4.js";
-import "./widgets-toggle.b2c3d4e5.js";
-import "./ui-tabs.e5f6a7b8.js";
+import 'widgets-counter';
+import 'widgets-toggle';
+import 'ui-tabs';
 ```
 
 **Serving with `NewScriptFSServer`** (recommended):
@@ -1221,6 +1248,7 @@ The importmap is injected immediately before `</head>`, after any `<style>` cont
 3. If `attrs["customelement"] != ""` or the attribute name `"customelement"` is present (boolean attribute), store the verbatim body in `sections["script:customelement"]`.
    3a. If `attrs["customelement"] != ""` and `attrs["src"] != ""`, return an error immediately: `<script customelement src="...">` is not supported.
 4. In `ParseFile`, populate `CustomElementScript` from `sections["script:customelement"]`.
+   4a. After populating `CustomElementScript`, if non-empty and the body does not contain the substring `customElements.define`, return an error as defined in §4.8.
 5. Convert the current silent-ignore of `sections["script"]` and `sections["script:setup"]` into explicit error returns with the messages defined in §4.8.
 
 ### `customelement.go` (new file)
@@ -1237,14 +1265,14 @@ The importmap is injected immediately before `</head>`, after any `<style>` cont
 1. Add `scripts fs.FS` and `hashedFilename map[string]string` fields to `Engine`.
 2. Add `scriptURLPrefix string` field (set via `WithScriptURLPrefix` option; default `"/components/"`).
 3. Add `nonceFunc func(context.Context) string` field (set via `WithNonceFunc` option; nil if not configured).
-4. During component loading (in `Load` or equivalent), call `DeriveTagName` for each component and set `component.CustomElementTag`.
+4. During component loading (in `Load` or equivalent), call `DeriveTagName` for each component and set `component.CustomElementTag`. After calling `DeriveTagName` for each component, if `CustomElementScript != ""` and the derived tag name contains no `-`, return a load-time error: `Counter.vue: custom element tag name "counter" is invalid — tag names must contain at least one hyphen; move the component to a subdirectory (e.g. widgets/Counter.vue → widgets-counter)`.
 5. After all components are loaded, call `BuildScriptsFS` and store the result in `Engine.scripts` and `Engine.hashedFilename`.
 6. Add `ScriptsFS() fs.FS` public method that returns `Engine.scripts`.
 7. Add `NewScriptFSServer() http.Handler` public method: wraps `http.FileServer(http.FS(e.scripts))` with middleware that (a) sets `Content-Type: text/javascript; charset=utf-8`, (b) uses `url.Parse` on the request path to determine whether the file is `index.js` and sets `Cache-Control: public, max-age=0, must-revalidate` for it and `Cache-Control: public, max-age=31536000, immutable` for all other files, and (c) negotiates `Content-Encoding: gzip` / `br` if pre-compressed variants exist or compresses on-the-fly.
-8. Register `scriptFor` as a template function: looks up `relPath` in a `map[relPath]*Component` built at load time, returns `template.HTML(comp.CustomElementScript)` or an error.
+8. Register `scriptFor` as a template function: `scriptFor` must close over the per-render `CustomElementCollector` and check it before returning. If the component's tag is already in the collector, return an error as defined in §4.4.
 9. Register `importMap` as a template function: delegates to the per-pass renderer's `buildImportMap(ctx, e.scriptURLPrefix)`.
-10. In `RenderPage`, after injecting style blocks and before returning, inject the importmap immediately before `</head>` when the collector is non-empty. Pass the render context to `buildImportMap` so the nonce function can be called.
-11. In `RenderPage`, immediately after injecting the importmap, inject `<script type="module" src="{prefix}index.js"></script>` before `</head>`, where `prefix` is constructed with `url.JoinPath`.
+10. In `RenderPage`, after injecting style blocks and before returning, inject the importmap immediately before `</head>` when the collector is non-empty. Pass the render context to `buildImportMap` so the nonce function can be called. Pass `nonceAttr` to both the importmap tag and the module loader tag.
+11. In `RenderPage`, immediately after injecting the importmap, inject `<script type="module" src="{prefix}index.js" nonce="..."></script>` before `</head>`, where `prefix` is constructed with `url.JoinPath` and the nonce (if any) is the same value used for the importmap tag.
 
 ### `renderer.go`
 
@@ -1286,7 +1314,7 @@ No change for components without `<script customelement>`. For components that d
 
 - New method `ScriptsFS() fs.FS` — additive, no break.
 - New method `NewScriptFSServer() http.Handler` — additive, no break. Provides the recommended serving pattern with correct caching headers; authors may continue using `http.FileServer(http.FS(engine.ScriptsFS()))` directly if they need custom header logic.
-- New option `htmlc.WithNonceFunc(func(context.Context) string)` — additive, no break. When not set, behaviour is identical to today (no `nonce` attribute on the generated importmap tag).
+- New option `htmlc.WithNonceFunc(func(context.Context) string)` — additive, no break. When set, the nonce is applied to both the auto-generated `<script type="importmap">` tag and the `<script type="module" src="…">` loader tag. When not set, behaviour is identical to today (no `nonce` attribute on either tag).
 - `scriptFor(path)` and `importMap()` are registered as template functions — additive, no break.
 - No existing methods are removed or have their signatures changed.
 
@@ -1352,17 +1380,17 @@ Expose a `FlushCustomElements()` method/template function that emits all used co
 
 5. **`ScriptsFS` file naming** — *Resolved*. Hashed filenames (`<tagName>.<8-char-hex-hash>.js`) are included from v1. Content hash uses SHA-256 truncated to 4 bytes. No follow-up needed.
 
-6. **Top-level components and single-word tag names** — `Counter.vue` derives `counter`, which is not a valid browser custom element name. Should `htmlc` emit a warning (not an error) when a component with `<script customelement>` derives a single-word tag name? *Tentative recommendation*: yes, warn at load time. **Blocking** — authors need to know this constraint.
+6. **Top-level components and single-word tag names** — *Resolved*: compile-time error (not warning). `htmlc` returns a load-time error when a component with `<script customelement>` derives a tag name with no hyphen (e.g. `Counter.vue` → `counter`). The error message is actionable and directs the author to move the component to a subdirectory. See §4.2. **Resolved.**
 
 7. **CSP and importmap nonce** — *Resolved*. Covered by the `WithNonceFunc` option specified in §4.5 and §5 — the same nonce function is called per render pass and the result is injected as a `nonce` attribute on the auto-generated `<script type="importmap">` tag. **Resolved — incorporated into design.**
 
 ---
 
-## 11. Implementation Concerns
+## 11. Resolved Implementation Concerns
 
-### 11.1 Critical Implementation Gaps
+### 11.1 Critical Implementation Gaps (Resolved)
 
-#### a. Importmap entries are never used by the generated scaffolding
+#### a. Importmap entries are never used by the generated scaffolding *(Resolved)*
 
 The proposal injects a `<script type="importmap">` mapping each tag name
 (e.g. `"widgets-counter"`) to its hashed URL, and separately loads
@@ -1398,13 +1426,9 @@ should be removed. The two coexist without coordinating.
   classification differ across browser versions; injecting it
   unconditionally widens the CSP surface for no gain.
 
-**Verdict**: the design must choose one primary delivery mechanism. The
-most likely correct choice is to drop the importmap from the default path
-and rely solely on `index.js` with relative imports. The importmap could
-be offered as an opt-in for authors who need bare-specifier resolution in
-their own scripts.
+**Verdict**: Resolved — `index.js` uses bare specifiers; importmap is the resolution mechanism. `index.js` imports each component by tag name (e.g. `import 'widgets-counter'`), and the importmap resolves each bare specifier to the corresponding hashed URL. Both tags are necessary and neither is dead code.
 
-#### b. `scriptFor` and importmap can silently double-define custom elements
+#### b. `scriptFor` and importmap can silently double-define custom elements *(Resolved)*
 
 §4.4 notes that authors who use `scriptFor` inline "bypass the importmap"
 and "are responsible for not duplicating `customElements.define()` calls."
@@ -1422,13 +1446,9 @@ exception, silently breaking the page.
 - ⚠️ The two delivery paths are presented as alternatives but nothing
   prevents them from being combined accidentally.
 
-**Verdict**: the engine should track whether a component's script has been
-collected for importmap delivery during a render pass, and `scriptFor`
-should return an error if called for a component that is already in the
-collector. Alternatively, `scriptFor` should suppress collector registration
-for that component so that the importmap entry is not emitted.
+**Verdict**: Resolved — `scriptFor` returns an error if the component is already in the collector. The engine tracks which components have been collected for importmap delivery during the current render pass; calling `scriptFor` for any of them is a render-time error. See §4.4.
 
-#### c. Single-word tag names: blocking open question left unresolved
+#### c. Single-word tag names: blocking open question left unresolved *(Resolved)*
 
 §10 Q6 identifies as **blocking** whether `htmlc` should warn at load time
 when a component with `<script customelement>` derives a single-word tag
@@ -1444,11 +1464,9 @@ This needs a definitive answer before implementation begins.
 - ⚠️ A warning may not be enough: if the tag name cannot be registered, the
   component is functionally broken. An error at load time is safer.
 
-**Verdict**: resolve Q6 before cutting code. The recommended resolution is
-a **compile-time error** (not a warning) when a component with
-`<script customelement>` derives a tag name with no hyphen.
+**Verdict**: Resolved — compile-time error. A component with `<script customelement>` whose derived tag name contains no hyphen is rejected at engine load time with an actionable error message. See §4.2 and §10 Q6.
 
-#### d. ES module semantics assumed but not enforced
+#### d. ES module semantics assumed but not enforced *(Resolved)*
 
 `index.js` loads each component script via a side-effect ES module import.
 This works only if the component script does not rely on non-module global
@@ -1463,11 +1481,9 @@ ES module. There is no guidance on this constraint and no lint step.
 - ❌ Syntax errors and module-incompatible patterns are invisible at build
   time.
 
-**Verdict**: document the ES module constraint prominently. Consider adding
-a heuristic check (e.g. presence of `customElements.define` at top level)
-or at minimum a clear error message template for common failures.
+**Verdict**: Resolved — compile-time substring check for `customElements.define`. `ParseFile` checks that the `<script customelement>` body contains the substring `customElements.define` and returns an error if it does not. See §4.1 and §4.8.
 
-#### e. CSP nonce gap on the module loader `<script>`
+#### e. CSP nonce gap on the module loader `<script>` *(Resolved)*
 
 `WithNonceFunc` covers the auto-injected `<script type="importmap">` tag
 but **not** the `<script type="module" src="/components/index.js">` tag
@@ -1480,9 +1496,7 @@ from `htmlc`. This is an incomplete CSP integration.
 - ⚠️ Authors relying on `WithNonceFunc` for CSP compliance will receive a
   false sense of security.
 
-**Verdict**: `WithNonceFunc` must be applied to both the importmap tag and
-the module loader `<script type="module">` tag. The pseudocode in §4.5
-should be updated accordingly.
+**Verdict**: Resolved — nonce applied to both injected tags. `WithNonceFunc` is applied to both the `<script type="importmap">` tag and the `<script type="module" src="…">` loader tag. See §4.5 and §8.
 
 ---
 
