@@ -37,7 +37,7 @@ Custom Elements (part of the Web Components standard) let any DOM element regist
 2. **Author interactivity inside the `.vue` file**: provide a single block (`<script customelement>`) where the author writes any client-side JavaScript they need; `htmlc` emits it verbatim into the page.
 3. **Automatic SSR wrapping**: when a component carries `<script customelement>`, `htmlc` automatically wraps the rendered template output in the component's derived tag name (e.g. `<counter>`, `<admin-card>`), so the browser's Custom Elements registry can upgrade it.
 4. **Error on `<script>` and `<script setup>`**: emit a descriptive compile-time error when these blocks appear, preventing silent failures for authors who accidentally write standard Vue script blocks.
-5. **Deduplication across the render pass**: the same custom element script is emitted at most once per page, even if the component is used multiple times.
+5. **Deduplication across the render pass**: the same custom element script is referenced at most once per page, via the importmap and `ScriptsFS`.
 6. **In-memory script FS**: compiled scripts are collected into an in-memory `fs.FS` accessible on the engine, enabling the application to serve, cache-bust, or embed them however it chooses.
 7. **Zero impact on components without `<script customelement>`**: server-side rendering behaviour is identical to today for all existing components.
 
@@ -235,117 +235,145 @@ This produces the following SSR output when `<Counter />` is used in a parent te
 
 - ✅ Authors do not duplicate the tag name inside the template — the compiler derives and applies it.
 - ✅ Template content is identical to a component without `<script customelement>`, keeping the mental model consistent.
-- ✅ The browser upgrades the element automatically when the script (emitted separately via `FlushCustomElements`) executes.
+- ✅ The browser upgrades the element automatically when the script (referenced via the importmap in `<head>`) executes.
 - ⚠️ Authors using `querySelector` in their custom element class must account for the fact that the matched elements are the direct children of the custom element — the same as they are in the rendered DOM.
 
 **Verdict**: automatically wrap rendered template output in the custom element tag when `CustomElementScript` is non-empty.
 
 ---
 
-### 4.4 JS Emission — Verbatim Script
+### 4.4 JS Emission — `scriptFor` Template Function
 
-When `Component.CustomElementScript` is non-empty, `htmlc` emits the author's script **verbatim** inside a `<script>` tag. No class boilerplate is added, no `customElements.define()` call is generated. The script content is the author's complete, standalone JavaScript.
+Rather than emitting scripts automatically via a dedicated flush call, `htmlc` exposes a **`scriptFor`** template function that returns the verbatim body of a specific component's custom element script. This lets page authors opt into inline script rendering surgically, placing the `<script>` tag wherever they choose.
 
-#### Emission pseudocode
+#### Usage
+
+```html
+<script>{{scriptFor "widgets/Counter"}}</script>
+```
+
+The argument is the component path **relative to the root component directory**, without the `.vue` extension. This matches the same path convention used to reference components elsewhere in `htmlc`.
+
+#### Return value and wrapping
+
+`scriptFor` returns the raw script body as a `template.HTML` value. It does **not** wrap the body in `<script>` tags — the page author supplies the surrounding tag. This keeps placement, attributes (e.g. `type`, `nonce`), and ordering under the author's control.
+
+#### Error behaviour
+
+`scriptFor` returns an error (surfaced as a template execution error) in two cases:
+
+1. **Unknown component path**: the argument does not match any component registered with the engine (after stripping the `.vue` extension).
+2. **No `<script customelement>` block**: the component exists but has an empty `CustomElementScript`.
+
+Both errors name the offending path and are emitted at render time.
+
+#### Implementation pseudocode
 
 ```go
 // pseudo-code — not implementation
-func emitCustomElementScript(scriptBody string) template.HTML {
-    return template.HTML("<script>\n" + scriptBody + "\n</script>")
+func (e *Engine) scriptFor(relPath string) (template.HTML, error) {
+    comp, ok := e.componentsByRelPath[relPath]
+    if !ok {
+        return "", fmt.Errorf("scriptFor: no component found at path %q", relPath)
+    }
+    if comp.CustomElementScript == "" {
+        return "", fmt.Errorf("scriptFor: component %q has no <script customelement> block", relPath)
+    }
+    return template.HTML(comp.CustomElementScript), nil
 }
 ```
 
-The author writes the full script — including any `customElements.define()` call if browser-side upgrade is desired:
-
-```html
-<!-- widgets/Counter.vue -->
-<script customelement>
-customElements.define('widgets-counter', class extends HTMLElement {
-  connectedCallback() {
-    this.count = 0;
-    this.button = this.querySelector('button');
-    this.display = this.querySelector('span');
-    this.button.addEventListener('click', () => {
-      this.count++;
-      this.display.textContent = this.count;
-    });
-  }
-});
-</script>
-```
+`scriptFor` is registered as a template function on the engine at load time, alongside other engine-provided functions.
 
 **Evaluation**
 
-- ✅ No runtime dependency: the emitted script is exactly what the author wrote.
-- ✅ Verbatim emission means the author can use any JS pattern: bare functions, IIFE, `class extends HTMLElement`, ES module syntax — no wrapper imposes a structure.
-- ✅ Authors who do not need browser-side upgrade can use `<script customelement>` purely to signal SSR wrapping and emit a no-op script (or one that does unrelated page initialisation).
+- ✅ Authors control placement, tag attributes, and ordering — no hidden magic.
+- ✅ Works uniformly for both `RenderPage` and `RenderFragment` without special-casing.
+- ✅ Inline opt-in is explicit: a page that does not call `scriptFor` does not get inline scripts.
+- ✅ Verbatim emission means any JS pattern is supported: bare functions, IIFE, class bodies, ES module syntax.
 - ⚠️ `htmlc` cannot validate JS syntax. Syntax errors surface in the browser console, not at build time.
+- ⚠️ Authors who inline scripts via `scriptFor` bypass the importmap; they are responsible for not duplicating `customElements.define()` calls.
 
-**Verdict**: verbatim emission only. No class wrapper, no autoregistration. The `<script customelement>` block informs compilation (SSR wrapping) and supplies the page script; its content is the author's responsibility.
+**Verdict**: expose `scriptFor` as a template function returning the raw script body as `template.HTML`; leave `<script>` tag construction to the page author.
 
 ---
 
-### 4.5 Deduplication
+### 4.5 Importmap Auto-Injection
 
-The same component may be rendered many times on a single page (e.g. a `<Counter>` inside a list of 50 items). The script must appear **exactly once** per page.
+When a page uses one or more custom elements, `htmlc` automatically emits a `<script type="importmap">` that maps each element's module specifier to the hashed script URL in `ScriptsFS`. This allows ES module scripts to import from bare specifiers and lets the browser resolve and cache scripts independently.
 
-#### Current state
+#### Importmap structure
 
-`StyleCollector` (in `style.go`) already implements deduplication for CSS: it accumulates `StyleContribution` values keyed by `ScopeID+"\x00"+CSS`, and each unique contribution is flushed once via `styleBlock(sc)`.
+Each entry maps the custom element's tag name as a bare module specifier to its hashed script URL:
 
-#### Proposed extension
+```html
+<script type="importmap">
+{"imports":{"widgets-counter":"/ce/widgets-counter.a1b2c3d4.js","ui-tabs":"/ce/ui-tabs.e5f6a7b8.js"}}
+</script>
+```
 
-Introduce a parallel **`CustomElementCollector`** type:
+The URL is formed by joining the configurable **URL prefix** (default `/ce/`) with the hashed filename from `ScriptsFS` (see §4.6).
+
+#### URL prefix configuration
+
+The URL prefix is configurable at engine load time via an option:
 
 ```go
 // pseudo-code — not implementation
-type CustomElementEntry struct {
-    TagName    string
-    Script     string // verbatim body from <script customelement>
-    SourcePath string // component file path, for collision detection
-}
+engine, err := htmlc.Load("components/",
+    htmlc.WithScriptURLPrefix("/assets/ce/"),
+)
+```
 
-type CustomElementCollector struct {
-    seen    map[string]string    // tag name → source path of first registration
-    entries []CustomElementEntry
-}
+The default prefix is `/ce/`. Callers who serve `ScriptsFS` under a different path (e.g. `/assets/`) set the prefix to match. The prefix must end with `/`.
 
-func (c *CustomElementCollector) Add(e CustomElementEntry) error {
-    if prior, ok := c.seen[e.TagName]; ok {
-        if prior != e.SourcePath {
-            return fmt.Errorf(
-                "custom element tag %q is defined by both %s and %s",
-                e.TagName, prior, e.SourcePath)
-        }
-        return nil   // same component rendered again — deduplicate silently
+#### Per-render-pass collection
+
+The importmap is built once per render pass over the set of custom elements actually used on that page. The `CustomElementCollector` (already introduced for per-render deduplication) is reused for this purpose: it tracks which tag names were encountered during the render, and at injection time its entries are used to look up hashed filenames from the engine's `map[tagName]hashedFilename`.
+
+#### Injection point and timing
+
+For **`RenderPage`**: the importmap is injected automatically immediately before `</head>` when at least one custom element was encountered during the render. If `</head>` is absent, injection is skipped and a warning is attached to the render result.
+
+For **`RenderFragment`**: no automatic injection. Authors who need an importmap for a fragment must call an explicit template function:
+
+```html
+{{importMap}}
+```
+
+`importMap` is registered as a template function on the engine and emits the importmap for all custom elements used so far in the current render pass.
+
+#### Pseudocode
+
+```go
+// pseudo-code — not implementation
+func (r *Renderer) buildImportMap(prefix string) template.HTML {
+    if len(r.customElementCollector.entries) == 0 {
+        return ""
     }
-    c.seen[e.TagName] = e.SourcePath
-    c.entries = append(c.entries, e)
-    return nil
-}
-
-func (c *CustomElementCollector) FlushCustomElements() template.HTML {
-    var b strings.Builder
-    for _, e := range c.entries {
-        b.WriteString(string(emitCustomElementScript(e.Script)))
+    type importMapJSON struct {
+        Imports map[string]string `json:"imports"`
     }
-    return template.HTML(b.String())
+    m := importMapJSON{Imports: make(map[string]string)}
+    for _, e := range r.customElementCollector.entries {
+        hashedFile := r.engine.hashedFilename[e.TagName]
+        m.Imports[e.TagName] = prefix + hashedFile
+    }
+    raw, _ := json.Marshal(m)
+    return template.HTML("<script type=\"importmap\">\n" + string(raw) + "\n</script>")
 }
 ```
 
-The `Renderer` receives a `*CustomElementCollector` (analogous to `*StyleCollector`). Whenever `renderElement` processes a component tag whose `Component.CustomElementScript` is non-empty, it calls `collector.Add(...)`. The collector is allocated per render pass (per `RenderPage` / `RenderFragment` call) and is not shared across concurrent requests.
-
-`FlushCustomElements()` is called by the page author (or by `RenderPage` automatically before `</body>`) to emit the deduplicated script tags. `FlushCustomElements()` is **non-destructive**: it reads entries without clearing them, so calling it multiple times produces the same output.
-
 **Evaluation**
 
-- ✅ Exact mirror of the existing style deduplication pattern — low conceptual overhead.
-- ✅ Per-render-pass allocation means no cross-request state leakage.
-- ✅ `SourcePath` tracking surfaces collisions immediately rather than silently shadowing.
-- ✅ Non-destructive flush means `{{FlushCustomElements}}` can be called from a template without ordering constraints.
-- ⚠️ `FlushCustomElements` placement (end of `<body>` vs. `<head>`) affects when the script executes. Deferring to end-of-`<body>` is the safest default because the element's HTML is already in the DOM when the script executes.
+- ✅ Zero author burden for `RenderPage`: importmap appears automatically when custom elements are used.
+- ✅ Hashed URLs enable aggressive browser caching independent of HTML page caching.
+- ✅ Built per render pass from the existing collector — no additional state.
+- ✅ Configurable prefix decouples the importmap from the static file serving configuration.
+- ⚠️ `RenderFragment` callers must call `{{importMap}}` explicitly; automatic injection would have no reliable `</head>` anchor.
+- ⚠️ Browser support for importmaps is broad (all evergreen browsers as of 2024) but absent in IE11. This is consistent with Custom Elements support requirements and is not a regression.
 
-**Verdict**: introduce `CustomElementCollector` mirroring `StyleCollector`; non-destructive `FlushCustomElements()` returns a `template.HTML` string of deduplicated `<script>` tags.
+**Verdict**: inject importmap automatically before `</head>` in `RenderPage`; expose `{{importMap}}` template function for `RenderFragment`; make URL prefix configurable with default `/ce/`.
 
 ---
 
@@ -355,51 +383,94 @@ At engine load time, `htmlc` compiles all custom element scripts into an **in-me
 
 - Serve scripts as static files via `http.FileServer(engine.ScriptsFS())`.
 - Write scripts to disk as a build step.
-- Generate content-addressed URLs for cache busting.
-- Embed scripts in `<head>` independently of the per-render-pass collector.
+- Embed scripts in `<head>` via the importmap (see §4.5).
+
+#### File naming with content hash
+
+Script files are named with a **short content hash** embedded in the filename for cache busting:
+
+```
+<tagName>.<8-char-hex-hash>.js
+```
+
+Examples:
+
+```
+widgets-counter.a1b2c3d4.js
+ui-tabs.e5f6a7b8.js
+admin-card.9f3c21aa.js
+```
+
+The hash is computed over the **verbatim script body** (not the tag name) using SHA-256 truncated to 4 bytes (8 hex characters). A rename that does not change the script body does not change the hash; a body change always produces a new hash.
 
 #### FS structure
 
-Scripts are stored under their tag name with a `.js` extension:
-
 ```
-counter.js
-date-picker.js
-admin-card.js
-admin-date-picker.js
-blog-counter.js
+widgets-counter.a1b2c3d4.js
+ui-tabs.e5f6a7b8.js
+admin-card.9f3c21aa.js
+admin-date-picker.1c2d3e4f.js
+blog-counter.5a6b7c8d.js
 ```
 
 #### Implementation
 
 ```go
 // pseudo-code — not implementation
-import "archive/zip"
-import "io/fs"
+import (
+    "crypto/sha256"
+    "encoding/hex"
+    "io/fs"
+)
 
 type Engine struct {
     // existing fields ...
-    scripts fs.FS   // in-memory FS populated at load time
+    scripts        fs.FS             // in-memory FS populated at load time
+    hashedFilename map[string]string // tag name → hashed filename (e.g. "widgets-counter.a1b2c3d4.js")
 }
 
 // ScriptsFS returns an fs.FS containing one .js file per component
-// that declares <script customelement>. The FS is populated at engine
+// that declares <script customelement>. Files are named
+// <tagName>.<8-char-hex-hash>.js. The FS is populated at engine
 // load time and is safe for concurrent reads.
 func (e *Engine) ScriptsFS() fs.FS {
     return e.scripts
 }
+
+func contentHash(body string) string {
+    sum := sha256.Sum256([]byte(body))
+    return hex.EncodeToString(sum[:4]) // 8 hex chars
+}
+
+func BuildScriptsFS(components []*Component) (fs.FS, map[string]string, error) {
+    // pseudo-code — not implementation
+    archive := newInMemoryZip()
+    hashedNames := make(map[string]string)
+    for _, comp := range components {
+        if comp.CustomElementScript == "" {
+            continue
+        }
+        hash := contentHash(comp.CustomElementScript)
+        filename := comp.CustomElementTag + "." + hash + ".js"
+        archive.WriteFile(filename, []byte(comp.CustomElementScript))
+        hashedNames[comp.CustomElementTag] = filename
+    }
+    return archive.FS(), hashedNames, nil
+}
 ```
 
-The FS is constructed using an in-memory zip archive (`archive/zip`) or an equivalent in-memory `fs.FS` implementation. During `Engine.Load()`, for each `Component` with a non-empty `CustomElementScript`, a file is written to the archive at `<tagName>.js` containing the verbatim script body.
+Callers who need to construct a script URL (e.g. for a `<script src>` tag) should use `fs.ReadDir` or `fs.Glob` to discover filenames rather than constructing them by hand, since the hash component is opaque. The engine's `hashedFilename` map (populated at load time) is the authoritative source for the importmap generator and `scriptFor`.
 
 **Evaluation**
 
 - ✅ `fs.FS` is a standard Go interface — callers can wrap it with `http.FS`, embed it, copy it, or pass it to `io/fs` utilities without depending on `htmlc` internals.
 - ✅ Populated at startup — no per-request I/O.
+- ✅ Content-addressed filenames enable `Cache-Control: immutable` on script responses.
+- ✅ Hash covers script body only: renaming a component subdirectory does not invalidate cached scripts if the body is unchanged.
 - ✅ `archive/zip` provides an in-memory `fs.FS`-compatible implementation without requiring a third-party dependency.
 - ⚠️ The FS is read-only after load. Reloading requires recreating the engine.
 
-**Verdict**: use an in-memory `archive/zip`-backed `fs.FS` as the compilation output for custom element scripts; expose it via `Engine.ScriptsFS()`.
+**Verdict**: use an in-memory `archive/zip`-backed `fs.FS` as the compilation output; embed an 8-character SHA-256-derived content hash in each filename; expose via `Engine.ScriptsFS()` and `Engine.hashedFilename`.
 
 ---
 
@@ -434,14 +505,16 @@ Both errors are emitted at component-load time (engine startup or first `ParseFi
 
 ## 5. Syntax Summary
 
-| Block | Attribute | Meaning in `htmlc` |
+| Block / Function | Attribute / Argument | Meaning in `htmlc` |
 |---|---|---|
-| `<script customelement>` | *(none)* | Marks component as a custom element. SSR output is wrapped in the derived tag name. Script body is emitted verbatim (no class wrapper, no autoregistration generated). |
+| `<script customelement>` | *(none)* | Marks component as a custom element. SSR output is wrapped in the derived tag name. Script body is stored verbatim; accessible via `scriptFor` and `ScriptsFS`. |
 | `<script>` | *(any)* | **Error**: `<script> blocks are not supported by htmlc` |
 | `<script setup>` | `setup` | **Error**: `<script setup> blocks are not supported by htmlc` |
 | `<style>` | *(none)* | Global stylesheet contribution; unchanged from today |
 | `<style scoped>` | `scoped` | Scoped stylesheet contribution; unchanged from today |
 | `<template>` | *(none)* | Server-side render template; unchanged from today |
+| `{{scriptFor "path/to/Component"}}` | relative path, no `.vue` extension | Returns the raw script body of the named component as `template.HTML`. Author wraps in `<script>…</script>`. Error if path unknown or component has no `<script customelement>`. |
+| `{{importMap}}` | *(none)* | Emits `<script type="importmap">` for all custom elements used so far in the render pass. Automatic in `RenderPage` (before `</head>`); explicit in `RenderFragment`. |
 
 ### Tag name derivation
 
@@ -452,6 +525,16 @@ Both errors are emitted at component-load time (engine startup or first `ParseFi
 | `admin/Card.vue` | `admin-card` |
 | `admin/DatePicker.vue` | `admin-date-picker` |
 | `ui/form/TextInput.vue` | `ui-form-text-input` |
+
+### ScriptsFS file naming
+
+| Tag name | Example filename |
+|---|---|
+| `widgets-counter` | `widgets-counter.a1b2c3d4.js` |
+| `ui-tabs` | `ui-tabs.e5f6a7b8.js` |
+| `admin-card` | `admin-card.9f3c21aa.js` |
+
+Hash is SHA-256 of the script body, truncated to 4 bytes (8 hex chars).
 
 ---
 
@@ -494,7 +577,7 @@ customElements.define('widgets-counter', class extends HTMLElement {
 </script>
 ```
 
-**`Home.vue`**
+**`Home.vue`** — using importmap (automatic) with external script reference
 
 ```html
 <template>
@@ -502,22 +585,49 @@ customElements.define('widgets-counter', class extends HTMLElement {
     <head><title>Home</title></head>
     <body>
       <Counter />
-      {{FlushCustomElements}}
     </body>
   </html>
 </template>
 ```
 
-**Rendered output (simplified)**
+**Rendered output** — importmap injected automatically before `</head>`
 
 ```html
 <html>
-  <head><title>Home</title></head>
+  <head>
+    <title>Home</title>
+    <script type="importmap">
+{"imports":{"widgets-counter":"/ce/widgets-counter.a1b2c3d4.js"}}
+</script>
+  </head>
   <body>
     <widgets-counter>
       <button>Click me</button>
       <span>0</span>
     </widgets-counter>
+  </body>
+</html>
+```
+
+**Alternative — inline script via `scriptFor`**
+
+A page author who prefers inlining the script (e.g. to avoid an extra HTTP request) can use `scriptFor` instead:
+
+```html
+<template>
+  <html>
+    <head><title>Home</title></head>
+    <body>
+      <Counter />
+      <script>{{scriptFor "widgets/Counter"}}</script>
+    </body>
+  </html>
+</template>
+```
+
+Rendered output (script section):
+
+```html
     <script>
 customElements.define('widgets-counter', class extends HTMLElement {
   connectedCallback() {
@@ -531,8 +641,6 @@ customElements.define('widgets-counter', class extends HTMLElement {
   }
 });
 </script>
-  </body>
-</html>
 ```
 
 ---
@@ -596,7 +704,7 @@ customElements.define('ui-tabs', class extends HTMLElement {
 - Without JS: all three panels are visible; users see all content (SEO-friendly, accessible).
 - With JS: the Custom Element's `connectedCallback` hides panels 1 and 2 and activates tab-bar button events.
 - The `<style scoped>` contribution is flushed into `<head>` by the existing `StyleCollector` path.
-- The custom element script is flushed by `FlushCustomElements()` before `</body>`.
+- The custom element script is referenced via the auto-injected importmap in `<head>`.
 
 ---
 
@@ -635,29 +743,41 @@ customElements.define('widgets-toggle', class extends HTMLElement {
       <Counter />
       <Counter />
       <Toggle>Dark mode</Toggle>
-      {{FlushCustomElements}}
     </body>
   </html>
 </template>
 ```
 
-**Rendered output (script section only)**
+**Rendered output — `<head>` with importmap (deduplicated)**
 
 ```html
-<!-- Only ONE script block per element, regardless of how many times used -->
-<script>
-customElements.define('widgets-counter', class extends HTMLElement {
-  connectedCallback() { /* ... */ }
-});
+<html>
+  <head>
+    <title>Dashboard</title>
+    <script type="importmap">
+{"imports":{"widgets-counter":"/ce/widgets-counter.a1b2c3d4.js","widgets-toggle":"/ce/widgets-toggle.b2c3d4e5.js"}}
 </script>
-<script>
-customElements.define('widgets-toggle', class extends HTMLElement {
-  connectedCallback() { /* ... */ }
-});
-</script>
+  </head>
+  <body>
+    <h1>Dashboard</h1>
+    <widgets-counter>...</widgets-counter>
+    <widgets-counter>...</widgets-counter>
+    <widgets-counter>...</widgets-counter>
+    <widgets-toggle><input type="checkbox" /><label>Dark mode</label></widgets-toggle>
+  </body>
+</html>
 ```
 
-The `CustomElementCollector` tracks `{ "widgets-counter": "widgets/Counter.vue", "widgets-toggle": "widgets/Toggle.vue" }`. The three `<Counter>` renders each call `collector.Add(...)`, but only the first produces an entry. `FlushCustomElements()` emits exactly two `<script>` blocks.
+The `CustomElementCollector` tracks `{ "widgets-counter": "widgets/Counter.vue", "widgets-toggle": "widgets/Toggle.vue" }`. The three `<Counter>` renders each call `collector.Add(...)`, but only the first produces an entry. The importmap contains exactly two entries, one per unique element type used on the page.
+
+**Alternative — inline scripts via `scriptFor`**
+
+Authors who prefer inlining (e.g. for a dashboard with a strict no-external-request policy) can use `scriptFor` for each element instead of relying on the importmap:
+
+```html
+<script>{{scriptFor "widgets/Counter"}}</script>
+<script>{{scriptFor "widgets/Toggle"}}</script>
+```
 
 ---
 
@@ -684,7 +804,8 @@ An existing project with no interactive components.
 - `Component.CustomElementTag` is `""`.
 - No SSR wrapping is applied — output is a plain `<div class="card">` as today.
 - `CustomElementCollector.Add` is never called.
-- `FlushCustomElements()` returns `template.HTML("")`.
+- No importmap is injected (collector is empty).
+- `ScriptsFS` is empty.
 - Output is identical to today.
 
 ---
@@ -695,25 +816,37 @@ The application serves compiled custom element scripts as static files, enabling
 
 ```go
 // pseudo-code — not implementation
-engine, err := htmlc.Load("components/")
+engine, err := htmlc.Load("components/",
+    htmlc.WithScriptURLPrefix("/assets/ce/"),
+)
 if err != nil {
     log.Fatal(err)
 }
 
-// Serve all custom element scripts under /assets/
-http.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(engine.ScriptsFS()))))
+// Serve all custom element scripts under /assets/ce/
+http.Handle("/assets/ce/", http.StripPrefix("/assets/ce/", http.FileServer(http.FS(engine.ScriptsFS()))))
 
-// In the page template, reference the script by URL instead of inlining:
-// <script src="/assets/widgets-counter.js"></script>
+// The importmap references hashed URLs automatically:
+// {"imports":{"widgets-counter":"/assets/ce/widgets-counter.a1b2c3d4.js"}}
 ```
 
-This pattern is appropriate for production deployments where scripts must be independently cacheable. For development or low-traffic sites, inline emission via `FlushCustomElements()` (§4.5) requires no additional setup.
+To discover the filenames at runtime (e.g. to generate a manifest), use `fs.ReadDir`:
+
+```go
+// pseudo-code — not implementation
+entries, err := fs.ReadDir(engine.ScriptsFS(), ".")
+for _, entry := range entries {
+    fmt.Println(entry.Name()) // e.g. "widgets-counter.a1b2c3d4.js"
+}
+```
+
+Do not construct filenames by hand (e.g. `tagName + ".js"`) — the hash component is opaque and must be read from the FS or the engine's internal map.
 
 ---
 
 ### Example 6 — Per-Page Opt-In via Wrapper Component
 
-`<script customelement>` is a component-level declaration. If `Button.vue` carries one, every page using `<Button>` emits the script. An author who wants the custom element behaviour on only one page creates a wrapper:
+`<script customelement>` is a component-level declaration. If `Button.vue` carries one, every page using `<Button>` emits the script reference via importmap. An author who wants the custom element behaviour on only one page creates a wrapper:
 
 **Directory tree**
 
@@ -746,6 +879,47 @@ Pages that need analytics use `<tracked/Button>` (or the namespaced alias). Page
 
 ---
 
+### Example 7 — Full `<head>` with Importmap and Scoped Styles
+
+A page using both scoped styles and custom elements, showing the combined `<head>` output.
+
+**`pages/Product.vue`**
+
+```html
+<template>
+  <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Product</title>
+    </head>
+    <body>
+      <ui/Tabs>
+        <template #overview><p>Overview content</p></template>
+      </ui/Tabs>
+      <widgets/Counter />
+    </body>
+  </html>
+</template>
+```
+
+**Rendered `<head>`**
+
+```html
+<head>
+  <meta charset="UTF-8">
+  <title>Product</title>
+  <style>/* scoped styles from ui/Tabs */
+.tab-panel[data-v-a1b2c3d4] { display: block; }</style>
+  <script type="importmap">
+{"imports":{"ui-tabs":"/ce/ui-tabs.e5f6a7b8.js","widgets-counter":"/ce/widgets-counter.a1b2c3d4.js"}}
+</script>
+</head>
+```
+
+The importmap is injected immediately before `</head>`, after any `<style>` contributions injected by `StyleCollector`.
+
+---
+
 ## 7. Implementation Sketch
 
 ### `component.go`
@@ -761,20 +935,20 @@ Pages that need analytics use `<tracked/Button>` (or the namespaced alias). Page
 1. Define `CustomElementEntry` struct with `TagName`, `Script`, `SourcePath string` fields.
 2. Define `CustomElementCollector` struct with `seen map[string]string` (tag name → source path) and `entries []CustomElementEntry`.
 3. Implement `(c *CustomElementCollector) Add(e CustomElementEntry) error` — no-op if tag already seen from same source; error if tag seen from different source.
-4. Implement `(c *CustomElementCollector) FlushCustomElements() template.HTML` — iterates `entries`, calls `emitCustomElementScript` for each, concatenates results. Non-destructive.
-5. Add standalone `emitCustomElementScript(scriptBody string) template.HTML` helper.
-6. Add `DeriveTagName(relPath string) string` helper implementing the algorithm in §4.2 (splits on `/`, kebab-cases each PascalCase segment, joins with `-`).
-7. Add `BuildScriptsFS(components []*Component) (fs.FS, error)` that constructs an in-memory zip-backed `fs.FS` with one entry per component that has `CustomElementScript != ""`, keyed as `<tagName>.js`.
+4. Add `DeriveTagName(relPath string) string` helper implementing the algorithm in §4.2 (splits on `/`, kebab-cases each PascalCase segment, joins with `-`).
+5. Add `contentHash(body string) string` — computes SHA-256 of the body, returns first 4 bytes as 8 hex characters.
+6. Add `BuildScriptsFS(components []*Component) (fs.FS, map[string]string, error)` that constructs an in-memory zip-backed `fs.FS` with one entry per component that has `CustomElementScript != ""`, keyed as `<tagName>.<hash>.js`. Returns both the FS and a `map[tagName]hashedFilename` for use by the importmap generator and `scriptFor`.
 
 ### `engine.go`
 
-1. Add `scripts fs.FS` field to `Engine`.
-2. During component loading (in `Load` or equivalent), call `DeriveTagName` for each component and set `component.CustomElementTag`.
-3. After all components are loaded, call `BuildScriptsFS` and store the result in `Engine.scripts`.
-4. Add `ScriptsFS() fs.FS` public method that returns `Engine.scripts`.
-5. In `renderComponent` (and its callers), allocate a `*CustomElementCollector` per render pass alongside the existing `*StyleCollector`.
-6. In `RenderPage`, after injecting the style block, call `collector.FlushCustomElements()` and inject the result before `</body>`. Alternatively, expose `FlushCustomElements` as a template function so page authors control placement.
-7. Add `FlushCustomElements() template.HTML` as a public method on `Engine` (delegating to the per-pass collector) for programmatic callers.
+1. Add `scripts fs.FS` and `hashedFilename map[string]string` fields to `Engine`.
+2. Add `scriptURLPrefix string` field (set via `WithScriptURLPrefix` option; default `"/ce/"`).
+3. During component loading (in `Load` or equivalent), call `DeriveTagName` for each component and set `component.CustomElementTag`.
+4. After all components are loaded, call `BuildScriptsFS` and store the result in `Engine.scripts` and `Engine.hashedFilename`.
+5. Add `ScriptsFS() fs.FS` public method that returns `Engine.scripts`.
+6. Register `scriptFor` as a template function: looks up `relPath` in a `map[relPath]*Component` built at load time, returns `template.HTML(comp.CustomElementScript)` or an error.
+7. Register `importMap` as a template function: delegates to the per-pass renderer's `buildImportMap(e.scriptURLPrefix)`.
+8. In `RenderPage`, after injecting style blocks and before returning, inject the importmap immediately before `</head>` when the collector is non-empty.
 
 ### `renderer.go`
 
@@ -783,12 +957,14 @@ Pages that need analytics use `<tracked/Button>` (or the namespaced alias). Page
    a. Call `customElementCollector.Add(CustomElementEntry{...})`.
    b. Wrap the rendered template output in `<tagName>...</tagName>` (see §4.3).
 3. Propagate the collector into child `Renderer` instances (same pattern as `styleCollector`).
+4. Add `buildImportMap(prefix string) template.HTML` method — iterates `customElementCollector.entries`, maps each tag name to its hashed URL, marshals to JSON importmap format.
 
 ### Platform notes
 
 - All file-name manipulation uses `path` (not `path/filepath`) for OS portability, since component paths are relative paths derived from `fs.FS` which always uses forward slashes.
 - The `DeriveTagName` function should use `unicode` package functions for PascalCase splitting, not byte-level comparisons, to handle future non-ASCII names gracefully.
 - `archive/zip` provides an in-memory `fs.FS` implementation via `zip.NewReader` over a `bytes.Buffer`. No third-party dependency is required.
+- `crypto/sha256` and `encoding/hex` are standard library packages; no additional dependency is required for hash computation.
 
 ---
 
@@ -804,13 +980,21 @@ For components without `<script customelement>`, both functions return the same 
 
 ### `RenderPage` / `RenderFragment`
 
-No change for components without `<script customelement>`. For components that do use it, `RenderPage` gains automatic SSR wrapping and `FlushCustomElements()` injection before `</body>`. `RenderFragment` does not auto-flush; callers must invoke `FlushCustomElements()` explicitly.
+No change for components without `<script customelement>`. For components that do use it, `RenderPage` gains automatic SSR wrapping and importmap injection before `</head>`. `RenderFragment` does not auto-inject; callers who need an importmap use `{{importMap}}` explicitly.
+
+### `FlushCustomElements`
+
+`FlushCustomElements` is not implemented. It was proposed in an earlier draft but never shipped; there are no existing callers. The design is replaced by `scriptFor` (inline opt-in) and automatic importmap injection. No migration path is required.
 
 ### `Engine` public API
 
 - New method `ScriptsFS() fs.FS` — additive, no break.
-- New method `FlushCustomElements() template.HTML` — additive, no break.
+- `scriptFor` and `importMap` are registered as template functions — additive, no break.
 - No existing methods are removed or have their signatures changed.
+
+### Importmap injection
+
+Pages that use custom elements gain a `<script type="importmap">` in `<head>` that was not previously present. This is new behaviour. Pages without custom elements are unaffected — no importmap is injected when the collector is empty.
 
 ### `StyleCollector`
 
@@ -850,18 +1034,26 @@ Compile the `<script setup>` block (Composition API) to a client-side Vue compon
 
 **Rejected** because: requires shipping the Vue runtime (≈50 KB min+gzip), reimplementing the Vue compiler, and maintaining compatibility with Vue version upgrades. Out of scope for a server-side rendering engine.
 
+### F. `FlushCustomElements()` for inline script emission
+
+Expose a `FlushCustomElements()` method/template function that emits all used component scripts as inline `<script>` blocks (the original draft design).
+
+**Rejected** because: it conflates two concerns (inline delivery vs. cached delivery) into a single API, forces a placement decision at the call site, and does not integrate with the browser's importmap caching model. `scriptFor` handles the inline case with explicit, per-component control; the importmap handles the external file case automatically.
+
 ---
 
 ## 10. Open Questions
 
 1. **Shadow DOM opt-in** — Should shadow DOM be opt-in via `<script customelement shadowdom>`? If so, should `open` or `closed` mode be the default? *Tentative recommendation*: reserve the `shadowdom` attribute for a future RFC. **Non-blocking** for v1.
 
-2. **`FlushCustomElements` placement** — Should auto-flush in `RenderPage` be opt-out (on by default, author can disable) or opt-in (off by default, author must call `{{FlushCustomElements}}`)? *Tentative recommendation*: opt-out — the overwhelming common case is to emit scripts before `</body>`. **Blocking** — the default must be decided before implementation.
+2. **`FlushCustomElements` placement** — *Resolved*. The inline flush design is replaced by `scriptFor` (explicit, per-component) and automatic importmap injection (zero author burden for `RenderPage`). No placement decision is required.
 
-3. **`RenderFragment` ergonomics** — If an author calls `RenderFragment` to render a snippet containing a custom element, the element is in the DOM but no script is emitted. Should a combined `RenderFragmentWithElements() (html, scripts template.HTML, err error)` API be added? *Tentative recommendation*: yes, as a convenience method. **Non-blocking** for v1.
+3. **`RenderFragment` ergonomics** — If an author calls `RenderFragment` to render a snippet containing a custom element, the element is in the DOM but no importmap is emitted. Authors must call `{{importMap}}` explicitly. Should a combined `RenderFragmentWithElements() (html, importmap template.HTML, err error)` API be added? *Tentative recommendation*: yes, as a convenience method. **Non-blocking** for v1.
 
-4. **Nonce support for inline scripts** — CSP `script-src` policies require a nonce on inline `<script>` tags. Should `FlushCustomElements` accept a nonce string? *Tentative recommendation*: yes, as a variadic option so the call site without a nonce is unchanged. **Non-blocking** — can be added without API break.
+4. **Nonce support for `scriptFor` inline scripts** — CSP `script-src` policies require a nonce on inline `<script>` tags. Since `scriptFor` returns only the body (not the tag), authors supply the nonce themselves on the surrounding `<script nonce="...">` tag. No special `htmlc` support is needed for the inline case. For the auto-injected importmap (`RenderPage`), the engine must be able to inject a nonce attribute on the generated `<script type="importmap">` tag. *Tentative recommendation*: add a `WithNonceFunc(func() string)` option to the engine that is called per render pass; the result is added as a `nonce` attribute on the auto-injected importmap tag. **Non-blocking** — can be added without API break.
 
-5. **`ScriptsFS` file naming** — Should script files be named `<tagName>.js` (e.g. `widgets-counter.js`) or include a content hash for cache busting (e.g. `widgets-counter.a1b2c3d4.js`)? *Tentative recommendation*: plain `<tagName>.js` for v1; content-addressed naming can be added as an engine option in a follow-up. **Non-blocking**.
+5. **`ScriptsFS` file naming** — *Resolved*. Hashed filenames (`<tagName>.<8-char-hex-hash>.js`) are included from v1. Content hash uses SHA-256 truncated to 4 bytes. No follow-up needed.
 
 6. **Top-level components and single-word tag names** — `Counter.vue` derives `counter`, which is not a valid browser custom element name. Should `htmlc` emit a warning (not an error) when a component with `<script customelement>` derives a single-word tag name? *Tentative recommendation*: yes, warn at load time. **Blocking** — authors need to know this constraint.
+
+7. **CSP and importmap nonce** — The auto-injected `<script type="importmap">` is an inline script and is subject to CSP `script-src` policy. Should `htmlc` support injecting a `nonce` attribute on the importmap tag to satisfy strict CSP policies? *Tentative recommendation*: yes, via the `WithNonceFunc` option described in Q4 above — the same nonce mechanism covers both the importmap tag and any other engine-generated inline scripts. **Non-blocking** — can be added without breaking the API.
