@@ -1978,8 +1978,8 @@ func TestRender_VBindSpreadComponentExplicitPropWins(t *testing.T) {
 }
 
 func TestRender_VBindSpreadNonMapError(t *testing.T) {
-	// Non-map value should return an error.
-	scope := map[string]any{"notAMap": "hello"}
+	// Non-map, non-struct value should return an error mentioning "expected map or struct".
+	scope := map[string]any{"notAMap": 42}
 	src := "<template><div v-bind=\"notAMap\">x</div></template>"
 	c, err := ParseFile("test.vue", src)
 	if err != nil {
@@ -1991,6 +1991,240 @@ func TestRender_VBindSpreadNonMapError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "v-bind") {
 		t.Errorf("error %q should mention 'v-bind'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "expected map or struct") {
+		t.Errorf("error %q should say 'expected map or struct'", err.Error())
+	}
+}
+
+// --- Struct spread tests (RFC 007) ---
+
+type vbindPlainStruct struct {
+	Name  string
+	Email string
+}
+
+type vbindTaggedStruct struct {
+	ID    int     `json:"id"`
+	Title string  `json:"title"`
+	Price float64 `json:"price"`
+}
+
+type vbindAddress struct {
+	Street string
+	City   string
+}
+
+type vbindUser struct {
+	Name    string
+	Address vbindAddress // named field, NOT embedded
+}
+
+type vbindEmbedded struct {
+	Name string
+	vbindAddress // anonymous embedded
+}
+
+type vbindEmbeddedNamed struct {
+	Name    string
+	vbindAddress `json:"addr"` // embedded but with explicit json name — not promoted
+}
+
+type vbindOuter struct {
+	City string // shadows the promoted City from vbindAddress
+	vbindAddress
+}
+
+type vbindNilPtr struct {
+	Name    string
+	Address *vbindAddress // may be nil
+}
+
+func TestRender_VBindSpreadPlainStruct(t *testing.T) {
+	// Plain struct spread on an HTML element.
+	type localAttrs struct {
+		DataID string `json:"data-id"`
+		Role   string `json:"role"`
+	}
+	scope := map[string]any{"attrs": localAttrs{DataID: "42", Role: "button"}}
+	out := renderTemplate(t, `<button v-bind="attrs">click</button>`, scope)
+	if !strings.Contains(out, `data-id="42"`) {
+		t.Errorf("got %q, want data-id=42", out)
+	}
+	if !strings.Contains(out, `role="button"`) {
+		t.Errorf("got %q, want role=button", out)
+	}
+}
+
+func TestRender_VBindSpreadStructComponentProps(t *testing.T) {
+	// Spread a plain struct into child component props.
+	child := mustParseComponent(t, "child.vue", `<div>{{ Name }} {{ Email }}</div>`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="user" />`)
+	scope := map[string]any{
+		"user": vbindPlainStruct{Name: "Alice", Email: "alice@example.com"},
+	}
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := `<div>Alice alice@example.com</div>`
+	if !strings.Contains(out, want) {
+		t.Errorf("got %q, want it to contain %q", out, want)
+	}
+}
+
+func TestRender_VBindSpreadStructJsonTags(t *testing.T) {
+	// Struct with json tags: tag name is used as prop name.
+	child := mustParseComponent(t, "child.vue", `<div>{{ title }} {{ price }}</div>`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="product" />`)
+	scope := map[string]any{
+		"product": vbindTaggedStruct{ID: 1, Title: "Widget", Price: 9.99},
+	}
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "Widget") {
+		t.Errorf("got %q, want 'Widget'", out)
+	}
+}
+
+func TestRender_VBindSpreadPointerToStruct(t *testing.T) {
+	// Pointer-to-struct is dereferenced before spread.
+	child := mustParseComponent(t, "child.vue", `<div>{{ Name }}</div>`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="user" />`)
+	scope := map[string]any{
+		"user": &vbindPlainStruct{Name: "Bob", Email: "bob@example.com"},
+	}
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := `<div>Bob</div>`
+	if !strings.Contains(out, want) {
+		t.Errorf("got %q, want it to contain %q", out, want)
+	}
+}
+
+func TestRender_VBindSpreadNilPointerNoOp(t *testing.T) {
+	// nil pointer-to-struct spread is a no-op.
+	var nilUser *vbindPlainStruct
+	child := mustParseComponent(t, "child.vue", `<div>ok</div>`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="user" />`)
+	scope := map[string]any{"user": nilUser}
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	want := `<div>ok</div>`
+	if !strings.Contains(out, want) {
+		t.Errorf("got %q, want it to contain %q", out, want)
+	}
+}
+
+func TestRender_VBindSpreadEmbeddedStructFlattens(t *testing.T) {
+	// Anonymous embedded struct fields are promoted into the prop map (Gap 1).
+	child := mustParseComponent(t, "child.vue", `<div>{{ Name }} {{ Street }} {{ City }}</div>`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="user" />`)
+	scope := map[string]any{
+		"user": vbindEmbedded{
+			Name:         "Alice",
+			vbindAddress: vbindAddress{Street: "123 Main", City: "NYC"},
+		},
+	}
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "Alice") {
+		t.Errorf("got %q, want 'Alice'", out)
+	}
+	if !strings.Contains(out, "123 Main") {
+		t.Errorf("got %q, want '123 Main'", out)
+	}
+	if !strings.Contains(out, "NYC") {
+		t.Errorf("got %q, want 'NYC'", out)
+	}
+}
+
+func TestRender_VBindSpreadEmbeddedStructNamedJsonTag(t *testing.T) {
+	// Embedded struct with explicit json name is NOT promoted — used as a named field.
+	child := mustParseComponent(t, "child.vue", `<div>{{ Name }}</div>`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="user" />`)
+	scope := map[string]any{
+		"user": vbindEmbeddedNamed{
+			Name:         "Alice",
+			vbindAddress: vbindAddress{Street: "123 Main", City: "NYC"},
+		},
+	}
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// Street and City should NOT be top-level props since the embedded field is named.
+	if strings.Contains(out, "123 Main") || strings.Contains(out, "NYC") {
+		t.Errorf("got %q, embedded fields should not be promoted when json name is set", out)
+	}
+}
+
+func TestRender_VBindSpreadOuterFieldShadowsEmbedded(t *testing.T) {
+	// Outer field wins when it shadows a promoted embedded field (Gap 1 conflict resolution).
+	child := mustParseComponent(t, "child.vue", `<div>{{ City }}</div>`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="user" />`)
+	scope := map[string]any{
+		"user": vbindOuter{
+			City:         "OUTER",
+			vbindAddress: vbindAddress{Street: "123 Main", City: "INNER"},
+		},
+	}
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "OUTER") {
+		t.Errorf("got %q, outer City should win over embedded City", out)
+	}
+	if strings.Contains(out, "INNER") {
+		t.Errorf("got %q, embedded City should be shadowed by outer field", out)
+	}
+}
+
+func TestRender_VBindSpreadNilNestedStructField(t *testing.T) {
+	// A nil *NestedStruct field is spread as nil (Gap 6).
+	// The child receives Address=nil; template access is guarded by v-if.
+	child := mustParseComponent(t, "child.vue", `<div><span v-if="Address">{{ Address }}</span><span v-else>no-addr</span></div>`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="user" />`)
+	scope := map[string]any{
+		"user": vbindNilPtr{Name: "Alice", Address: nil},
+	}
+	out, err := NewRenderer(main).WithComponents(Registry{"Child": child}).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "no-addr") {
+		t.Errorf("got %q, want 'no-addr' for nil Address with v-if guard", out)
+	}
+}
+
+func TestRender_VBindSpreadChained(t *testing.T) {
+	// Chained v-bind: parent spreads a struct; the nested struct prop is itself spread
+	// by the child to a grandchild (Gap 3).
+	grandchild := mustParseComponent(t, "grandchild.vue", `<span>{{ Street }}</span>`)
+	child := mustParseComponent(t, "child.vue", `<GC v-bind="Address" />`)
+	main := mustParseComponent(t, "main.vue", `<Child v-bind="user" />`)
+	scope := map[string]any{
+		"user": vbindUser{
+			Name:    "Alice",
+			Address: vbindAddress{Street: "123 Main", City: "NYC"},
+		},
+	}
+	reg := Registry{"Child": child, "GC": grandchild}
+	out, err := NewRenderer(main).WithComponents(reg).RenderString(scope)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "123 Main") {
+		t.Errorf("got %q, want '123 Main' from chained v-bind spread", out)
 	}
 }
 

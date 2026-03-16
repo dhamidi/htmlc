@@ -391,9 +391,12 @@ func accessMember(obj, key any) (any, error) {
 
 func accessStructField(rv reflect.Value, name string) (any, error) {
 	rt := rv.Type()
+	// First pass: check direct (non-anonymous) fields — these have priority over
+	// promoted fields from embedded structs, matching Go's own field promotion
+	// rules and encoding/json behaviour.
 	for i := 0; i < rt.NumField(); i++ {
 		f := rt.Field(i)
-		if !f.IsExported() {
+		if !f.IsExported() || f.Anonymous {
 			continue
 		}
 		if f.Name == name {
@@ -405,6 +408,49 @@ func accessStructField(rv reflect.Value, name string) (any, error) {
 			if tagName != "-" && tagName == name {
 				return rv.Field(i).Interface(), nil
 			}
+		}
+	}
+	// Second pass: recurse into anonymous (embedded) struct fields.
+	// Like encoding/json, we recurse even when the anonymous field type is
+	// unexported, because its own exported fields should still be promoted.
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		if !f.Anonymous {
+			continue
+		}
+		tag := f.Tag.Get("json")
+		if tag != "" {
+			parts := strings.Split(tag, ",")
+			if parts[0] == "-" {
+				continue // embedded field explicitly excluded
+			}
+			if parts[0] != "" {
+				// Embedded field has an explicit json name — it is not promoted.
+				// Check whether name matches that explicit key. Only exported
+				// fields can have their value retrieved via reflection.
+				if parts[0] == name && f.IsExported() {
+					return rv.Field(i).Interface(), nil
+				}
+				continue
+			}
+		}
+		// Dereference pointer-to-struct embedded fields.
+		fv := rv.Field(i)
+		if fv.Kind() == reflect.Ptr {
+			if fv.IsNil() {
+				continue
+			}
+			fv = fv.Elem()
+		}
+		if fv.Kind() != reflect.Struct {
+			continue
+		}
+		val, err := accessStructField(fv, name)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := val.(UndefinedValue); !ok {
+			return val, nil
 		}
 	}
 	return Undefined, nil

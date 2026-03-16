@@ -1565,7 +1565,7 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 				childScope[k] = v
 			}
 		} else if val != nil {
-			return fmt.Errorf("v-bind on component %q: expected map, got %T", n.Data, val)
+			return fmt.Errorf("v-bind on component %q: expected map or struct, got %T", n.Data, val)
 		}
 	}
 
@@ -1896,7 +1896,7 @@ func applyAttrSpread(
 ) error {
 	m, ok := toStringMap(val)
 	if !ok {
-		return fmt.Errorf("v-bind: expected map, got %T", val)
+		return fmt.Errorf("v-bind: expected map or struct, got %T", val)
 	}
 	// Sort keys for deterministic output.
 	keys := make([]string, 0, len(m))
@@ -1935,12 +1935,126 @@ func applyAttrSpread(
 
 // toStringMap converts a value to map[string]any if possible.
 // A nil value is treated as an empty map (no-op spread).
+// Structs (and pointers-to-structs) are converted via structToMap using
+// reflection, with json tag names taking priority over Go field names.
 func toStringMap(val any) (map[string]any, bool) {
 	if val == nil {
 		return nil, true // nil spread is a no-op; treat as ok
 	}
-	m, ok := val.(map[string]any)
-	return m, ok
+	if m, ok := val.(map[string]any); ok {
+		return m, true // fast path — no reflection needed
+	}
+	rv := reflect.ValueOf(val)
+	for rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return nil, true // nil pointer is a no-op
+		}
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return nil, false // unsupported type — caller emits error
+	}
+	return structToMap(rv), true
+}
+
+// structToMap converts a struct reflect.Value into a map[string]any,
+// using json tag names as keys when present. Anonymous (embedded) struct fields
+// are flattened into the map, consistent with encoding/json behaviour. Outer
+// fields shadow promoted fields from embedded structs (outer wins).
+func structToMap(rv reflect.Value) map[string]any {
+	out := make(map[string]any)
+	collectStructFields(rv, out, false)
+	return out
+}
+
+// collectStructFields populates out with the exported fields of rv. When
+// fromEmbedded is true the caller is recursing into an embedded struct, so
+// existing keys in out (set by outer fields) are not overwritten.
+func collectStructFields(rv reflect.Value, out map[string]any, fromEmbedded bool) {
+	rt := rv.Type()
+	// First pass: collect direct (non-anonymous) fields — highest priority.
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		if !f.IsExported() || f.Anonymous {
+			continue
+		}
+		key := structFieldKey(f)
+		if key == "" {
+			continue // json:"-"
+		}
+		if fromEmbedded {
+			if _, exists := out[key]; exists {
+				continue // outer field already claimed this key
+			}
+		}
+		fval := rv.Field(i)
+		// Store nil pointer fields as untyped nil so that v-if guards work correctly
+		// (a typed nil pointer in an interface is non-nil, which would mislead IsTruthy).
+		if fval.Kind() == reflect.Ptr && fval.IsNil() {
+			out[key] = nil
+		} else {
+			out[key] = fval.Interface()
+		}
+	}
+	// Second pass: recurse into anonymous (embedded) struct fields.
+	// Like encoding/json, we recurse even if the anonymous field type is unexported,
+	// because the embedded type's own exported fields should still be promoted.
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		if !f.Anonymous {
+			continue
+		}
+		tag := f.Tag.Get("json")
+		if tag != "" {
+			parts := strings.SplitN(tag, ",", 2)
+			if parts[0] == "-" {
+				continue // embedded field explicitly excluded
+			}
+			if parts[0] != "" {
+				// Explicit json name on embedded field: treat as a named field,
+				// do not promote its sub-fields. Skip unexported fields — their
+				// value cannot be retrieved via reflect.Value.Interface().
+				if f.IsExported() {
+					key := parts[0]
+					if _, exists := out[key]; !exists {
+						out[key] = rv.Field(i).Interface()
+					}
+				}
+				continue
+			}
+		}
+		// Dereference pointer-to-struct embedded fields.
+		fv := rv.Field(i)
+		ft := f.Type
+		if ft.Kind() == reflect.Ptr {
+			if fv.IsNil() {
+				continue // nil embedded pointer — nothing to spread
+			}
+			fv = fv.Elem()
+			ft = ft.Elem()
+		}
+		if ft.Kind() != reflect.Struct {
+			continue
+		}
+		collectStructFields(fv, out, true)
+	}
+}
+
+// structFieldKey returns the map key for a struct field: the json tag name if
+// one is present (and not "-"), otherwise the Go field name. Returns "" when
+// the field should be omitted (json:"-").
+func structFieldKey(f reflect.StructField) string {
+	tag := f.Tag.Get("json")
+	if tag != "" {
+		parts := strings.SplitN(tag, ",", 2)
+		if parts[0] == "-" {
+			return ""
+		}
+		if parts[0] != "" {
+			return parts[0]
+		}
+	}
+	return f.Name
 }
 
 // Values that implement fmt.Stringer are converted via their String() method.

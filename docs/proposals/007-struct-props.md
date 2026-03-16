@@ -13,7 +13,7 @@ When a caller wants to forward all fields of a Go struct to a child component, t
 natural Vue idiom is `v-bind="user"`. Today this fails at runtime:
 
 ```text
-v-bind on component "user-card": expected map, got main.User
+v-bind on component "user-card": expected map or struct, got main.User
 ```
 
 The failure is silent until the page is rendered — the author receives no
@@ -35,7 +35,7 @@ pages/
   <!-- Works today -->
   <UserCard :name="user.Name" :email="user.Email" :role="user.Role" />
 
-  <!-- Fails today with "expected map, got main.User" -->
+  <!-- Fails today with "expected map or struct, got main.User" -->
   <UserCard v-bind="user" />
 </template>
 ```
@@ -88,6 +88,11 @@ passing it to a component:
 6. **No changes to the prop-discovery (`Props()`) path** — `Props()` scans template
    expressions for identifiers; field names accessed inside a child template are
    already discovered correctly.
+7. **Anonymous (embedded) struct fields are promoted** into the top-level prop map,
+   consistent with Go's own field-promotion rules and `encoding/json`.
+8. **`accessStructField` handles embedded field promotion** so that `{{ user.Street }}`
+   works consistently with `v-bind="user"` when `User` embeds a struct with a
+   `Street` field.
 
 ---
 
@@ -96,16 +101,19 @@ passing it to a component:
 1. **Typed prop declarations (Vue `defineProps`)**: authors cannot declare that a
    prop must be of a specific Go type. This RFC covers only the spread-at-call-site
    problem.
-2. **Nested struct spread**: `v-bind="user"` spreads the top-level fields of
-   `User`, not the fields of nested struct values. Deep flattening is out of scope.
+2. **Deep flattening of named (non-embedded) nested struct fields**: `v-bind="user"`
+   spreads the top-level fields of `User`. If a field value is itself a struct (and
+   not anonymous), it is stored as-is under its key — the child component receives a
+   typed prop and can access sub-fields via dot notation (see §4.1 and §6).
 3. **Unexported fields**: unexported fields are never spread, matching the existing
    `accessStructField` behaviour.
 4. **Interface types as props**: this RFC does not introduce any mechanism for
    passing an `interface{}` value and having `htmlc` introspect its dynamic type
    beyond what reflection already provides.
 5. **v-bind on HTML elements** (not components): this RFC only affects `v-bind`
-   spread on component invocations. Attribute spread on regular HTML elements is a
-   separate concern.
+   spread on component invocations as a primary goal. However, because
+   `applyAttrSpread` also calls `toStringMap`, HTML element struct spread gains
+   support as a free side-effect.
 
 ---
 
@@ -115,7 +123,7 @@ passing it to a component:
 
 #### Current state
 
-`toStringMap` (`renderer.go:1938`) performs a single type assertion:
+`toStringMap` (`renderer.go`) performs a single type assertion:
 
 ```go
 // current
@@ -157,40 +165,178 @@ func toStringMap(val any) (map[string]any, bool) {
 
 // pseudo-code — not implementation
 func structToMap(rv reflect.Value) map[string]any {
+    out := make(map[string]any)
+    collectStructFields(rv, out, false)
+    return out
+}
+
+// pseudo-code — not implementation
+// collectStructFields populates out with exported fields of rv.
+// fromEmbedded: when true, do not overwrite keys already present (outer wins).
+func collectStructFields(rv reflect.Value, out map[string]any, fromEmbedded bool) {
     rt := rv.Type()
-    out := make(map[string]any, rt.NumField())
+    // First pass: collect direct (non-anonymous) fields — highest priority.
     for i := 0; i < rt.NumField(); i++ {
         f := rt.Field(i)
-        if !f.IsExported() {
-            continue
+        if !f.IsExported() || f.Anonymous { continue }
+        key := fieldKey(f)  // json tag name or Go field name; "" means skip
+        if key == "" { continue }
+        if fromEmbedded {
+            if _, exists := out[key]; exists { continue }  // outer already set this key
         }
-        key := f.Name
-        if tag := f.Tag.Get("json"); tag != "" {
-            if parts := strings.SplitN(tag, ",", 2); parts[0] != "-" && parts[0] != "" {
-                key = parts[0]
+        // Store nil pointer fields as untyped nil so that v-if guards work
+        // correctly (a typed nil pointer in an interface is non-nil, which
+        // would mislead IsTruthy and cause v-if="Field" to evaluate as true).
+        fval := rv.Field(i)
+        if fval.Kind() == reflect.Ptr && fval.IsNil() {
+            out[key] = nil
+        } else {
+            out[key] = fval.Interface()
+        }
+    }
+    // Second pass: recurse into anonymous (embedded) struct fields.
+    // Like encoding/json, recurse even when the anonymous field type is
+    // unexported, so that its exported sub-fields are still promoted.
+    for i := 0; i < rt.NumField(); i++ {
+        f := rt.Field(i)
+        if !f.Anonymous { continue }
+        tag := f.Tag.Get("json")
+        if tag != "" {
+            parts := strings.SplitN(tag, ",", 2)
+            if parts[0] == "-" { continue }  // json:"-" — exclude
+            if parts[0] != "" {
+                // Explicit json name on embedded field: not promoted.
+                // Treat like a named field — but only if exported (unexported
+                // field values cannot be retrieved via reflection).
+                if f.IsExported() {
+                    if _, exists := out[parts[0]]; !exists {
+                        out[parts[0]] = rv.Field(i).Interface()
+                    }
+                }
+                continue
             }
         }
-        out[key] = rv.Field(i).Interface()
+        // Dereference pointer-to-struct embedded fields.
+        fv := rv.Field(i)
+        if fv.Kind() == reflect.Ptr {
+            if fv.IsNil() { continue }
+            fv = fv.Elem()
+        }
+        if fv.Kind() != reflect.Struct { continue }
+        collectStructFields(fv, out, true)
     }
-    return out
 }
 ```
 
-**Verdict**: reflection is the only viable approach given the Go type system. The
-fast path (`map[string]any`) preserves performance for the common case.
+**Embedded struct flattening decision**: anonymous (embedded) struct fields are
+flattened into the top-level prop map, consistent with how Go's `encoding/json`
+handles embedded structs and with how Go itself promotes fields at the language
+level. This resolves §10.1.
 
-#### Option analysis
+**Conflict resolution**: when an outer struct field has the same key as a promoted
+field from an embedded struct, the outer field wins. This matches `encoding/json`
+and Go's own field-promotion rules.
 
-- ✅ Reflection on struct fields: handles any struct type without code generation;
-  consistent with the existing `accessStructField` implementation in `expr/eval.go`.
-- ⚠️ Requires `reflect` import in `renderer.go` (already imported).
-- ❌ Code generation (`go generate`): would require a build step, breaks zero-
-  dependency authoring flow, out of scope for this project.
-- ❌ Requiring a `ToMap() map[string]any` method: forces application authors to
-  implement boilerplate on every domain type; inconsistent with how the engine
-  already reads struct fields.
+**json tag on embedded struct field**: if the embedded field itself has an explicit
+json tag name (e.g., `Address \`json:"addr"\``), it is not promoted — it is stored
+as a single prop under the tag name (here, `"addr"`). A tag of `json:"-"` causes
+the embedded field to be skipped entirely.
 
-### 4.2 Error message improvement
+**Named (non-embedded) struct fields**: when `structToMap` encounters a field whose
+value is itself a struct but the field is not anonymous (e.g., `Address Address`),
+it stores the struct value as-is under its key (e.g., `"Address": Address{...}`).
+The child component receives this as a typed prop. The child template can access
+sub-fields via standard dot notation (e.g., `{{ Address.City }}`), which resolves
+via the existing `accessStructField` path. No changes to the expression evaluator
+are required for this case — the struct value is passed through transparently.
+
+**Chained v-bind**: `toStringMap` is applied at each component boundary. A parent
+can spread a large struct containing a nested struct field, and a child that
+receives the nested struct as a prop can in turn spread it to a grandchild with
+`v-bind="Address"`. Because `toStringMap` handles any struct, this chain works
+transitively without any additional changes.
+
+**Nil pointer struct fields**: when a struct field is a pointer to a struct and its
+value is `nil` (e.g., `Address *Address = nil`), `structToMap` includes
+`"Address": nil` in the map. The child component receives a nil prop. If the child
+template accesses `{{ Address.City }}` without a guard, the expression evaluator
+returns an error on the nil dereference. Template authors must guard such access
+with `v-if="Address"` (see §6 Example 7 and §8).
+
+**Verdict**: the two-pass approach (direct fields first, then embedded recursion)
+cleanly implements outer-wins semantics without a separate conflict-detection step.
+
+### 4.2 `accessStructField` — embedded field promotion
+
+#### Current state
+
+`accessStructField` in `expr/eval.go` iterates only direct fields of the struct
+via `rt.NumField()`. Promoted fields from anonymous embedded structs are not
+reachable via dot notation (e.g., `{{ user.Street }}` returns `Undefined` when
+`User` embeds `Address`).
+
+#### Proposed extension
+
+Restructure `accessStructField` to use the same two-pass strategy as
+`collectStructFields`:
+
+1. **First pass** — check direct (non-anonymous) fields. Return immediately on a
+   match. These have priority over promoted fields.
+2. **Second pass** — recurse into anonymous embedded struct fields (dereferencing
+   pointer-to-struct embedded fields as needed). An embedded field with an explicit
+   json name is not promoted: only its own key is checked. An embedded field with
+   `json:"-"` is skipped.
+
+This makes `{{ user.Street }}` consistent with `v-bind="user"` spread when `User`
+embeds a struct with a `Street` field.
+
+```go
+// pseudo-code — not implementation
+func accessStructField(rv reflect.Value, name string) (any, error) {
+    rt := rv.Type()
+    // First pass: direct fields have priority.
+    for i := 0; i < rt.NumField(); i++ {
+        f := rt.Field(i)
+        if !f.IsExported() || f.Anonymous { continue }
+        if f.Name == name { return rv.Field(i).Interface(), nil }
+        tag := f.Tag.Get("json")
+        if tag != "" {
+            tagName := strings.Split(tag, ",")[0]
+            if tagName != "-" && tagName == name { return rv.Field(i).Interface(), nil }
+        }
+    }
+    // Second pass: recurse into embedded fields.
+    for i := 0; i < rt.NumField(); i++ {
+        f := rt.Field(i)
+        if !f.IsExported() || !f.Anonymous { continue }
+        tag := f.Tag.Get("json")
+        if tag != "" {
+            parts := strings.Split(tag, ",")
+            if parts[0] == "-" { continue }
+            if parts[0] != "" {
+                if parts[0] == name { return rv.Field(i).Interface(), nil }
+                continue
+            }
+        }
+        fv := rv.Field(i)
+        if fv.Kind() == reflect.Ptr {
+            if fv.IsNil() { continue }
+            fv = fv.Elem()
+        }
+        if fv.Kind() != reflect.Struct { continue }
+        val, err := accessStructField(fv, name)
+        if err != nil { return nil, err }
+        if _, ok := val.(UndefinedValue); !ok { return val, nil }
+    }
+    return Undefined, nil
+}
+```
+
+**Verdict**: fixing `accessStructField` (option a) is the most coherent choice.
+It aligns dot-access with v-bind spread and with how Go itself promotes fields.
+The change is isolated to `expr/eval.go`.
+
+### 4.3 Error message improvement
 
 #### Current state
 
@@ -211,12 +357,32 @@ v-bind on component "user-card": expected map or struct, got int
 This change is a one-line update to the format string in `renderComponentElement`
 and `applyAttrSpread`.
 
-### 4.3 `applyAttrSpread` — HTML element spread
+### 4.4 Static analysis limitation (`Props()`)
 
-`applyAttrSpread` (`renderer.go:1891`) is used for `v-bind` on regular HTML
-elements. It also calls `toStringMap`. Because `toStringMap` is being extended, HTML
-element spread will also gain struct support at no extra cost. This is desirable
-and not a regression risk since the function previously always errored on structs.
+`Props()` on a child component scans the child's template expressions for
+identifier names. It cannot know at static-analysis time that those identifiers
+will be satisfied by a `v-bind` spread from a struct — there is no type information
+available at parse time.
+
+**Concrete consequence**: a tool that calls `Props()` on `UserCard` and verifies
+that the parent passes each required prop individually will falsely report that
+`Name` and `Email` are missing when the parent uses `v-bind="user"`. Such tools
+must special-case `v-bind` spread:
+
+> `Props()` returns the set of identifier names a template reads. When a parent
+> uses `v-bind="structValue"`, the engine satisfies those props at runtime via
+> `toStringMap`. Static tools that compare `Props()` output against explicit
+> `:prop` bindings must also account for `v-bind` spreads; they cannot statically
+> verify that a given struct type has the required fields.
+
+No code changes are required for this; it is a documentation-only note.
+
+### 4.5 `applyAttrSpread` — HTML element spread
+
+`applyAttrSpread` (`renderer.go`) is used for `v-bind` on regular HTML elements.
+It also calls `toStringMap`. Because `toStringMap` is being extended, HTML element
+spread will also gain struct support at no extra cost. This is desirable and not a
+regression risk since the function previously always errored on structs.
 
 ---
 
@@ -356,35 +522,186 @@ eng.RenderPage(w, "Page", map[string]any{
 
 Behaviour is identical to the current implementation. No change.
 
+### Example 6 — Nested struct field access via dot notation
+
+When `structToMap` encounters a named (non-anonymous) struct field, it stores the
+struct value as-is under its key. The child template accesses sub-fields via
+standard dot notation, which resolves via `accessStructField`.
+
+```go
+type Address struct { Street, City string }
+type User struct {
+    Name    string
+    Address Address   // named field, NOT embedded
+}
+```
+
+`Profile.vue`:
+
+```html
+<template>
+  <UserCard v-bind="user" />
+</template>
+```
+
+`UserCard.vue`:
+
+```html
+<template>
+  <p>{{ Name }}</p>
+  <p>{{ Address.City }}</p>
+</template>
+```
+
+`structToMap` produces `{"Name": "Alice", "Address": Address{...}}`.
+`Props()` discovers `Name` and `Address` as the prop identifiers — this is
+correct; `Address` is the prop, not `Address.City`. The expression evaluator
+calls `accessStructField` for `.City` on the `Address` value, which works
+without any code change.
+
+### Example 7 — Nil pointer nested struct field
+
+When a struct field is a pointer to a struct and its value is `nil`, the child
+receives a nil prop. Template authors must guard access with `v-if`:
+
+```go
+type User struct {
+    Name    string
+    Address *Address  // may be nil
+}
+```
+
+`UserCard.vue`:
+
+```html
+<template>
+  <p>{{ Name }}</p>
+  <!-- Guard nil pointer before accessing sub-fields -->
+  <p v-if="Address">{{ Address.City }}</p>
+  <p v-else>No address</p>
+</template>
+```
+
+`structToMap` produces `{"Name": "Alice", "Address": nil}` when `Address` is
+nil. Without the `v-if` guard, `{{ Address.City }}` would error on nil
+dereference.
+
+### Example 8 — Embedded struct flattening
+
+Anonymous embedded struct fields are promoted into the top-level prop map:
+
+```go
+type Address struct {
+    Street string
+    City   string
+}
+
+type User struct {
+    Name    string
+    Address          // anonymous (embedded)
+}
+```
+
+`v-bind="user"` produces:
+
+```go
+map[string]any{
+    "Name":   "Alice",
+    "Street": "123 Main",
+    "City":   "NYC",
+}
+```
+
+Both `{{ Street }}` and `{{ Name }}` are available as top-level props in the
+child. The same flattening applies to `{{ user.Street }}` via dot notation (see
+§4.2).
+
+When an outer field shadows a promoted field, the outer field wins:
+
+```go
+type Outer struct {
+    City string        // outer field — wins
+    Address            // embedded — City promoted but shadowed
+}
+```
+
+`v-bind` spread produces `{"City": "OUTER", "Street": "..."}`.
+
+### Example 9 — Chained v-bind with nested struct prop
+
+```go
+type Theme struct { Color, Font string }
+type Page  struct { Title string; Theme Theme }
+```
+
+`Layout.vue`:
+
+```html
+<template>
+  <Navbar v-bind="Theme" />
+</template>
+```
+
+`Root.vue`:
+
+```html
+<template>
+  <Layout v-bind="page" />
+</template>
+```
+
+`Root` spreads `page`, producing `{"Title": "...", "Theme": Theme{...}}`.
+`Layout` receives `Theme` as a typed prop and spreads it to `Navbar` with
+`v-bind="Theme"`. Because `toStringMap` is applied at each component boundary,
+this chain works transitively: `Navbar` receives `{"Color": "...", "Font": "..."}`.
+
 ---
 
 ## 7. Implementation Sketch
 
-All changes are in `renderer.go` unless stated otherwise.
+All changes are in `renderer.go` and `expr/eval.go` unless stated otherwise.
 
-1. **`toStringMap`** — extend to handle `reflect.Struct` and `reflect.Ptr`-to-struct
-   using a new private `structToMap(rv reflect.Value) map[string]any` helper.
-   One new function (~20 lines); `toStringMap` gains ~10 lines.
+1. **`toStringMap`** (`renderer.go`) — extend to handle `reflect.Struct` and
+   `reflect.Ptr`-to-struct. Fast path for `map[string]any` is preserved.
+   ~15 lines added.
 
-2. **`structToMap`** — iterates exported fields of a `reflect.Value` of kind
-   `Struct`. For each field, resolves the prop key using the json tag (first
-   segment, skip `-` and empty). Stores `rv.Field(i).Interface()` as the value.
-   Mirrors the existing `accessStructField` logic in `expr/eval.go`.
+2. **`structToMap`** (`renderer.go`) — new private helper; delegates to
+   `collectStructFields`. ~5 lines.
 
-3. **Error message** — update the format string in `renderComponentElement` (line
-   ~1568) and `applyAttrSpread` (line ~1899) from `"expected map"` to
-   `"expected map or struct"`.
+3. **`collectStructFields`** (`renderer.go`) — new private helper; two-pass
+   algorithm (direct fields first, embedded recursion second). Handles:
+   - `f.Anonymous` recursion (embedded struct flattening)
+   - json tag name on embedded field prevents promotion
+   - `json:"-"` on embedded field skips it
+   - nil pointer-to-struct embedded field is skipped
+   - outer-wins: `fromEmbedded=true` skips keys already present in `out`
+   ~40 lines.
 
-4. **Tests** — add table-driven tests in `renderer_test.go` (or a new
-   `vbind_struct_test.go`) covering:
-   - plain struct spread
-   - pointer-to-struct spread
+4. **`structFieldKey`** (`renderer.go`) — new private helper; returns json tag
+   name or Go field name; `""` means skip. ~10 lines.
+
+5. **Error message** (`renderer.go`) — update format strings in
+   `renderComponentElement` and `applyAttrSpread` from `"expected map"` to
+   `"expected map or struct"`. Two one-line changes.
+
+6. **`accessStructField`** (`expr/eval.go`) — restructure to use two-pass
+   algorithm matching `collectStructFields`, enabling embedded field promotion
+   in dot-access expressions. ~35 lines (replacing ~20 lines).
+
+7. **Tests** (`renderer_test.go`) — new table-driven and named tests covering:
+   - plain struct spread on HTML element
+   - plain struct spread on component
    - struct with json tags
+   - pointer-to-struct spread
    - nil pointer spread (no-op)
-   - unsupported type error (e.g., `int`)
-   - spread-then-override priority
+   - embedded struct flattening (Gap 1)
+   - embedded struct with explicit json name (not promoted)
+   - outer field shadows embedded field
+   - nil `*NestedStruct` field (Gap 6) — with `v-if` guard
+   - chained v-bind spread (Gap 3)
+   - updated error message check ("expected map or struct")
 
-No changes required to `expr/eval.go`, `component.go`, or the public `Engine` API.
+No changes required to `component.go` or the public `Engine` API.
 
 ---
 
@@ -412,6 +729,31 @@ acceptable: the previous behaviour was a bug, not a feature.
 
 Unchanged. The fast path in `toStringMap` exits before any reflection.
 
+### `accessStructField` behaviour change
+
+The two-pass restructure adds embedded-field promotion. This is a strictly
+additive change: expressions that previously returned `Undefined` for promoted
+fields (e.g., `{{ user.Street }}` when `User` embeds `Address`) will now return
+the correct value. No previously-working expressions change behaviour.
+
+### Static analysis tools using `Props()`
+
+`Props()` returns template identifier names unchanged. Tools that verify prop
+completeness by comparing `Props()` output against explicit `:prop` bindings in
+the parent must also account for `v-bind` spreads. When a parent uses
+`v-bind="structValue"`, the required props are satisfied at runtime by
+`toStringMap`; there is no static way to verify that the struct type has all the
+required fields. This is a known limitation — see §4.4.
+
+### Nil pointer nested struct fields
+
+When a struct field is a `*NestedStruct` with a nil value, `structToMap` includes
+`"FieldName": nil` in the map. If a child template accesses sub-fields of a nil
+prop without a `v-if` guard, the expression evaluator will return an error. This
+is consistent with how nil values behave throughout the engine (e.g., a nil map
+value accessed with dot notation already errors). Template authors should guard
+nil nested struct props with `v-if` (see §6 Example 7).
+
 ---
 
 ## 9. Alternatives Considered
@@ -436,16 +778,35 @@ reflection for field access; not using it for spread is an inconsistency.
 **Rejected**: adds a build step; changes the zero-configuration authoring model;
 requires tooling not currently part of the project.
 
+### D. Do not flatten embedded structs — treat them as a single named prop
+
+Embedded struct `Address` in `User` would produce `{"Name": "Alice", "Address": Address{...}}`,
+matching the behaviour of named fields.
+
+**Rejected**: Go promotes embedded fields at the language level (both in the
+type system and in `encoding/json`). Authors who write `v-bind="user"` with an
+embedded struct will expect `{{ Street }}` to work in the child, not `{{ Address.Street }}`.
+Inconsistency with `encoding/json` would be surprising. The blocking open question
+in the original draft is resolved in favour of flattening.
+
+### E. Leave `accessStructField` unchanged and document the inconsistency
+
+`v-bind="user"` would flatten `Street` as a top-level prop, but `{{ user.Street }}`
+would return `Undefined`.
+
+**Rejected**: the inconsistency is confusing and error-prone. The fix is isolated
+and low-risk (see §4.2). Option (a) — fixing `accessStructField` — is implemented.
+
 ---
 
 ## 10. Open Questions
 
-1. **Embedded structs**: should `v-bind="user"` with an embedded struct flatten the
-   embedded fields into the prop map, or treat the embedded field as a single prop
-   named by the embedded type's name?
-   *Tentative recommendation*: flatten promoted fields (consistent with how Go's
-   `encoding/json` handles embedded structs). Blocking — must be resolved before
-   implementation to avoid a subsequent breaking change.
+1. **Embedded structs**: ~~should `v-bind="user"` with an embedded struct flatten
+   the embedded fields?~~ **Resolved**: flatten promoted fields (consistent with
+   `encoding/json` and Go's field promotion). Anonymous embedded fields are
+   flattened; a json tag on the embedded field with a non-empty, non-`"-"` name
+   prevents promotion and uses that name as the key. Outer fields shadow promoted
+   fields. See §4.1 and §4.2.
 
 2. **Unexported struct fields with struct tags**: some codebases tag unexported
    fields with `json:"-"` for documentation. The current `accessStructField`
@@ -458,3 +819,8 @@ requires tooling not currently part of the project.
    *Tentative recommendation*: no — spread all exported fields unconditionally.
    Template authors who want conditional props should use ternary expressions or
    explicit `:prop` bindings. Non-blocking.
+
+4. **Nil pointer nested struct fields**: ~~open~~ **Resolved** (Option A):
+   include `nil` in the map unconditionally. Template authors must guard sub-field
+   access with `v-if="FieldName"`. This is consistent with how nil values behave
+   throughout the engine. See §6 Example 7 and §8.
