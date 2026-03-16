@@ -7,6 +7,7 @@
       {label: 'Engine'},
       {href: '#creating-engine', label: 'New / Options'},
       {href: '#expvars', label: 'Runtime Metrics (expvars)'},
+      {href: '#slog', label: 'Structured Logging (slog)'},
       {href: '#component-management', label: 'Register / Has / Components'},
       {href: '#validate', label: 'ValidateAll'},
       {label: 'Rendering'},
@@ -188,6 +189,104 @@ engine.PublishExpvars(&#34;myapp&#34;) // registers metrics under &#34;myapp&#34
     <pre v-syntax-highlight="'go'"><code v-pre>import &#34;expvar&#34;
 
 mux.Handle(&#34;GET /debug/vars&#34;, expvar.Handler())</code></pre>
+
+    <!-- ═══════════════════════════════════════════════ Structured Logging -->
+    <h2 id="slog">Structured Logging (slog)</h2>
+
+    <h3 id="options-logger">Options.Logger</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>type Options struct {
+    // ...
+    Logger *slog.Logger
+}</code></pre>
+    <table>
+      <thead>
+        <tr><th>Detail</th><th>Value</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Type</td>
+          <td><code>*slog.Logger</code></td>
+        </tr>
+        <tr>
+          <td>Default</td>
+          <td><code>nil</code> (no logging)</td>
+        </tr>
+        <tr>
+          <td>Effect when nil</td>
+          <td>A single pointer-nil check is performed per render; no allocations, no timing, behaviour identical to before structured logging was added.</td>
+        </tr>
+        <tr>
+          <td>Effect when non-nil</td>
+          <td>One structured log record is emitted for every component in the render tree. Records include component name, render duration, bytes written, and (on failure) the error.</td>
+        </tr>
+      </tbody>
+    </table>
+    <Callout><strong>Minimum Go version:</strong> <code>log/slog</code> was added in Go 1.21. Passing a non-nil <code>Logger</code> requires Go 1.21 or later.</Callout>
+
+    <h3 id="slog-record">Log record specification</h3>
+    <p>Every rendered component emits one record. The attributes are:</p>
+    <table>
+      <thead>
+        <tr><th>Attribute key</th><th>slog type</th><th>Value</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>component</code></td>
+          <td><code>slog.String</code></td>
+          <td>Resolved component name (e.g. <code>NavBar</code>)</td>
+        </tr>
+        <tr>
+          <td><code>duration</code></td>
+          <td><code>slog.Duration</code></td>
+          <td>Wall-clock time for the component subtree. Text handlers format this as <code>1.2ms</code>; JSON handlers emit it as nanoseconds (<code>int64</code>).</td>
+        </tr>
+        <tr>
+          <td><code>bytes</code></td>
+          <td><code>slog.Int64</code></td>
+          <td>Bytes written by the component subtree.</td>
+        </tr>
+        <tr>
+          <td><code>error</code></td>
+          <td><code>slog.Any</code></td>
+          <td>Non-nil only on <code>LevelError</code> records for failed renders.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Example text-handler output:</p>
+    <pre v-syntax-highlight="'text'"><code v-pre>time=2026-03-16T12:00:00.001Z level=DEBUG msg="component rendered" component=NavLink duration=1.2ms bytes=142
+time=2026-03-16T12:00:00.002Z level=DEBUG msg="component rendered" component=NavBar duration=4.5ms bytes=612
+time=2026-03-16T12:00:00.149Z level=DEBUG msg="component rendered" component=HomePage duration=148.6ms bytes=24576</code></pre>
+    <p>Example JSON-handler output (note: <code>duration</code> is nanoseconds as <code>int64</code>):</p>
+    <pre v-syntax-highlight="'json'"><code v-pre>{&#34;time&#34;:&#34;2026-03-16T12:00:00.001Z&#34;,&#34;level&#34;:&#34;DEBUG&#34;,&#34;msg&#34;:&#34;component rendered&#34;,&#34;component&#34;:&#34;NavLink&#34;,&#34;duration&#34;:1200000,&#34;bytes&#34;:142}
+{&#34;time&#34;:&#34;2026-03-16T12:00:00.149Z&#34;,&#34;level&#34;:&#34;DEBUG&#34;,&#34;msg&#34;:&#34;component rendered&#34;,&#34;component&#34;:&#34;HomePage&#34;,&#34;duration&#34;:148600000,&#34;bytes&#34;:24576}</code></pre>
+
+    <h3 id="slog-levels">Log levels</h3>
+    <ul>
+      <li><strong>Successful render</strong> — emitted at <code>slog.LevelDebug</code> with message <code>htmlc.MsgComponentRendered</code>.</li>
+      <li><strong>Failed render</strong> — emitted at <code>slog.LevelError</code> with message <code>htmlc.MsgComponentFailed</code>, plus a non-nil <code>error</code> attribute.</li>
+    </ul>
+
+    <h3 id="slog-constants">Constants</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>const MsgComponentRendered = &#34;component rendered&#34;
+const MsgComponentFailed   = &#34;component render failed&#34;</code></pre>
+    <p>These constants are the stable message strings used in every log record. Reference them in log-based test assertions or alerting rules so that a future rename is caught at compile time rather than by a broken alert:</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>// Log assertion in a test:
+if record.Message != htmlc.MsgComponentRendered {
+    t.Errorf(&#34;unexpected message: %q&#34;, record.Message)
+}</code></pre>
+
+    <h3 id="with-logger">Renderer.WithLogger</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (r *Renderer) WithLogger(l *slog.Logger) *Renderer</code></pre>
+    <p>Attaches <code>l</code> to the renderer. Use this when working with the low-level <code>Renderer</code> API directly — for example, to attach a request-scoped logger enriched with <code>logger.With("request_id", id)</code> to a per-request renderer. Returns <code>r</code> for method chaining.</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>renderer := htmlc.NewRenderer(component).
+    WithComponents(reg).
+    WithLogger(logger.With(&#34;request_id&#34;, requestID))</code></pre>
+
+    <h3 id="slog-ordering">Record ordering</h3>
+    <p>Records are emitted in <strong>leaf-first</strong> (post-order) order because the log call fires after the entire component subtree finishes rendering. The root page component is always the last record. This is useful for identifying which child component is the bottleneck: the first record with a high <code>duration</code> is where time is actually spent.</p>
+
+    <h3 id="slog-performance">Performance</h3>
+    <p>When <code>Options.Logger</code> is <code>nil</code> (the default), a single pointer-nil check is the only overhead per component. No timing, no allocations — behaviour is identical to before structured logging was added. Logging costs are incurred only when a non-nil logger is supplied.</p>
 
     <!-- ═══════════════════════════════════════════════ Rendering -->
     <h2 id="rendering">Rendering</h2>

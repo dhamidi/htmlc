@@ -12,6 +12,7 @@
       {label: 'Development'},
       {href: '#hot-reload', label: 'Hot reload'},
       {href: '#expvars', label: 'Monitor engine metrics'},
+      {href: '#slog', label: 'Structured logging (slog)'},
       {label: 'Customization'},
       {href: '#custom-directive', label: 'Custom directive'},
       {href: '#missing-props', label: 'Missing prop handling'},
@@ -228,6 +229,116 @@ func main() {
 // curl -s .../debug/vars | jq '.myapp.reload'  →  1</code></pre>
 
     <Callout><strong>Warning:</strong> calling <code>PublishExpvars</code> twice with the same prefix panics. Register metrics exactly once per engine per process, immediately after creating the engine.</Callout>
+
+    <!-- ═══════════════════════════════════════════════ Structured logging -->
+    <h2 id="slog">Add structured logging with slog</h2>
+    <p class="howto-goal">Produce one structured log record per rendered component so you can identify slow or unexpectedly large components in production.</p>
+
+    <h3>Minimal setup</h3>
+    <p>Pass <code>slog.Default()</code> as <code>Options.Logger</code> to start receiving one log record per component on every render:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>package main
+
+import (
+    &#34;log&#34;
+    &#34;log/slog&#34;
+    &#34;net/http&#34;
+
+    &#34;github.com/dhamidi/htmlc&#34;
+)
+
+func main() {
+    engine, err := htmlc.New(htmlc.Options{
+        ComponentDir: &#34;./components&#34;,
+        Logger:       slog.Default(),
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    mux := http.NewServeMux()
+    mux.HandleFunc(&#34;GET /{$}&#34;, engine.ServePageComponent(&#34;HomePage&#34;, nil))
+    log.Fatal(http.ListenAndServe(&#34;:8080&#34;, mux))
+}</code></pre>
+
+    <p>Records are emitted at <code>slog.LevelDebug</code>. With the default text handler you will see one line per component, leaf-first, ending with the root page component.</p>
+
+    <h3>Using a custom handler for machine-readable output</h3>
+    <p>For log aggregators (Datadog, Loki, Cloud Logging) create a JSON handler writing to <code>os.Stdout</code>:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>package main
+
+import (
+    &#34;log&#34;
+    &#34;log/slog&#34;
+    &#34;net/http&#34;
+    &#34;os&#34;
+
+    &#34;github.com/dhamidi/htmlc&#34;
+)
+
+func main() {
+    logger := slog.New(slog.NewJSONHandler(os.Stdout, &amp;slog.HandlerOptions{
+        Level: slog.LevelDebug,
+    }))
+
+    engine, err := htmlc.New(htmlc.Options{
+        ComponentDir: &#34;./components&#34;,
+        Logger:       logger,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    mux := http.NewServeMux()
+    mux.HandleFunc(&#34;GET /{$}&#34;, engine.ServePageComponent(&#34;HomePage&#34;, nil))
+    log.Fatal(http.ListenAndServe(&#34;:8080&#34;, mux))
+}</code></pre>
+
+    <p>Each component emits a record like:</p>
+    <pre v-syntax-highlight="'json'"><code v-pre>{&#34;time&#34;:&#34;2026-03-16T12:00:00.001Z&#34;,&#34;level&#34;:&#34;DEBUG&#34;,&#34;msg&#34;:&#34;component rendered&#34;,&#34;component&#34;:&#34;NavLink&#34;,&#34;duration&#34;:1200000,&#34;bytes&#34;:142}</code></pre>
+    <p>Note: <code>duration</code> is nanoseconds as <code>int64</code> in JSON — this is standard <code>slog</code> behaviour for <code>time.Duration</code> values.</p>
+
+    <h3>Request-scoped logging</h3>
+    <p>Attach request metadata (such as a trace or request ID) using <code>logger.With(...)</code> and pass the enriched logger to a per-request renderer via <code>WithLogger</code>:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>func makeHandler(baseLogger *slog.Logger, component *htmlc.Component) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        requestID := r.Header.Get(&#34;X-Request-ID&#34;)
+        logger := baseLogger.With(&#34;request_id&#34;, requestID)
+
+        renderer := htmlc.NewRenderer(component).WithLogger(logger)
+        // ... use renderer
+    }
+}</code></pre>
+
+    <h3>Filtering noise in development</h3>
+    <p>All component records are emitted at <code>slog.LevelDebug</code>. To silence them where debug output is unwanted, set <code>HandlerOptions.Level</code> to <code>slog.LevelInfo</code>:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>logger := slog.New(slog.NewTextHandler(os.Stderr, &amp;slog.HandlerOptions{
+    Level: slog.LevelInfo, // component records at LevelDebug are suppressed
+}))</code></pre>
+
+    <h3>Interpreting the output</h3>
+    <p>Each log record contains four attributes:</p>
+    <ul>
+      <li><code>component</code> — the resolved component name (e.g. <code>NavBar</code>).</li>
+      <li><code>duration</code> — wall-clock time for the component subtree. In text format this appears as <code>1.2ms</code>; in JSON it is nanoseconds as <code>int64</code>.</li>
+      <li><code>bytes</code> — bytes written by the component subtree.</li>
+      <li><code>error</code> — present only on <code>LevelError</code> records for failed renders.</li>
+    </ul>
+    <p>Records appear <strong>leaf-first</strong> (post-order traversal): child components are logged before their parents. The root page component is always the last record in the batch.</p>
+
+    <h3>Using the constants in tests and alerting</h3>
+    <p>Use <code>htmlc.MsgComponentRendered</code> and <code>htmlc.MsgComponentFailed</code> instead of hard-coding strings when writing log-based test assertions or alerting rules:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>// In a test using a log/slog capture handler:
+if record.Message != htmlc.MsgComponentRendered {
+    t.Errorf(&#34;unexpected log message: %q&#34;, record.Message)
+}
+
+// In an alerting rule (pseudo-code):
+// alert when msg == htmlc.MsgComponentFailed</code></pre>
 
     <!-- ═══════════════════════════════════════════════ Custom directive -->
     <h2 id="custom-directive">Write a custom directive</h2>
