@@ -29,6 +29,7 @@ type externalDirective struct {
 	stdout *bufio.Scanner
 
 	mu          sync.Mutex // serialise requests
+	stderrMu    sync.Mutex // serialise writes to stderr
 	nextID      uint64
 	pendingHTML string // inner_html from last Created call
 }
@@ -45,7 +46,10 @@ func (ed *externalDirective) start() error {
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	// Forward subprocess stderr verbatim.
-	cmd.Stderr = ed.stderr
+	// Use a mutex-wrapped writer so that concurrent writes from the exec
+	// goroutine (io.Copy into cmd.Stderr) and from directive methods do not
+	// race on the underlying io.Writer.
+	cmd.Stderr = &lockedWriter{mu: &ed.stderrMu, w: ed.stderr}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start: %w", err)
@@ -64,7 +68,9 @@ func (ed *externalDirective) stop() {
 	}
 	if ed.cmd != nil {
 		if err := ed.cmd.Wait(); err != nil {
-			fmt.Fprintf(ed.stderr, "htmlc: directive %q exited with error: %v\n", ed.name, err)
+			ed.stderrMu.Lock()
+		fmt.Fprintf(ed.stderr, "htmlc: directive %q exited with error: %v\n", ed.name, err)
+		ed.stderrMu.Unlock()
 		}
 	}
 }
@@ -177,7 +183,9 @@ func (ed *externalDirective) Created(node *html.Node, binding htmlc.DirectiveBin
 
 	resp, err := ed.request(req)
 	if err != nil {
+		ed.stderrMu.Lock()
 		fmt.Fprintf(ed.stderr, "htmlc: directive %q Created: %v\n", ed.name, err)
+		ed.stderrMu.Unlock()
 		return nil // treat as no-op, do not abort build
 	}
 
@@ -231,7 +239,9 @@ func (ed *externalDirective) Mounted(w io.Writer, node *html.Node, binding htmlc
 
 	resp, err := ed.request(req)
 	if err != nil {
+		ed.stderrMu.Lock()
 		fmt.Fprintf(ed.stderr, "htmlc: directive %q Mounted: %v\n", ed.name, err)
+		ed.stderrMu.Unlock()
 		return nil // treat as no-op
 	}
 
@@ -257,4 +267,18 @@ func (ed *externalDirective) InnerHTML() (string, bool) {
 		return "", false
 	}
 	return h, true
+}
+
+// lockedWriter serialises Write calls with a mutex so that concurrent callers
+// (e.g. an os/exec goroutine copying subprocess stderr and a directive method)
+// do not race on the underlying io.Writer.
+type lockedWriter struct {
+	mu *sync.Mutex
+	w  io.Writer
+}
+
+func (lw *lockedWriter) Write(p []byte) (int, error) {
+	lw.mu.Lock()
+	defer lw.mu.Unlock()
+	return lw.w.Write(p)
 }
