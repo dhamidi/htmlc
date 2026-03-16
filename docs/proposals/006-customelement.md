@@ -146,6 +146,17 @@ if sections["script:setup"] != "" {
 
 **Verdict**: extend attribute reading in `extractSections` to detect `customelement`; store verbatim body as the new `CustomElementScript` field.
 
+#### `src` attribute on `<script customelement>`
+
+The `src` attribute on `<script customelement>` is **not supported** and is treated as a compile-time error:
+
+```
+path/to/Component.vue: <script customelement src="..."> is not supported;
+write the script body inline inside the <script customelement> block
+```
+
+**Rationale**: the content hash in §4.6 is computed over the verbatim inline script body. If `src` pointed to an external file, `htmlc` would need to resolve and read it at component-load time, introducing file-system coupling that is out of scope. Authors who maintain a shared JS utility file should import it from within the inline `<script customelement>` block using a standard ES `import` statement (which is emitted verbatim).
+
 ---
 
 ### 4.2 Tag-Name Derivation
@@ -249,7 +260,7 @@ Rather than emitting scripts automatically via a dedicated flush call, `htmlc` e
 #### Usage
 
 ```html
-<script>{{scriptFor "widgets/Counter"}}</script>
+<script>{{scriptFor("widgets/Counter")}}</script>
 ```
 
 The argument is the component path **relative to the root component directory**, without the `.vue` extension. This matches the same path convention used to reference components elsewhere in `htmlc`.
@@ -283,7 +294,7 @@ func (e *Engine) scriptFor(relPath string) (template.HTML, error) {
 }
 ```
 
-`scriptFor` is registered as a template function on the engine at load time, alongside other engine-provided functions.
+`scriptFor` is registered on the engine via `engine.RegisterFunc("scriptFor", ...)`, following the same pattern as other engine-provided expression functions. Call it with JavaScript call syntax in templates: `{{scriptFor("path/to/Component")}}`.
 
 **Evaluation**
 
@@ -308,11 +319,11 @@ Each entry maps the custom element's tag name as a bare module specifier to its 
 
 ```html
 <script type="importmap">
-{"imports":{"widgets-counter":"/ce/widgets-counter.a1b2c3d4.js","ui-tabs":"/ce/ui-tabs.e5f6a7b8.js"}}
+{"imports":{"widgets-counter":"/components/widgets-counter.a1b2c3d4.js","ui-tabs":"/components/ui-tabs.e5f6a7b8.js"}}
 </script>
 ```
 
-The URL is formed by joining the configurable **URL prefix** (default `/ce/`) with the hashed filename from `ScriptsFS` (see §4.6).
+The URL is formed by joining the configurable **URL prefix** (default `/components/`) with the hashed filename from `ScriptsFS` (see §4.6).
 
 #### URL prefix configuration
 
@@ -325,7 +336,7 @@ engine, err := htmlc.Load("components/",
 )
 ```
 
-The default prefix is `/ce/`. Callers who serve `ScriptsFS` under a different path (e.g. `/assets/`) set the prefix to match. The prefix must end with `/`.
+The default prefix is `/components/`. Callers who serve `ScriptsFS` under a different path (e.g. `/assets/`) set the prefix to match. The prefix must end with `/`.
 
 #### Per-render-pass collection
 
@@ -338,10 +349,28 @@ For **`RenderPage`**: the importmap is injected automatically immediately before
 For **`RenderFragment`**: no automatic injection. Authors who need an importmap for a fragment must call an explicit template function:
 
 ```html
-{{importMap}}
+{{importMap()}}
 ```
 
 `importMap` is registered as a template function on the engine and emits the importmap for all custom elements used so far in the current render pass.
+
+#### `index.js` loader script
+
+Immediately after the importmap `<script type="importmap">` tag, `RenderPage` injects a module script that loads `index.js`:
+
+```html
+<script type="module" src="/components/index.js"></script>
+```
+
+Using `type="module"` is the correct approach because:
+
+- ES modules are deferred by default — they do not block HTML parsing.
+- `type="module"` scripts execute after the document is parsed, which is appropriate for custom element registration (elements are already in the DOM when `connectedCallback` fires).
+- `async` is redundant for modules that have no inline body and no dynamic imports; the browser handles execution ordering automatically.
+
+The `src` value is `scriptURLPrefix + "index.js"`, where `scriptURLPrefix` is the configurable prefix (default `/components/`).
+
+When `RenderPage` injects no importmap (collector is empty), the loader script is also omitted.
 
 #### Pseudocode
 
@@ -370,10 +399,10 @@ func (r *Renderer) buildImportMap(prefix string) template.HTML {
 - ✅ Hashed URLs enable aggressive browser caching independent of HTML page caching.
 - ✅ Built per render pass from the existing collector — no additional state.
 - ✅ Configurable prefix decouples the importmap from the static file serving configuration.
-- ⚠️ `RenderFragment` callers must call `{{importMap}}` explicitly; automatic injection would have no reliable `</head>` anchor.
+- ⚠️ `RenderFragment` callers must call `{{importMap()}}` explicitly; automatic injection would have no reliable `</head>` anchor.
 - ⚠️ Browser support for importmaps is broad (all evergreen browsers as of 2024) but absent in IE11. This is consistent with Custom Elements support requirements and is not a regression.
 
-**Verdict**: inject importmap automatically before `</head>` in `RenderPage`; expose `{{importMap}}` template function for `RenderFragment`; make URL prefix configurable with default `/ce/`.
+**Verdict**: inject importmap automatically before `</head>` in `RenderPage`; expose `{{importMap()}}` template function for `RenderFragment`; make URL prefix configurable with default `/components/`.
 
 ---
 
@@ -411,7 +440,20 @@ ui-tabs.e5f6a7b8.js
 admin-card.9f3c21aa.js
 admin-date-picker.1c2d3e4f.js
 blog-counter.5a6b7c8d.js
+index.js
 ```
+
+#### `index.js` barrel file
+
+In addition to the per-component hashed files, `ScriptsFS` contains a single `index.js` at the root. This file contains one side-effect import per custom element component, using the hashed filenames as relative paths:
+
+```js
+import "./widgets-counter.a1b2c3d4.js";
+import "./ui-tabs.e5f6a7b8.js";
+import "./admin-card.9f3c21aa.js";
+```
+
+`index.js` is regenerated at engine load time whenever components change. It is intentionally **not** content-hashed because it changes whenever any component's hash changes; it is served with a short `Cache-Control` max-age (see §4.9).
 
 #### Implementation
 
@@ -455,6 +497,17 @@ func BuildScriptsFS(components []*Component) (fs.FS, map[string]string, error) {
         archive.WriteFile(filename, []byte(comp.CustomElementScript))
         hashedNames[comp.CustomElementTag] = filename
     }
+    // Generate index.js barrel file with one side-effect import per component
+    var imports []string
+    for _, comp := range components {
+        if comp.CustomElementScript == "" {
+            continue
+        }
+        filename := hashedNames[comp.CustomElementTag]
+        imports = append(imports, fmt.Sprintf("import \"./%s\";", filename))
+    }
+    indexBody := strings.Join(imports, "\n") + "\n"
+    archive.WriteFile("index.js", []byte(indexBody))
     return archive.FS(), hashedNames, nil
 }
 ```
@@ -470,7 +523,7 @@ Callers who need to construct a script URL (e.g. for a `<script src>` tag) shoul
 - ✅ `archive/zip` provides an in-memory `fs.FS`-compatible implementation without requiring a third-party dependency.
 - ⚠️ The FS is read-only after load. Reloading requires recreating the engine.
 
-**Verdict**: use an in-memory `archive/zip`-backed `fs.FS` as the compilation output; embed an 8-character SHA-256-derived content hash in each filename; expose via `Engine.ScriptsFS()` and `Engine.hashedFilename`.
+**Verdict**: use an in-memory `archive/zip`-backed `fs.FS` as the compilation output; embed an 8-character SHA-256-derived content hash in each per-component filename; include an unhashed `index.js` barrel file that side-effect-imports all component scripts; expose via `Engine.ScriptsFS()` and `Engine.hashedFilename`.
 
 ---
 
@@ -499,7 +552,68 @@ Under this RFC:
 
 Both errors are emitted at component-load time (engine startup or first `ParseFile` call), not at render time.
 
+- **`<script customelement src="...">`**: `ParseFile` returns an error:
+  ```
+  path/to/Component.vue: <script customelement src="..."> is not supported;
+  write the script body inline inside the <script customelement> block
+  ```
+
 **Verdict**: promote the current silent ignore to a loud compile-time error with an actionable message.
+
+---
+
+### 4.9 HTTP Caching
+
+Content-hashed filenames in `ScriptsFS` are only useful if the application sets appropriate HTTP caching headers. Two files in `ScriptsFS` have different caching semantics:
+
+#### Hashed component files (`<tagName>.<hash>.js`)
+
+These files are **immutable**: their name encodes their content. Serve them with:
+
+```
+Cache-Control: public, max-age=31536000, immutable
+```
+
+`max-age=31536000` is one year; `immutable` tells the browser the file will never change at this URL so it need not revalidate. When a component's script body changes, its hash changes and a new URL is generated; old cached files become unreachable (no URL points to them).
+
+#### `index.js`
+
+`index.js` changes whenever any component hash changes. It must **not** be cached indefinitely. Serve it with a short max-age, relying on revalidation:
+
+```
+Cache-Control: public, max-age=0, must-revalidate
+```
+
+Or use `no-cache` for simplicity:
+
+```
+Cache-Control: no-cache
+```
+
+This ensures browsers always fetch the latest `index.js` on each deployment, while keeping hashed component files cached indefinitely.
+
+#### Application responsibility
+
+`htmlc` does not set HTTP headers — it provides an `fs.FS`. Applications that serve `ScriptsFS` via `http.FileServer` must wrap the handler to apply these headers. Example pattern:
+
+```go
+// pseudo-code — not implementation
+scriptHandler := http.FileServer(http.FS(engine.ScriptsFS()))
+http.Handle("/components/", http.StripPrefix("/components/", withCacheHeaders(scriptHandler)))
+
+func withCacheHeaders(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if r.URL.Path == "/index.js" || strings.HasSuffix(r.URL.Path, "/index.js") {
+            w.Header().Set("Cache-Control", "no-cache")
+        } else {
+            w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+        }
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+This is documented guidance, not enforced by `htmlc`.
 
 ---
 
@@ -513,8 +627,9 @@ Both errors are emitted at component-load time (engine startup or first `ParseFi
 | `<style>` | *(none)* | Global stylesheet contribution; unchanged from today |
 | `<style scoped>` | `scoped` | Scoped stylesheet contribution; unchanged from today |
 | `<template>` | *(none)* | Server-side render template; unchanged from today |
-| `{{scriptFor "path/to/Component"}}` | relative path, no `.vue` extension | Returns the raw script body of the named component as `template.HTML`. Author wraps in `<script>…</script>`. Error if path unknown or component has no `<script customelement>`. |
-| `{{importMap}}` | *(none)* | Emits `<script type="importmap">` for all custom elements used so far in the render pass. Automatic in `RenderPage` (before `</head>`); explicit in `RenderFragment`. |
+| `{{scriptFor("path/to/Component")}}` | relative path, no `.vue` extension | Returns the raw script body of the named component as `template.HTML`. Author wraps in `<script>…</script>`. Error if path unknown or component has no `<script customelement>`. |
+| `{{importMap()}}` | *(none)* | Emits `<script type="importmap">` for all custom elements used so far in the render pass. Automatic in `RenderPage` (before `</head>`); explicit in `RenderFragment`. |
+| `<script customelement src="...">` | `src` | **Error**: `src` attribute not supported on `<script customelement>` |
 
 ### Tag name derivation
 
@@ -535,6 +650,8 @@ Both errors are emitted at component-load time (engine startup or first `ParseFi
 | `admin-card` | `admin-card.9f3c21aa.js` |
 
 Hash is SHA-256 of the script body, truncated to 4 bytes (8 hex chars).
+
+Hashed component files are served with `Cache-Control: immutable`; `index.js` with `Cache-Control: no-cache`. See §4.9.
 
 ---
 
@@ -597,8 +714,9 @@ customElements.define('widgets-counter', class extends HTMLElement {
   <head>
     <title>Home</title>
     <script type="importmap">
-{"imports":{"widgets-counter":"/ce/widgets-counter.a1b2c3d4.js"}}
+{"imports":{"widgets-counter":"/components/widgets-counter.a1b2c3d4.js"}}
 </script>
+  <script type="module" src="/components/index.js"></script>
   </head>
   <body>
     <widgets-counter>
@@ -619,7 +737,7 @@ A page author who prefers inlining the script (e.g. to avoid an extra HTTP reque
     <head><title>Home</title></head>
     <body>
       <Counter />
-      <script>{{scriptFor "widgets/Counter"}}</script>
+      <script>{{scriptFor("widgets/Counter")}}</script>
     </body>
   </html>
 </template>
@@ -755,8 +873,9 @@ customElements.define('widgets-toggle', class extends HTMLElement {
   <head>
     <title>Dashboard</title>
     <script type="importmap">
-{"imports":{"widgets-counter":"/ce/widgets-counter.a1b2c3d4.js","widgets-toggle":"/ce/widgets-toggle.b2c3d4e5.js"}}
+{"imports":{"widgets-counter":"/components/widgets-counter.a1b2c3d4.js","widgets-toggle":"/components/widgets-toggle.b2c3d4e5.js"}}
 </script>
+  <script type="module" src="/components/index.js"></script>
   </head>
   <body>
     <h1>Dashboard</h1>
@@ -775,8 +894,8 @@ The `CustomElementCollector` tracks `{ "widgets-counter": "widgets/Counter.vue",
 Authors who prefer inlining (e.g. for a dashboard with a strict no-external-request policy) can use `scriptFor` for each element instead of relying on the importmap:
 
 ```html
-<script>{{scriptFor "widgets/Counter"}}</script>
-<script>{{scriptFor "widgets/Toggle"}}</script>
+<script>{{scriptFor("widgets/Counter")}}</script>
+<script>{{scriptFor("widgets/Toggle")}}</script>
 ```
 
 ---
@@ -911,8 +1030,9 @@ A page using both scoped styles and custom elements, showing the combined `<head
   <style>/* scoped styles from ui/Tabs */
 .tab-panel[data-v-a1b2c3d4] { display: block; }</style>
   <script type="importmap">
-{"imports":{"ui-tabs":"/ce/ui-tabs.e5f6a7b8.js","widgets-counter":"/ce/widgets-counter.a1b2c3d4.js"}}
+{"imports":{"ui-tabs":"/components/ui-tabs.e5f6a7b8.js","widgets-counter":"/components/widgets-counter.a1b2c3d4.js"}}
 </script>
+  <script type="module" src="/components/index.js"></script>
 </head>
 ```
 
@@ -927,6 +1047,7 @@ The importmap is injected immediately before `</head>`, after any `<style>` cont
 1. Add two new fields to `Component`: `CustomElementScript string` and `CustomElementTag string`.
 2. In `extractSections`, after reading a `<script>` start tag, collect all its attributes into a `map[string]string`.
 3. If `attrs["customelement"] != ""` or the attribute name `"customelement"` is present (boolean attribute), store the verbatim body in `sections["script:customelement"]`.
+   3a. If `attrs["customelement"] != ""` and `attrs["src"] != ""`, return an error immediately: `<script customelement src="...">` is not supported.
 4. In `ParseFile`, populate `CustomElementScript` from `sections["script:customelement"]`.
 5. Convert the current silent-ignore of `sections["script"]` and `sections["script:setup"]` into explicit error returns with the messages defined in §4.8.
 
@@ -942,13 +1063,14 @@ The importmap is injected immediately before `</head>`, after any `<style>` cont
 ### `engine.go`
 
 1. Add `scripts fs.FS` and `hashedFilename map[string]string` fields to `Engine`.
-2. Add `scriptURLPrefix string` field (set via `WithScriptURLPrefix` option; default `"/ce/"`).
+2. Add `scriptURLPrefix string` field (set via `WithScriptURLPrefix` option; default `"/components/"`).
 3. During component loading (in `Load` or equivalent), call `DeriveTagName` for each component and set `component.CustomElementTag`.
 4. After all components are loaded, call `BuildScriptsFS` and store the result in `Engine.scripts` and `Engine.hashedFilename`.
 5. Add `ScriptsFS() fs.FS` public method that returns `Engine.scripts`.
 6. Register `scriptFor` as a template function: looks up `relPath` in a `map[relPath]*Component` built at load time, returns `template.HTML(comp.CustomElementScript)` or an error.
 7. Register `importMap` as a template function: delegates to the per-pass renderer's `buildImportMap(e.scriptURLPrefix)`.
 8. In `RenderPage`, after injecting style blocks and before returning, inject the importmap immediately before `</head>` when the collector is non-empty.
+9. In `RenderPage`, immediately after injecting the importmap, inject `<script type="module" src="{prefix}index.js"></script>` before `</head>`.
 
 ### `renderer.go`
 
@@ -980,7 +1102,7 @@ For components without `<script customelement>`, both functions return the same 
 
 ### `RenderPage` / `RenderFragment`
 
-No change for components without `<script customelement>`. For components that do use it, `RenderPage` gains automatic SSR wrapping and importmap injection before `</head>`. `RenderFragment` does not auto-inject; callers who need an importmap use `{{importMap}}` explicitly.
+No change for components without `<script customelement>`. For components that do use it, `RenderPage` gains automatic SSR wrapping and importmap injection before `</head>`. `RenderFragment` does not auto-inject; callers who need an importmap use `{{importMap()}}` explicitly.
 
 ### `FlushCustomElements`
 
@@ -989,7 +1111,7 @@ No change for components without `<script customelement>`. For components that d
 ### `Engine` public API
 
 - New method `ScriptsFS() fs.FS` — additive, no break.
-- `scriptFor` and `importMap` are registered as template functions — additive, no break.
+- `scriptFor(path)` and `importMap()` are registered as template functions — additive, no break.
 - No existing methods are removed or have their signatures changed.
 
 ### Importmap injection
@@ -1048,7 +1170,7 @@ Expose a `FlushCustomElements()` method/template function that emits all used co
 
 2. **`FlushCustomElements` placement** — *Resolved*. The inline flush design is replaced by `scriptFor` (explicit, per-component) and automatic importmap injection (zero author burden for `RenderPage`). No placement decision is required.
 
-3. **`RenderFragment` ergonomics** — If an author calls `RenderFragment` to render a snippet containing a custom element, the element is in the DOM but no importmap is emitted. Authors must call `{{importMap}}` explicitly. Should a combined `RenderFragmentWithElements() (html, importmap template.HTML, err error)` API be added? *Tentative recommendation*: yes, as a convenience method. **Non-blocking** for v1.
+3. **`RenderFragment` ergonomics** — If an author calls `RenderFragment` to render a snippet containing a custom element, the element is in the DOM but no importmap is emitted. Authors must call `{{importMap()}}` explicitly. Should a combined `RenderFragmentWithElements() (html, importmap template.HTML, err error)` API be added? *Tentative recommendation*: yes, as a convenience method. **Non-blocking** for v1.
 
 4. **Nonce support for `scriptFor` inline scripts** — CSP `script-src` policies require a nonce on inline `<script>` tags. Since `scriptFor` returns only the body (not the tag), authors supply the nonce themselves on the surrounding `<script nonce="...">` tag. No special `htmlc` support is needed for the inline case. For the auto-injected importmap (`RenderPage`), the engine must be able to inject a nonce attribute on the generated `<script type="importmap">` tag. *Tentative recommendation*: add a `WithNonceFunc(func() string)` option to the engine that is called per render pass; the result is added as a `nonce` attribute on the auto-injected importmap tag. **Non-blocking** — can be added without API break.
 
