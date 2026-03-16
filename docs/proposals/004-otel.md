@@ -1,6 +1,7 @@
 # RFC 004: OpenTelemetry Per-Component Tracing
 
-- **Status**: Draft
+- **Status**: Rejected
+- **Rejection reason**: Too much complexity, can be served by slog / otel integrations
 - **Date**: 2026-03-15
 - **Author**: TBD
 
