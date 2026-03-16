@@ -7,6 +7,7 @@ import (
 	htmltmpl "html/template"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	pathpkg "path"
@@ -64,6 +65,12 @@ type Options struct {
 	// values, conditional branch outcomes, and slot contents.
 	// Intended for development use only; never enable in production.
 	Debug bool
+	// Logger, if non-nil, receives one structured log record per component
+	// rendered. Records are emitted at slog.LevelDebug for successful renders
+	// and slog.LevelError for failed renders. Each record includes the
+	// component name, render duration (subtree), bytes written (subtree), and
+	// any error. The nil value (default) disables all slog output.
+	Logger *slog.Logger
 }
 
 // engineEntry holds a parsed component together with its source path and the
@@ -108,6 +115,8 @@ type Engine struct {
 	// global registry integration
 	expvarMap    *expvar.Map
 	expvarPrefix string
+
+	cw countingWriter // used by loggedRender for root-level instrumentation
 }
 
 // WithMissingPropHandler sets the function called when any component rendered
@@ -735,11 +744,50 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 		renderer = renderer.withDebug(dw)
 		w = dw
 	}
-	if err := renderer.Render(w, scope); err != nil {
+	if e.opts.Logger != nil {
+		renderer = renderer.WithLogger(e.opts.Logger)
+	}
+	renderFn := func(out io.Writer) error {
+		return renderer.Render(out, scope)
+	}
+	if err := e.loggedRender(ctx, name, w, renderFn); err != nil {
 		e.counterRenderErrors.Add(1)
 		return nil, err
 	}
 	return sc, nil
+}
+
+// loggedRender wraps a root render call with slog instrumentation when
+// opts.Logger is non-nil. name is the root component name; render is a
+// closure that writes to the supplied io.Writer.
+func (e *Engine) loggedRender(
+	ctx context.Context,
+	name string,
+	w io.Writer,
+	render func(io.Writer) error,
+) error {
+	if e.opts.Logger == nil {
+		return render(w)
+	}
+	e.cw.Reset(w)
+	start := time.Now()
+	renderErr := render(&e.cw)
+	elapsed := time.Since(start)
+	if renderErr != nil {
+		e.opts.Logger.ErrorContext(ctx, MsgComponentFailed,
+			slog.String("component", name),
+			slog.Duration("duration", elapsed),
+			slog.Int64("bytes", e.cw.n),
+			slog.Any("error", renderErr),
+		)
+	} else {
+		e.opts.Logger.DebugContext(ctx, MsgComponentRendered,
+			slog.String("component", name),
+			slog.Duration("duration", elapsed),
+			slog.Int64("bytes", e.cw.n),
+		)
+	}
+	return renderErr
 }
 
 // styleBlock builds a "<style>…</style>" string from sc's contributions.

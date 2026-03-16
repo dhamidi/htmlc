@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	pathpkg "path"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dhamidi/htmlc/expr"
 	"golang.org/x/net/html"
@@ -159,6 +161,8 @@ type Renderer struct {
 	debug              bool
 	debugW             *debugWriter
 	funcs              map[string]any // engine-registered functions, propagated to child renderers
+	logger             *slog.Logger  // nil = no slog output
+	cw                 countingWriter // Reset()ed at each child dispatch
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -237,6 +241,14 @@ func (r *Renderer) withDebug(dw *debugWriter) *Renderer {
 // Returns the Renderer for chaining.
 func (r *Renderer) WithFuncs(funcs map[string]any) *Renderer {
 	r.funcs = funcs
+	return r
+}
+
+// WithLogger attaches a *slog.Logger to this renderer. When non-nil, one
+// structured log record is emitted per child component dispatch. Returns
+// the Renderer for chaining.
+func (r *Renderer) WithLogger(l *slog.Logger) *Renderer {
+	r.logger = l
 	return r
 }
 
@@ -1667,11 +1679,35 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		debug:              r.debug,
 		debugW:             r.debugW,
 		funcs:              r.funcs,              // propagate engine functions to child renderers
+		logger:             r.logger,
 	}
 
-	if err := childRenderer.Render(w, childScope); err != nil {
-		return fmt.Errorf("component %q: %w", n.Data, err)
+	if r.logger == nil {
+		if err := childRenderer.Render(w, childScope); err != nil {
+			return fmt.Errorf("component %q: %w", n.Data, err)
+		}
+		return nil
 	}
+
+	compName := strings.TrimSuffix(pathpkg.Base(comp.Path), pathpkg.Ext(comp.Path))
+	childRenderer.cw.Reset(w)
+	start := time.Now()
+	renderErr := childRenderer.Render(&childRenderer.cw, childScope)
+	elapsed := time.Since(start)
+	if renderErr != nil {
+		r.logger.ErrorContext(r.ctx, MsgComponentFailed,
+			slog.String("component", compName),
+			slog.Duration("duration", elapsed),
+			slog.Int64("bytes", childRenderer.cw.n),
+			slog.Any("error", renderErr),
+		)
+		return fmt.Errorf("component %q: %w", n.Data, renderErr)
+	}
+	r.logger.DebugContext(r.ctx, MsgComponentRendered,
+		slog.String("component", compName),
+		slog.Duration("duration", elapsed),
+		slog.Int64("bytes", childRenderer.cw.n),
+	)
 	return nil
 }
 

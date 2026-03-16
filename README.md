@@ -20,9 +20,10 @@ A server-side Go template engine that uses Vue.js Single File Component (`.vue`)
 6. [Go API Quick Reference](#go-api-quick-reference)
 7. [Expression Language Reference](#expression-language-reference)
 8. [Debug Mode](#debug-mode)
-9. [Custom Directives](#custom-directives)
-10. [Compatibility with Vue.js](#compatibility-with-vuejs)
-11. [html/template Integration](#htmltemplate-integration)
+9. [Structured Logging](#structured-logging)
+10. [Custom Directives](#custom-directives)
+11. [Compatibility with Vue.js](#compatibility-with-vuejs)
+12. [html/template Integration](#htmltemplate-integration)
 
 ---
 
@@ -965,7 +966,65 @@ Document
 
 ---
 
-## 9. Custom Directives
+## 9. Structured Logging
+
+The engine can emit one structured log record per component rendered using the standard library's `log/slog` package. Pass a `*slog.Logger` to `Options.Logger` to enable it.
+
+Records are emitted at `slog.LevelDebug` for successful renders and `slog.LevelError` for failed renders. Each record includes:
+
+| Attribute | Type | Description |
+|---|---|---|
+| `component` | string | Resolved component name (file base name without `.vue`) |
+| `duration` | duration | Wall-clock time for the component subtree |
+| `bytes` | int64 | Bytes written by the component subtree |
+| `error` | error | Set only on `ERROR`-level records |
+
+The two log messages are available as exported constants so test code can filter records without hardcoding strings:
+
+```go
+htmlc.MsgComponentRendered // "component rendered"
+htmlc.MsgComponentFailed   // "component render failed"
+```
+
+A nil `Logger` (the default) disables all slog output with no overhead on the hot path.
+
+### Example
+
+```go
+import (
+    "log/slog"
+    "os"
+
+    "github.com/dhamidi/htmlc"
+)
+
+logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+}))
+
+engine, err := htmlc.New(htmlc.Options{
+    ComponentDir: "templates/",
+    Logger:       logger,
+})
+```
+
+Example log output (one line per component, formatted for readability):
+
+```json
+{"time":"...","level":"DEBUG","msg":"component rendered","component":"Card","duration":42000,"bytes":128}
+{"time":"...","level":"DEBUG","msg":"component rendered","component":"Page","duration":95000,"bytes":512}
+```
+
+Records appear in post-order: leaf components are logged before their parents.
+
+### Notes
+
+- `Logger` and `Debug` mode are independent — both can be enabled simultaneously.
+- If concurrent root renders sharing output are needed, use separate engine instances; a single engine's root-level instrumentation uses a shared `countingWriter`.
+
+---
+
+## 10. Custom Directives
 
 The engine supports user-defined directives that extend the template language. A custom directive is any Go type that implements the `Directive` interface:
 
@@ -1178,7 +1237,7 @@ echo '{"hook":"created","id":"1","tag":"pre","attrs":{},"text":"fmt.Println(1)",
 
 ---
 
-## 10. Compatibility with Vue.js
+## 11. Compatibility with Vue.js
 
 htmlc uses `.vue` Single File Component syntax and many of the same directive
 names as Vue.js, but it is a **server-side-only renderer** with intentional
@@ -1228,7 +1287,7 @@ passed at render time.
 
 ---
 
-## 11. html/template Integration
+## 12. html/template Integration
 
 Already using `html/template`? htmlc works alongside your existing templates
 with no changes required. Use `RegisterTemplate` to bring any existing partial
