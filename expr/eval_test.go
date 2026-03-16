@@ -232,6 +232,65 @@ func TestUnaryEval(t *testing.T) {
 	if v := eval(t, "void 0", nil); v != Undefined {
 		t.Errorf("void 0: got %v", v)
 	}
+
+	// Arrays and slices are always truthy in JavaScript, so !array is always false.
+	if v := eval(t, "![]", nil); v != false {
+		t.Errorf("![]: got %v, want false", v)
+	}
+	if v := eval(t, "![1, 2, 3]", nil); v != false {
+		t.Errorf("![1,2,3]: got %v, want false", v)
+	}
+	if v := eval(t, "!items", map[string]any{"items": []any{"a", "b"}}); v != false {
+		t.Errorf("!items ([]any non-empty): got %v, want false", v)
+	}
+	if v := eval(t, "!items", map[string]any{"items": []any{}}); v != false {
+		t.Errorf("!items ([]any empty): got %v, want false", v)
+	}
+	if v := eval(t, "!items", map[string]any{"items": []string{"a"}}); v != false {
+		t.Errorf("!items ([]string non-empty): got %v, want false", v)
+	}
+	if v := eval(t, "!items", map[string]any{"items": []string{}}); v != false {
+		t.Errorf("!items ([]string empty): got %v, want false", v)
+	}
+	var nilSlice []string
+	if v := eval(t, "!items", map[string]any{"items": nilSlice}); v != false {
+		t.Errorf("!items ([]string nil): got %v, want false", v)
+	}
+}
+
+// TestIsTruthy_SliceAndArray directly tests IsTruthy for Go slice and array
+// types to guard against regressions in isTruthy's explicit handling of these
+// kinds.
+func TestIsTruthy_SliceAndArray(t *testing.T) {
+	// []any — produced by array literals in the expression evaluator.
+	if got := IsTruthy([]any{}); !got {
+		t.Error("IsTruthy([]any{}): got false, want true")
+	}
+	if got := IsTruthy([]any{1, 2, 3}); !got {
+		t.Error("IsTruthy([]any{1,2,3}): got false, want true")
+	}
+
+	// Typed Go slices from caller scope.
+	if got := IsTruthy([]string{"hello"}); !got {
+		t.Error("IsTruthy([]string{\"hello\"}): got false, want true")
+	}
+	if got := IsTruthy([]string{}); !got {
+		t.Error("IsTruthy([]string{}): got false, want true")
+	}
+
+	// Typed nil slice stored as interface: interface is non-nil, so truthy.
+	var nilSlice []string
+	if got := IsTruthy(nilSlice); !got {
+		t.Error("IsTruthy(nil []string as any): got false, want true")
+	}
+
+	// Go arrays (fixed-size).
+	if got := IsTruthy([3]int{1, 2, 3}); !got {
+		t.Error("IsTruthy([3]int{1,2,3}): got false, want true")
+	}
+	if got := IsTruthy([0]int{}); !got {
+		t.Error("IsTruthy([0]int{}): got false, want true")
+	}
 }
 
 // TestTypeof verifies the typeof operator returns correct type strings.

@@ -477,7 +477,17 @@ func isTruthy(v any) bool {
 		return val != 0 && !math.IsNaN(val)
 	case string:
 		return val != ""
+	case []any:
+		return true // array literals are always truthy (JS semantics)
 	default:
+		// Typed Go slices and arrays (e.g. []string, [3]int) passed from
+		// caller scope are always truthy, matching JavaScript's rule that all
+		// arrays are truthy regardless of length.
+		rv := reflect.ValueOf(val)
+		switch rv.Kind() {
+		case reflect.Slice, reflect.Array:
+			return true
+		}
 		return true
 	}
 }
