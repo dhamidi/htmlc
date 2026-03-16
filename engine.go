@@ -2,6 +2,7 @@ package htmlc
 
 import (
 	"context"
+	"expvar"
 	"fmt"
 	htmltmpl "html/template"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -87,6 +90,24 @@ type Engine struct {
 	directives         DirectiveRegistry
 	funcs              map[string]any // per-engine functions, injected into every render scope
 	dataMiddleware     []func(*http.Request, map[string]any) map[string]any
+
+	// expvar-backed option vars
+	varReload       *expvar.Int
+	varDebug        *expvar.Int
+	varComponentDir *expvar.String
+	varFS           *expvar.String
+	varDirectives   *expvar.Func
+
+	// performance counters
+	counterRenders      *expvar.Int
+	counterRenderErrors *expvar.Int
+	counterReloads      *expvar.Int
+	counterRenderNanos  *expvar.Int
+	counterComponents   *expvar.Func
+
+	// global registry integration
+	expvarMap    *expvar.Map
+	expvarPrefix string
 }
 
 // WithMissingPropHandler sets the function called when any component rendered
@@ -155,6 +176,46 @@ func New(opts Options) (*Engine, error) {
 		nsEntries:  make(map[string]map[string]*engineEntry),
 		directives: opts.Directives,
 	}
+
+	// Initialise expvar-backed option vars (not registered globally).
+	e.varReload = new(expvar.Int)
+	if opts.Reload {
+		e.varReload.Set(1)
+	}
+	e.varDebug = new(expvar.Int)
+	if opts.Debug {
+		e.varDebug.Set(1)
+	}
+	e.varComponentDir = new(expvar.String)
+	e.varComponentDir.Set(opts.ComponentDir)
+	e.varFS = new(expvar.String)
+	if opts.FS == nil {
+		e.varFS.Set("<nil>")
+	} else {
+		e.varFS.Set(reflect.TypeOf(opts.FS).String())
+	}
+	varDirectives := expvar.Func(func() any {
+		e.mu.RLock()
+		defer e.mu.RUnlock()
+		names := make([]string, 0, len(e.directives))
+		for k := range e.directives {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		return names
+	})
+	e.varDirectives = &varDirectives
+
+	// Performance counters.
+	e.counterRenders = new(expvar.Int)
+	e.counterRenderErrors = new(expvar.Int)
+	e.counterReloads = new(expvar.Int)
+	e.counterRenderNanos = new(expvar.Int)
+	counterComponents := expvar.Func(func() any {
+		return int64(e.componentCountDedup())
+	})
+	e.counterComponents = &counterComponents
+
 	if opts.ComponentDir != "" {
 		if err := e.discover(opts.ComponentDir); err != nil {
 			return nil, err
@@ -163,8 +224,72 @@ func New(opts Options) (*Engine, error) {
 	return e, nil
 }
 
+// componentCountDedup returns the number of unique components registered in
+// the engine (excluding automatic lowercase aliases).
+func (e *Engine) componentCountDedup() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	seen := make(map[*engineEntry]bool, len(e.entries))
+	for _, entry := range e.entries {
+		seen[entry] = true
+	}
+	return len(seen)
+}
+
 // discover walks dir in lexical order and registers every *.vue file found.
 func (e *Engine) discover(dir string) error {
+	return e.discoverInto(dir, e.entries, e.nsEntries)
+}
+
+// discoverInto walks dir in lexical order and registers every *.vue file into
+// the provided entries and nsEntries maps. It does not modify e.entries or
+// e.nsEntries directly, allowing callers to swap maps atomically.
+func (e *Engine) discoverInto(dir string, entries map[string]*engineEntry, nsEntries map[string]map[string]*engineEntry) error {
+	registerInto := func(name, path string) error {
+		var (
+			data []byte
+			err  error
+		)
+		if e.opts.FS != nil {
+			data, err = fs.ReadFile(e.opts.FS, path)
+		} else {
+			data, err = os.ReadFile(path)
+		}
+		if err != nil {
+			return fmt.Errorf("engine: read %s: %w", path, err)
+		}
+		comp, err := ParseFile(path, string(data))
+		if err != nil {
+			return err
+		}
+		var modTime time.Time
+		if e.opts.FS != nil {
+			if statFS, ok := e.opts.FS.(fs.StatFS); ok {
+				if info, statErr := statFS.Stat(path); statErr == nil {
+					modTime = info.ModTime()
+				}
+			}
+		} else {
+			if info, statErr := os.Stat(path); statErr == nil {
+				modTime = info.ModTime()
+			}
+		}
+		entry := &engineEntry{path: path, comp: comp, modTime: modTime}
+		entries[name] = entry
+		if lower := strings.ToLower(name); lower != name {
+			entries[lower] = entry
+		}
+		// Populate the namespaced registry when ComponentDir is set.
+		if e.opts.ComponentDir != "" {
+			relDir := nsRelDir(path, e.opts.ComponentDir)
+			if nsEntries[relDir] == nil {
+				nsEntries[relDir] = make(map[string]*engineEntry)
+			}
+			nsEntries[relDir][name] = entry
+		}
+		return nil
+	}
+
 	if e.opts.FS != nil {
 		return fs.WalkDir(e.opts.FS, dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
@@ -179,7 +304,7 @@ func (e *Engine) discover(dir string) error {
 				return nil
 			}
 			name := strings.TrimSuffix(base, ext)
-			return e.registerPathLocked(name, path)
+			return registerInto(name, path)
 		})
 	}
 	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -195,7 +320,7 @@ func (e *Engine) discover(dir string) error {
 			return nil
 		}
 		name := strings.TrimSuffix(base, ext)
-		return e.registerPathLocked(name, path)
+		return registerInto(name, path)
 	})
 }
 
@@ -270,7 +395,7 @@ func (e *Engine) Register(name, path string) error {
 //
 // It is safe for concurrent use.
 func (e *Engine) maybeReload() error {
-	if !e.opts.Reload {
+	if e.varReload.Value() == 0 {
 		return nil
 	}
 	e.mu.Lock()
@@ -310,6 +435,7 @@ func (e *Engine) maybeReload() error {
 	}
 
 	// Full re-walk: clear both registries and rebuild from ComponentDir.
+	e.counterReloads.Add(1)
 	e.entries = make(map[string]*engineEntry)
 	e.nsEntries = make(map[string]map[string]*engineEntry)
 	if e.opts.ComponentDir != "" {
@@ -563,7 +689,12 @@ func (e *Engine) applyDataMiddleware(r *http.Request, data map[string]any) map[s
 // renderComponent renders the named component with the given data scope,
 // writing HTML to w and returning the collected styles.
 func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, data map[string]any) (*StyleCollector, error) {
+	e.counterRenders.Add(1)
+	start := time.Now()
+	defer func() { e.counterRenderNanos.Add(time.Since(start).Nanoseconds()) }()
+
 	if err := e.maybeReload(); err != nil {
+		e.counterRenderErrors.Add(1)
 		return nil, err
 	}
 
@@ -580,6 +711,7 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 	e.mu.RUnlock()
 
 	if !ok {
+		e.counterRenderErrors.Add(1)
 		return nil, fmt.Errorf("engine: unknown component %q: %w", name, ErrComponentNotFound)
 	}
 
@@ -598,12 +730,13 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 	if e.missingPropHandler != nil {
 		renderer = renderer.WithMissingPropHandler(e.missingPropHandler)
 	}
-	if e.opts.Debug {
+	if e.varDebug.Value() != 0 {
 		dw := newDebugWriter(w)
 		renderer = renderer.withDebug(dw)
 		w = dw
 	}
 	if err := renderer.Render(w, scope); err != nil {
+		e.counterRenderErrors.Add(1)
 		return nil, err
 	}
 	return sc, nil
@@ -977,6 +1110,112 @@ func (e *Engine) RegisterTemplate(name string, tmpl *htmltmpl.Template) error {
 		if lower := strings.ToLower(r.name); lower != r.name {
 			e.entries[lower] = entry
 		}
+	}
+	return nil
+}
+
+// PublishExpvars registers the engine's configuration and performance counters
+// in the global expvar registry under the given prefix. The prefix must be
+// unique across all engines in the process; calling PublishExpvars with a
+// prefix that is already registered panics (same as expvar.NewMap).
+//
+// After calling PublishExpvars, the engine's vars are accessible at
+// /debug/vars under the key prefix, and the following sub-keys are available:
+//
+//	reload        – 1 if hot-reload is enabled, 0 otherwise
+//	debug         – 1 if debug mode is enabled, 0 otherwise
+//	componentDir  – the current component directory
+//	fs            – the type name of the current fs.FS, or "<nil>"
+//	renders       – total number of renderComponent calls
+//	renderErrors  – total number of failed renders
+//	reloads       – total number of hot-reload re-scans performed
+//	renderNanos   – cumulative render time in nanoseconds
+//	components    – number of unique registered components
+//	info.directives – sorted list of registered custom directive names
+//
+// PublishExpvars returns the Engine so calls can be chained.
+func (e *Engine) PublishExpvars(prefix string) *Engine {
+	m := expvar.NewMap(prefix)
+	m.Set("reload", e.varReload)
+	m.Set("debug", e.varDebug)
+	m.Set("componentDir", e.varComponentDir)
+	m.Set("fs", e.varFS)
+	m.Set("renders", e.counterRenders)
+	m.Set("renderErrors", e.counterRenderErrors)
+	m.Set("reloads", e.counterReloads)
+	m.Set("renderNanos", e.counterRenderNanos)
+	m.Set("components", e.counterComponents)
+	info := new(expvar.Map)
+	info.Set("directives", e.varDirectives)
+	m.Set("info", info)
+	e.expvarMap = m
+	e.expvarPrefix = prefix
+	return e
+}
+
+// SetReload enables or disables hot-reload at runtime. When enabled, the
+// engine checks component file modification times before each render and
+// automatically re-parses changed files. The change takes effect on the next
+// render call.
+func (e *Engine) SetReload(enabled bool) {
+	if enabled {
+		e.varReload.Set(1)
+	} else {
+		e.varReload.Set(0)
+	}
+}
+
+// SetDebug enables or disables debug render mode at runtime. When enabled,
+// rendered HTML is annotated with HTML comments describing component
+// boundaries, expression values, and slot contents. The change takes effect
+// on the next render call.
+func (e *Engine) SetDebug(enabled bool) {
+	if enabled {
+		e.varDebug.Set(1)
+	} else {
+		e.varDebug.Set(0)
+	}
+}
+
+// SetComponentDir changes the component directory at runtime, re-running
+// discovery atomically under the engine's write lock. If discovery fails,
+// the engine's state is unchanged and the error is returned.
+func (e *Engine) SetComponentDir(dir string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	entries := make(map[string]*engineEntry)
+	nsEntries := make(map[string]map[string]*engineEntry)
+	if err := e.discoverInto(dir, entries, nsEntries); err != nil {
+		return err
+	}
+	e.entries = entries
+	e.nsEntries = nsEntries
+	e.opts.ComponentDir = dir
+	e.varComponentDir.Set(dir)
+	return nil
+}
+
+// SetFS changes the fs.FS used for component discovery and file reads at
+// runtime, re-running discovery atomically under the engine's write lock.
+// If discovery fails, the engine's state is unchanged and the error is
+// returned.
+func (e *Engine) SetFS(fsys fs.FS) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	entries := make(map[string]*engineEntry)
+	nsEntries := make(map[string]map[string]*engineEntry)
+	savedFS := e.opts.FS
+	e.opts.FS = fsys
+	if err := e.discoverInto(e.opts.ComponentDir, entries, nsEntries); err != nil {
+		e.opts.FS = savedFS
+		return err
+	}
+	e.entries = entries
+	e.nsEntries = nsEntries
+	if fsys != nil {
+		e.varFS.Set(reflect.TypeOf(fsys).String())
+	} else {
+		e.varFS.Set("<nil>")
 	}
 	return nil
 }

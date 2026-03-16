@@ -484,4 +484,55 @@
 //	    ComponentDir: "templates/",
 //	    Reload:       true,
 //	})
+//
+// # Runtime introspection with expvar
+//
+// An Engine can publish its configuration and performance counters to the
+// global expvar registry, making them accessible at /debug/vars (served
+// automatically when net/http/pprof or expvar is imported).  Call
+// PublishExpvars with a unique prefix after constructing the engine:
+//
+//	engine, err := htmlc.New(htmlc.Options{ComponentDir: "templates/"})
+//	if err != nil { /* handle */ }
+//	engine.PublishExpvars("htmlc")
+//
+//	// Visiting http://localhost:8080/debug/vars now shows, under "htmlc":
+//	//   "reload": 0, "debug": 0, "renders": 42, "renderNanos": 1234567, …
+//
+// Published variables:
+//
+//	reload        – 1 if hot-reload is enabled, 0 otherwise
+//	debug         – 1 if debug mode is enabled, 0 otherwise
+//	componentDir  – the active component directory
+//	fs            – the type name of the active fs.FS, or "<nil>"
+//	renders       – total renderComponent calls (includes errors)
+//	renderErrors  – total failed renders
+//	reloads       – total hot-reload re-scans performed
+//	renderNanos   – cumulative render time in nanoseconds
+//	components    – number of unique registered components
+//	info.directives – sorted list of registered custom directive names
+//
+// Two engines in the same process must use different prefixes:
+//
+//	adminEngine.PublishExpvars("htmlc/admin")
+//	publicEngine.PublishExpvars("htmlc/public")
+//
+// # Runtime option mutation
+//
+// Reload and Debug can be toggled at runtime without restarting the server:
+//
+//	engine.SetReload(true)   // enable hot-reload
+//	engine.SetDebug(false)   // disable debug mode
+//
+// The component directory and filesystem can be changed atomically; discovery
+// is re-run under the engine's write lock and the engine's state is only
+// updated on success:
+//
+//	if err := engine.SetComponentDir("templates/v2"); err != nil {
+//	    log.Printf("component dir change failed: %v", err)
+//	}
+//
+//	if err := engine.SetFS(newFS); err != nil {
+//	    log.Printf("fs change failed: %v", err)
+//	}
 package htmlc
