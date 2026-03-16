@@ -34,22 +34,24 @@ Custom Elements (part of the Web Components standard) let any DOM element regist
 ## 2. Goals
 
 1. **100% Vue SFC syntax compatibility**: `<script customelement>` must not collide with any attribute already used by Vue on `<script>` blocks (`lang`, `src`, `generic`, `setup`).
-2. **Author interactivity inside the `.vue` file**: provide a single block (`<script customelement>`) where the author writes the Custom Element class body (`connectedCallback`, `attributeChangedCallback`, `observedAttributes`, etc.); `htmlc` wraps it in the required boilerplate.
-3. **Error on `<script>` and `<script setup>`**: emit a descriptive compile-time error when these blocks appear, preventing silent failures for authors who accidentally write standard Vue script blocks.
-4. **Import Map integration**: when a page includes at least one custom element, `htmlc` can optionally emit a `<script type="importmap">` mapping tag names to their script source.
-5. **Deduplication across the render pass**: the same custom element definition is emitted at most once per page, even if the component is used multiple times.
-6. **Zero impact on components without `<script customelement>`**: server-side rendering behaviour is identical to today for all existing components.
+2. **Author interactivity inside the `.vue` file**: provide a single block (`<script customelement>`) where the author writes any client-side JavaScript they need; `htmlc` emits it verbatim into the page.
+3. **Automatic SSR wrapping**: when a component carries `<script customelement>`, `htmlc` automatically wraps the rendered template output in the component's derived tag name (e.g. `<counter>`, `<admin-card>`), so the browser's Custom Elements registry can upgrade it.
+4. **Error on `<script>` and `<script setup>`**: emit a descriptive compile-time error when these blocks appear, preventing silent failures for authors who accidentally write standard Vue script blocks.
+5. **Deduplication across the render pass**: the same custom element script is emitted at most once per page, even if the component is used multiple times.
+6. **In-memory script FS**: compiled scripts are collected into an in-memory `fs.FS` accessible on the engine, enabling the application to serve, cache-bust, or embed them however it chooses.
+7. **Zero impact on components without `<script customelement>`**: server-side rendering behaviour is identical to today for all existing components.
 
 ---
 
 ## 3. Non-Goals
 
-- **Implementing Vue 3 reactivity, the Options API, or the Composition API on the client.** The emitted JS is a plain class body; no reactivity primitives are provided or planned.
-- **Supporting `<script>` or `<script setup>` blocks.** These are intentional compile-time errors. Implementing them would require re-implementing Vue's compiler and runtime on the client side.
+- **Implementing Vue 3 reactivity, the Options API, or the Composition API on the client.** The emitted JS is whatever the author writes; no reactivity primitives are provided or planned.
+- **Supporting `<script>` or `<script setup>` blocks.** These are intentional compile-time errors.
 - **SSR hydration or resumability.** The server renders static HTML; the Custom Element enhances it after the fact. There is no serialised component state passed from server to client.
 - **Bundling or tree-shaking.** Each custom element script is independent. There is no module bundler integration.
 - **Dynamic imports or lazy loading.** All emitted scripts are eager.
 - **Customised built-in elements (`is="..."` syntax).** Safari does not support them; autonomous custom elements are the only viable cross-browser target.
+- **Generating class boilerplate or autoregistering elements.** The compiler emits the author's script verbatim. Authors who want a `class extends HTMLElement` pattern write it themselves.
 
 ---
 
@@ -90,8 +92,8 @@ type Component struct {
     Path                string
     Source              string
     Warnings            []string
-    CustomElementScript string   // new: body of <script customelement>, empty if absent
-    CustomElementTag    string   // new: explicit tag name override, empty = derive from filename
+    CustomElementScript string   // new: verbatim body of <script customelement>, empty if absent
+    CustomElementTag    string   // new: derived tag name (set during load, not parsing)
 }
 ```
 
@@ -106,10 +108,8 @@ case attrs["setup"] != "":
     // existing: record as "script:setup"
     sections["script:setup"] = rawBody(tokenizer)
 case attrs["customelement"] != "":
-    // new: record as custom element body
-    tagOverride := attrs["tag"]   // optional explicit tag name
+    // new: record as custom element body (verbatim)
     sections["script:customelement"] = rawBody(tokenizer)
-    sections["script:customelement:tag"] = tagOverride
 default:
     // existing: plain <script> — stored; will be rejected later
     sections["script"] = rawBody(tokenizer)
@@ -121,7 +121,7 @@ default:
 ```go
 // pseudo-code — not implementation
 comp.CustomElementScript = sections["script:customelement"]
-comp.CustomElementTag    = sections["script:customelement:tag"]
+// CustomElementTag is set by the engine after load, derived from the component path
 
 // Keep existing error for plain <script>:
 if sections["script"] != "" {
@@ -141,70 +141,126 @@ if sections["script:setup"] != "" {
 
 - ✅ Reads all script-block variants from a single tokeniser pass — no second parse.
 - ✅ The `customelement` attribute is confirmed absent from Vue's SFC spec (`lang`, `src`, `generic`, `setup` are the only recognised attributes on `<script>`). No collision.
-- ✅ `CustomElementTag` supports the `tag="my-name"` override without a separate block.
-- ⚠️ `sections` map grows two new keys; ensure the "duplicate section" guard covers all key combinations.
+- ✅ No `tag` override attribute — the tag name is always derived from the component file path, making it predictable and greppable.
+- ⚠️ `sections` map grows one new key; ensure the "duplicate section" guard covers all key combinations.
 
-**Verdict**: extend attribute reading in `extractSections` to detect `customelement`; store body and optional `tag` override as new `Component` fields.
+**Verdict**: extend attribute reading in `extractSections` to detect `customelement`; store verbatim body as the new `CustomElementScript` field.
 
 ---
 
-### 4.2 Tag-Name and Class-Name Derivation
+### 4.2 Tag-Name Derivation
 
-When `CustomElementTag` is empty, `htmlc` derives both the HTML custom-element tag name and the JS class name from the component's file name.
+The HTML custom element tag name is derived deterministically from the component's file path relative to the component root, using every path segment:
 
-**Algorithm** (applied to the base name without extension, e.g. `DatePicker` from `DatePicker.vue`):
+**Algorithm**:
 
-1. **Class name**: prefix with `Htmlc` → `HtmlcDatePicker`.
-2. **Tag name**: insert hyphens at PascalCase word boundaries, lowercase all, prefix with `htmlc-` → `htmlc-date-picker`.
+1. Split the relative path into directory segments and the file name (without extension).
+2. For each segment: convert PascalCase or CamelCase to kebab-case by inserting a hyphen before each uppercase letter that follows a lowercase letter or digit, then lowercase the whole string.
+3. Join all kebab-cased segments with `-`.
 
 Examples:
 
-| File name    | Class name         | Tag name              |
-|--------------|--------------------|-----------------------|
-| `Counter.vue`     | `HtmlcCounter`     | `htmlc-counter`       |
-| `DatePicker.vue`  | `HtmlcDatePicker`  | `htmlc-date-picker`   |
-| `LiveChart.vue`   | `HtmlcLiveChart`   | `htmlc-live-chart`    |
-| `Button.vue`      | `HtmlcButton`      | `htmlc-button`        |
-| `MyXYZWidget.vue` | `HtmlcMyXYZWidget` | `htmlc-my-x-y-z-widget` |
+| File path (relative to component root) | Derived tag name |
+|-----------------------------------------|-----------------|
+| `Counter.vue`                           | `counter`        |
+| `DatePicker.vue`                        | `date-picker`    |
+| `admin/Card.vue`                        | `admin-card`     |
+| `admin/DatePicker.vue`                  | `admin-date-picker` |
+| `blog/Counter.vue`                      | `blog-counter`   |
+| `ui/form/TextInput.vue`                 | `ui-form-text-input` |
 
-When `CustomElementTag` is non-empty, validate that it contains at least one hyphen and starts with a lowercase ASCII letter (per the Custom Elements specification). The class name is derived from the provided tag name: split on `-`, title-case each segment, prefix with `Htmlc`.
+**Note on the Custom Elements specification**: the browser's `customElements.define()` API requires tag names to contain at least one hyphen. A top-level component such as `Counter.vue` derives the tag name `counter`, which does not satisfy this requirement and cannot be registered as a browser custom element. Authors who want to register a component as a browser custom element must place it in at least one subdirectory (e.g. `widgets/Counter.vue` → `widgets-counter`). Components without a `<script customelement>` block are unaffected by this restriction regardless of location.
 
-**Collision considerations**: the `htmlc-` prefix ensures generated tag names do not collide with standard HTML elements (which contain no hyphen or whose names are reserved). Two distinct components whose file names produce the same derived tag name — e.g. `DatePicker.vue` and `Date-Picker.vue` — will produce a duplicate registration error at emit time, which is a deterministic, loud failure.
+**Collision considerations**: two distinct components that produce the same derived tag name (e.g. `blog/counter.vue` and `blog/Counter.vue` on a case-insensitive filesystem) are a load-time error. The engine detects this during component loading and aborts with a descriptive message.
 
 **Evaluation**
 
-- ✅ Deterministic: same file always produces the same names.
-- ✅ `htmlc-` prefix avoids clashes with plain HTML or third-party elements.
-- ⚠️ Acronym sequences (e.g. `XMLParser`) produce `htmlc-x-m-l-parser`; authors can override with `tag="htmlc-xml-parser"`.
-- ⚠️ Deeply nested files with the same base name (e.g. `blog/Counter.vue` and `admin/Counter.vue`) produce the same tag name; the engine should detect this and error.
+- ✅ Deterministic: same path always produces the same tag name.
+- ✅ No synthetic prefix — the tag name is the component's identity, readable at a glance.
+- ✅ Directory path encodes namespace — `admin/Card` and `blog/Card` produce distinct tag names automatically.
+- ⚠️ Top-level single-word components (`Counter.vue` → `counter`) cannot be registered as browser custom elements. Documented above; authors are expected to namespace components in subdirectories.
+- ⚠️ Acronym sequences (e.g. `XMLParser.vue`) produce `x-m-l-parser` inside a segment. Authors should name files consistently (e.g. `XmlParser.vue` → `xml-parser`).
 
-**Verdict**: derive from file name with `htmlc-` prefix; provide `tag="..."` override attribute for edge cases.
+**Verdict**: derive from the full component path; no prefix; PascalCase segments kebab-cased; directory and file joined with `-`.
 
 ---
 
-### 4.3 JS Emission — Wrapping the Author's Code
+### 4.3 SSR Wrapping
 
-When `Component.CustomElementScript` is non-empty, `htmlc` wraps the author's code in a minimal `class extends HTMLElement { … }` shell and appends a `customElements.define(…)` call.
+When `Component.CustomElementScript` is non-empty, `htmlc` wraps the fully rendered template output in the component's derived tag name. This happens automatically — the author does not need to place the custom element tag in their `<template>` root.
+
+#### Wrapping pseudocode
+
+```go
+// pseudo-code — not implementation
+func wrapInCustomElement(tagName string, renderedHTML template.HTML) template.HTML {
+    return template.HTML(fmt.Sprintf("<%s>%s</%s>", tagName, renderedHTML, tagName))
+}
+```
+
+The author's `<template>` block contains only the component's inner content:
+
+```html
+<!-- widgets/Counter.vue -->
+<template>
+  <button>Click me</button>
+  <span>0</span>
+</template>
+
+<script customelement>
+customElements.define('widgets-counter', class extends HTMLElement {
+  connectedCallback() {
+    this.count = 0;
+    this.button = this.querySelector('button');
+    this.display = this.querySelector('span');
+    this.button.addEventListener('click', () => {
+      this.count++;
+      this.display.textContent = this.count;
+    });
+  }
+});
+</script>
+```
+
+This produces the following SSR output when `<Counter />` is used in a parent template:
+
+```html
+<widgets-counter>
+  <button>Click me</button>
+  <span>0</span>
+</widgets-counter>
+```
+
+**Evaluation**
+
+- ✅ Authors do not duplicate the tag name inside the template — the compiler derives and applies it.
+- ✅ Template content is identical to a component without `<script customelement>`, keeping the mental model consistent.
+- ✅ The browser upgrades the element automatically when the script (emitted separately via `FlushCustomElements`) executes.
+- ⚠️ Authors using `querySelector` in their custom element class must account for the fact that the matched elements are the direct children of the custom element — the same as they are in the rendered DOM.
+
+**Verdict**: automatically wrap rendered template output in the custom element tag when `CustomElementScript` is non-empty.
+
+---
+
+### 4.4 JS Emission — Verbatim Script
+
+When `Component.CustomElementScript` is non-empty, `htmlc` emits the author's script **verbatim** inside a `<script>` tag. No class boilerplate is added, no `customElements.define()` call is generated. The script content is the author's complete, standalone JavaScript.
 
 #### Emission pseudocode
 
 ```go
 // pseudo-code — not implementation
-func emitCustomElement(tagName, className, scriptBody string) template.HTML {
-    return template.HTML(fmt.Sprintf(`<script>
-class %s extends HTMLElement {
-%s
-}
-customElements.define(%q, %s);
-</script>`, className, scriptBody, tagName, className))
+func emitCustomElementScript(scriptBody string) template.HTML {
+    return template.HTML("<script>\n" + scriptBody + "\n</script>")
 }
 ```
 
-The author's `scriptBody` is the verbatim content of the `<script customelement>` block — it forms the body of the class. The author writes lifecycle callbacks and any helper methods directly:
+The author writes the full script — including any `customElements.define()` call if browser-side upgrade is desired:
 
 ```html
-<!-- Counter.vue -->
+<!-- widgets/Counter.vue -->
 <script customelement>
+customElements.define('widgets-counter', class extends HTMLElement {
   connectedCallback() {
     this.count = 0;
     this.button = this.querySelector('button');
@@ -214,42 +270,24 @@ The author's `scriptBody` is the verbatim content of the `<script customelement>
       this.display.textContent = this.count;
     });
   }
-</script>
-```
-
-This produces:
-
-```html
-<script>
-class HtmlcCounter extends HTMLElement {
-  connectedCallback() {
-    this.count = 0;
-    this.button = this.querySelector('button');
-    this.display = this.querySelector('span');
-    this.button.addEventListener('click', () => {
-      this.count++;
-      this.display.textContent = this.count;
-    });
-  }
-}
-customElements.define("htmlc-counter", HtmlcCounter);
+});
 </script>
 ```
 
 **Evaluation**
 
-- ✅ No runtime dependency: the emitted script is self-contained.
-- ✅ Verbatim body insertion means the author can use any JS syntax supported by their target browsers.
-- ⚠️ No automatic `observedAttributes` injection — the author must declare the static getter manually if needed. (This keeps the emitter trivially simple; a future RFC can add automatic derivation from `Component.Props()`.)
-- ⚠️ The body is inserted verbatim, so `htmlc` cannot validate JS syntax. Syntax errors surface in the browser console, not at build time. A future lint step could run `esbuild --bundle=false` on the body.
+- ✅ No runtime dependency: the emitted script is exactly what the author wrote.
+- ✅ Verbatim emission means the author can use any JS pattern: bare functions, IIFE, `class extends HTMLElement`, ES module syntax — no wrapper imposes a structure.
+- ✅ Authors who do not need browser-side upgrade can use `<script customelement>` purely to signal SSR wrapping and emit a no-op script (or one that does unrelated page initialisation).
+- ⚠️ `htmlc` cannot validate JS syntax. Syntax errors surface in the browser console, not at build time.
 
-**Verdict**: verbatim body insertion wrapped in a minimal class shell. No automatic attribute wiring in v1; defer to a future RFC.
+**Verdict**: verbatim emission only. No class wrapper, no autoregistration. The `<script customelement>` block informs compilation (SSR wrapping) and supplies the page script; its content is the author's responsibility.
 
 ---
 
-### 4.4 Deduplication
+### 4.5 Deduplication
 
-The same component may be rendered many times on a single page (e.g. a `<Counter>` inside a list of 50 items). The `customElements.define` call must appear **exactly once** per tag name per page; calling it twice with the same tag name throws a `DOMException`.
+The same component may be rendered many times on a single page (e.g. a `<Counter>` inside a list of 50 items). The script must appear **exactly once** per page.
 
 #### Current state
 
@@ -262,28 +300,34 @@ Introduce a parallel **`CustomElementCollector`** type:
 ```go
 // pseudo-code — not implementation
 type CustomElementEntry struct {
-    TagName   string
-    ClassName string
-    Script    string // verbatim body
+    TagName    string
+    Script     string // verbatim body from <script customelement>
+    SourcePath string // component file path, for collision detection
 }
 
 type CustomElementCollector struct {
-    seen    map[string]struct{}   // keyed by tag name
+    seen    map[string]string    // tag name → source path of first registration
     entries []CustomElementEntry
 }
 
-func (c *CustomElementCollector) Add(e CustomElementEntry) {
-    if _, ok := c.seen[e.TagName]; ok {
-        return   // already registered for this render pass
+func (c *CustomElementCollector) Add(e CustomElementEntry) error {
+    if prior, ok := c.seen[e.TagName]; ok {
+        if prior != e.SourcePath {
+            return fmt.Errorf(
+                "custom element tag %q is defined by both %s and %s",
+                e.TagName, prior, e.SourcePath)
+        }
+        return nil   // same component rendered again — deduplicate silently
     }
-    c.seen[e.TagName] = struct{}{}
+    c.seen[e.TagName] = e.SourcePath
     c.entries = append(c.entries, e)
+    return nil
 }
 
 func (c *CustomElementCollector) FlushCustomElements() template.HTML {
     var b strings.Builder
     for _, e := range c.entries {
-        b.WriteString(string(emitCustomElement(e.TagName, e.ClassName, e.Script)))
+        b.WriteString(string(emitCustomElementScript(e.Script)))
     }
     return template.HTML(b.String())
 }
@@ -291,84 +335,81 @@ func (c *CustomElementCollector) FlushCustomElements() template.HTML {
 
 The `Renderer` receives a `*CustomElementCollector` (analogous to `*StyleCollector`). Whenever `renderElement` processes a component tag whose `Component.CustomElementScript` is non-empty, it calls `collector.Add(...)`. The collector is allocated per render pass (per `RenderPage` / `RenderFragment` call) and is not shared across concurrent requests.
 
-`FlushCustomElements()` is called by the page author (or by `RenderPage` automatically before `</body>`) to emit the deduplicated script tags.
+`FlushCustomElements()` is called by the page author (or by `RenderPage` automatically before `</body>`) to emit the deduplicated script tags. `FlushCustomElements()` is **non-destructive**: it reads entries without clearing them, so calling it multiple times produces the same output.
 
 **Evaluation**
 
 - ✅ Exact mirror of the existing style deduplication pattern — low conceptual overhead.
 - ✅ Per-render-pass allocation means no cross-request state leakage.
-- ⚠️ `FlushCustomElements` placement (end of `<body>` vs. `<head>`) affects when the Custom Element class is available during parsing. Deferring to end-of-`<body>` is the safest default because the element's HTML is already in the DOM when the script executes.
-- ⚠️ `RenderFragment` users who do not call `FlushCustomElements` get orphaned elements in the DOM that are never upgraded. This should be documented prominently.
+- ✅ `SourcePath` tracking surfaces collisions immediately rather than silently shadowing.
+- ✅ Non-destructive flush means `{{FlushCustomElements}}` can be called from a template without ordering constraints.
+- ⚠️ `FlushCustomElements` placement (end of `<body>` vs. `<head>`) affects when the script executes. Deferring to end-of-`<body>` is the safest default because the element's HTML is already in the DOM when the script executes.
 
-**Verdict**: introduce `CustomElementCollector` mirroring `StyleCollector`; `FlushCustomElements()` returns a `template.HTML` string of deduplicated `<script>` tags.
-
----
-
-### 4.5 Import Map Integration
-
-An Import Map (`<script type="importmap">`) tells the browser how to resolve bare module specifiers. While the custom element scripts emitted in §4.3 do not themselves use bare imports, the Import Map can be used to map the tag name's "module identity" to an external URL — enabling CDN delivery, versioning, and cache busting.
-
-Two sub-options:
-
-#### Option A — Inline (recommended for v1)
-
-The custom element JS is embedded directly in a `<script>` tag in the page. No URL is needed. No Import Map entry is required for the script itself, though one may still be written for documentation or future tooling.
-
-- ✅ No file I/O at render time.
-- ✅ No CDN configuration required.
-- ✅ Works with strict CSP if a nonce is propagated (see §10).
-- ⚠️ Script is not independently cacheable by the browser.
-- ⚠️ Repeated across pages (though a cache on the HTML document itself mitigates this).
-
-#### Option B — URL-based
-
-`htmlc` writes the emitted JS to a static file under a configurable `AssetsDir`, and the Import Map maps `"htmlc-counter"` → `"/assets/htmlc-counter.HASH.js"`.
-
-- ✅ Script is cacheable independently.
-- ✅ CDN-deliverable.
-- ❌ Requires file I/O during startup or first render — complicates the render pipeline.
-- ❌ Requires a mechanism to serve the generated assets (static file server, CDN upload).
-- ⚠️ Hash must be derived from script content to enable cache busting.
-
-**Verdict**: implement Option A (inline) in v1. Design `FlushCustomElements()` to accept an optional nonce string for CSP compatibility. Defer Option B to a follow-up RFC.
-
-#### Import Map emission
-
-When using Option A, `htmlc` can optionally emit a `<script type="importmap">` that maps each tag name to `"inline"` (a sentinel) or simply omit the import map. The import map becomes meaningful only when Option B is implemented. For v1, no import map is emitted automatically.
+**Verdict**: introduce `CustomElementCollector` mirroring `StyleCollector`; non-destructive `FlushCustomElements()` returns a `template.HTML` string of deduplicated `<script>` tags.
 
 ---
 
-### 4.6 Interaction with `<style scoped>` and `<style>`
+### 4.6 In-Memory Script FS
 
-A component that declares `<script customelement>` may also declare a `<style>` block. Two sub-cases:
+At engine load time, `htmlc` compiles all custom element scripts into an **in-memory `fs.FS`**. This FS is populated once during startup (when component files are parsed) and is accessible via a method on `Engine`. It provides a stable, request-independent view of all compiled scripts, which the application can use to:
 
-#### Case 1: Component does not use shadow DOM
+- Serve scripts as static files via `http.FileServer(engine.ScriptsFS())`.
+- Write scripts to disk as a build step.
+- Generate content-addressed URLs for cache busting.
+- Embed scripts in `<head>` independently of the per-render-pass collector.
 
-The component's `<style>` (scoped or global) is handled exactly as today by `StyleCollector`. The custom element tag in the DOM inherits the scoped attribute (e.g., `data-v-a1b2c3d4`) stamped on it by the renderer. No change required.
+#### FS structure
 
-#### Case 2: Component uses shadow DOM (author calls `this.attachShadow(...)` in `connectedCallback`)
+Scripts are stored under their tag name with a `.js` extension:
 
-Styles in the document `<head>` do not pierce the shadow boundary. The author must include the CSS inside the shadow root. Two approaches:
+```
+counter.js
+date-picker.js
+admin-card.js
+admin-date-picker.js
+blog-counter.js
+```
 
-1. **Author-managed**: the author manually injects a `<style>` element inside `connectedCallback`. The `<style>` block in the `.vue` file continues to contribute to the page's `<head>` (for SSR appearance). This is the v1 behaviour — no automatic shadow-DOM style injection.
-2. **Automatic injection** (future): if `<script customelement shadowdom>` is detected, `htmlc` serialises the scoped CSS and injects it into the emitted class body as a template literal, e.g.:
+#### Implementation
 
-```js
+```go
 // pseudo-code — not implementation
-connectedCallback() {
-    const shadow = this.attachShadow({ mode: "open" });
-    const style = document.createElement("style");
-    style.textContent = `/* scoped CSS here */`;
-    shadow.appendChild(style);
-    // ... author body follows
+import "archive/zip"
+import "io/fs"
+
+type Engine struct {
+    // existing fields ...
+    scripts fs.FS   // in-memory FS populated at load time
+}
+
+// ScriptsFS returns an fs.FS containing one .js file per component
+// that declares <script customelement>. The FS is populated at engine
+// load time and is safe for concurrent reads.
+func (e *Engine) ScriptsFS() fs.FS {
+    return e.scripts
 }
 ```
 
-**Verdict**: v1 leaves shadow-DOM style injection to the author. The `shadowdom` attribute on `<script customelement>` is reserved for a future RFC.
+The FS is constructed using an in-memory zip archive (`archive/zip`) or an equivalent in-memory `fs.FS` implementation. During `Engine.Load()`, for each `Component` with a non-empty `CustomElementScript`, a file is written to the archive at `<tagName>.js` containing the verbatim script body.
+
+**Evaluation**
+
+- ✅ `fs.FS` is a standard Go interface — callers can wrap it with `http.FS`, embed it, copy it, or pass it to `io/fs` utilities without depending on `htmlc` internals.
+- ✅ Populated at startup — no per-request I/O.
+- ✅ `archive/zip` provides an in-memory `fs.FS`-compatible implementation without requiring a third-party dependency.
+- ⚠️ The FS is read-only after load. Reloading requires recreating the engine.
+
+**Verdict**: use an in-memory `archive/zip`-backed `fs.FS` as the compilation output for custom element scripts; expose it via `Engine.ScriptsFS()`.
 
 ---
 
-### 4.7 Error Behaviour for `<script>` and `<script setup>`
+### 4.7 Interaction with `<style scoped>` and `<style>`
+
+A component that declares `<script customelement>` may also declare a `<style>` block. The style is handled exactly as today by `StyleCollector`. The SSR-wrapped element (e.g. `<admin-card>`) inherits any scoped attribute (e.g. `data-v-a1b2c3d4`) stamped on it by the renderer. No change required.
+
+---
+
+### 4.8 Error Behaviour for `<script>` and `<script setup>`
 
 `ParseFile` currently accepts a `<script>` block and stores it in `Component.Script`, but no rendering path uses it — it is silently ignored. This is a latent confusion vector: an author familiar with Vue may write `<script setup>` expecting reactivity, see no error, and waste debugging time.
 
@@ -395,43 +436,51 @@ Both errors are emitted at component-load time (engine startup or first `ParseFi
 
 | Block | Attribute | Meaning in `htmlc` |
 |---|---|---|
-| `<script customelement>` | *(none)* | Custom Element body; compiled to `class HtmlcName extends HTMLElement { … }` with tag derived from filename |
-| `<script customelement tag="my-tag">` | `tag` | Same as above, but uses the provided tag name instead of the filename-derived one |
-| `<script customelement shadowdom>` | `shadowdom` | **Reserved** — shadow DOM opt-in; deferred to a future RFC |
+| `<script customelement>` | *(none)* | Marks component as a custom element. SSR output is wrapped in the derived tag name. Script body is emitted verbatim (no class wrapper, no autoregistration generated). |
 | `<script>` | *(any)* | **Error**: `<script> blocks are not supported by htmlc` |
 | `<script setup>` | `setup` | **Error**: `<script setup> blocks are not supported by htmlc` |
 | `<style>` | *(none)* | Global stylesheet contribution; unchanged from today |
 | `<style scoped>` | `scoped` | Scoped stylesheet contribution; unchanged from today |
 | `<template>` | *(none)* | Server-side render template; unchanged from today |
 
+### Tag name derivation
+
+| File path (relative) | Derived tag name |
+|---|---|
+| `Counter.vue` | `counter` |
+| `DatePicker.vue` | `date-picker` |
+| `admin/Card.vue` | `admin-card` |
+| `admin/DatePicker.vue` | `admin-date-picker` |
+| `ui/form/TextInput.vue` | `ui-form-text-input` |
+
 ---
 
 ## 6. Examples
 
-### Example 1 — Minimal Interactive Counter
+### Example 1 — Namespaced Interactive Counter
 
-A standalone counter with no server-side template (pure custom element).
+A counter component under `widgets/` so its tag name contains a hyphen and can be registered as a browser custom element.
 
 **Directory tree**
 
 ```
 components/
-  Counter.vue
+  widgets/
+    Counter.vue
 pages/
   Home.vue
 ```
 
-**`Counter.vue`**
+**`widgets/Counter.vue`**
 
 ```html
 <template>
-  <htmlc-counter>
-    <button>Click me</button>
-    <span>0</span>
-  </htmlc-counter>
+  <button>Click me</button>
+  <span>0</span>
 </template>
 
 <script customelement>
+customElements.define('widgets-counter', class extends HTMLElement {
   connectedCallback() {
     this.count = 0;
     this.button = this.querySelector('button');
@@ -441,6 +490,7 @@ pages/
       this.display.textContent = this.count;
     });
   }
+});
 </script>
 ```
 
@@ -464,12 +514,12 @@ pages/
 <html>
   <head><title>Home</title></head>
   <body>
-    <htmlc-counter>
+    <widgets-counter>
       <button>Click me</button>
       <span>0</span>
-    </htmlc-counter>
+    </widgets-counter>
     <script>
-class HtmlcCounter extends HTMLElement {
+customElements.define('widgets-counter', class extends HTMLElement {
   connectedCallback() {
     this.count = 0;
     this.button = this.querySelector('button');
@@ -479,8 +529,7 @@ class HtmlcCounter extends HTMLElement {
       this.display.textContent = this.count;
     });
   }
-}
-customElements.define("htmlc-counter", HtmlcCounter);
+});
 </script>
   </body>
 </html>
@@ -490,22 +539,20 @@ customElements.define("htmlc-counter", HtmlcCounter);
 
 ### Example 2 — Progressive Enhancement (Template + Custom Element)
 
-A `<Tabs>` component that renders all tab panels statically for SEO and no-JS users, and then uses a `<script customelement>` to add client-side tab switching.
+A `<Tabs>` component under `ui/` that renders all tab panels statically for SEO and no-JS users, and uses `<script customelement>` to add client-side tab switching.
 
-**`Tabs.vue`**
+**`ui/Tabs.vue`**
 
 ```html
 <template>
-  <htmlc-tabs>
-    <nav class="tab-bar">
-      <button data-tab="0">Overview</button>
-      <button data-tab="1">Details</button>
-      <button data-tab="2">Reviews</button>
-    </nav>
-    <div class="tab-panel" data-panel="0"><slot name="overview" /></div>
-    <div class="tab-panel" data-panel="1"><slot name="details" /></div>
-    <div class="tab-panel" data-panel="2"><slot name="reviews" /></div>
-  </htmlc-tabs>
+  <nav class="tab-bar">
+    <button data-tab="0">Overview</button>
+    <button data-tab="1">Details</button>
+    <button data-tab="2">Reviews</button>
+  </nav>
+  <div class="tab-panel" data-panel="0"><slot name="overview" /></div>
+  <div class="tab-panel" data-panel="1"><slot name="details" /></div>
+  <div class="tab-panel" data-panel="2"><slot name="reviews" /></div>
 </template>
 
 <style scoped>
@@ -513,6 +560,7 @@ A `<Tabs>` component that renders all tab panels statically for SEO and no-JS us
 </style>
 
 <script customelement>
+customElements.define('ui-tabs', class extends HTMLElement {
   connectedCallback() {
     this.panels = Array.from(this.querySelectorAll('.tab-panel'));
     this.buttons = Array.from(this.querySelectorAll('[data-tab]'));
@@ -526,7 +574,21 @@ A `<Tabs>` component that renders all tab panels statically for SEO and no-JS us
     this.panels.forEach((p, i) => { p.hidden = i !== index; });
     this.buttons.forEach((b, i) => { b.setAttribute('aria-selected', i === index); });
   }
+});
 </script>
+```
+
+**Rendered SSR output for `<Tabs>` usage**
+
+```html
+<ui-tabs data-v-a1b2c3d4>
+  <nav class="tab-bar" data-v-a1b2c3d4>
+    <button data-tab="0" data-v-a1b2c3d4>Overview</button>
+    ...
+  </nav>
+  <div class="tab-panel" data-panel="0" data-v-a1b2c3d4>...</div>
+  ...
+</ui-tabs>
 ```
 
 **Behaviour**
@@ -540,24 +602,24 @@ A `<Tabs>` component that renders all tab panels statically for SEO and no-JS us
 
 ### Example 3 — Multiple Custom Elements on One Page (Deduplication)
 
-A dashboard page that uses `<Counter>` three times and `<Toggle>` once.
+A dashboard page that uses `<Counter>` three times and `<Toggle>` once (both under `widgets/`).
 
-**`Toggle.vue`** (abbreviated)
+**`widgets/Toggle.vue`** (abbreviated)
 
 ```html
 <template>
-  <htmlc-toggle>
-    <input type="checkbox" /><label><slot /></label>
-  </htmlc-toggle>
+  <input type="checkbox" /><label><slot /></label>
 </template>
 
 <script customelement>
+customElements.define('widgets-toggle', class extends HTMLElement {
   connectedCallback() {
     this.input = this.querySelector('input');
     this.input.addEventListener('change', () => {
       this.dispatchEvent(new CustomEvent('toggle', { detail: this.input.checked }));
     });
   }
+});
 </script>
 ```
 
@@ -569,7 +631,7 @@ A dashboard page that uses `<Counter>` three times and `<Toggle>` once.
     <head><title>Dashboard</title></head>
     <body>
       <h1>Dashboard</h1>
-      <Counter /> <!-- rendered three times via v-for equivalent -->
+      <Counter />
       <Counter />
       <Counter />
       <Toggle>Dark mode</Toggle>
@@ -582,22 +644,20 @@ A dashboard page that uses `<Counter>` three times and `<Toggle>` once.
 **Rendered output (script section only)**
 
 ```html
-<!-- Only ONE definition per element, regardless of how many times used -->
+<!-- Only ONE script block per element, regardless of how many times used -->
 <script>
-class HtmlcCounter extends HTMLElement {
+customElements.define('widgets-counter', class extends HTMLElement {
   connectedCallback() { /* ... */ }
-}
-customElements.define("htmlc-counter", HtmlcCounter);
+});
 </script>
 <script>
-class HtmlcToggle extends HTMLElement {
+customElements.define('widgets-toggle', class extends HTMLElement {
   connectedCallback() { /* ... */ }
-}
-customElements.define("htmlc-toggle", HtmlcToggle);
+});
 </script>
 ```
 
-The `CustomElementCollector` tracks `{ "htmlc-counter", "htmlc-toggle" }` as its seen set. The three `<Counter>` renders each call `collector.Add(...)`, but only the first produces an entry. `FlushCustomElements()` emits exactly two `<script>` blocks.
+The `CustomElementCollector` tracks `{ "widgets-counter": "widgets/Counter.vue", "widgets-toggle": "widgets/Toggle.vue" }`. The three `<Counter>` renders each call `collector.Add(...)`, but only the first produces an entry. `FlushCustomElements()` emits exactly two `<script>` blocks.
 
 ---
 
@@ -622,9 +682,67 @@ An existing project with no interactive components.
 
 - `Component.CustomElementScript` is `""`.
 - `Component.CustomElementTag` is `""`.
+- No SSR wrapping is applied — output is a plain `<div class="card">` as today.
 - `CustomElementCollector.Add` is never called.
 - `FlushCustomElements()` returns `template.HTML("")`.
 - Output is identical to today.
+
+---
+
+### Example 5 — Serving Scripts via `ScriptsFS`
+
+The application serves compiled custom element scripts as static files, enabling browser caching independent of the HTML page.
+
+```go
+// pseudo-code — not implementation
+engine, err := htmlc.Load("components/")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Serve all custom element scripts under /assets/
+http.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(engine.ScriptsFS()))))
+
+// In the page template, reference the script by URL instead of inlining:
+// <script src="/assets/widgets-counter.js"></script>
+```
+
+This pattern is appropriate for production deployments where scripts must be independently cacheable. For development or low-traffic sites, inline emission via `FlushCustomElements()` (§4.5) requires no additional setup.
+
+---
+
+### Example 6 — Per-Page Opt-In via Wrapper Component
+
+`<script customelement>` is a component-level declaration. If `Button.vue` carries one, every page using `<Button>` emits the script. An author who wants the custom element behaviour on only one page creates a wrapper:
+
+**Directory tree**
+
+```
+components/
+  Button.vue          ← no <script customelement>; pure SSR
+  tracked/
+    Button.vue        ← wraps Button, adds analytics custom element
+```
+
+**`tracked/Button.vue`**
+
+```html
+<template>
+  <Button v-bind="$props"><slot /></Button>
+</template>
+
+<script customelement>
+customElements.define('tracked-button', class extends HTMLElement {
+  connectedCallback() {
+    this.querySelector('button').addEventListener('click', () => {
+      navigator.sendBeacon('/analytics', JSON.stringify({ event: 'click', component: 'button' }));
+    });
+  }
+});
+</script>
+```
+
+Pages that need analytics use `<tracked/Button>` (or the namespaced alias). Pages that do not want analytics continue to use `<Button>`. This is the idiomatic `htmlc` pattern for usage-scoped opt-in.
 
 ---
 
@@ -634,36 +752,43 @@ An existing project with no interactive components.
 
 1. Add two new fields to `Component`: `CustomElementScript string` and `CustomElementTag string`.
 2. In `extractSections`, after reading a `<script>` start tag, collect all its attributes into a `map[string]string`.
-3. If `attrs["customelement"] != ""` or the attribute name `"customelement"` is present (boolean attribute), store the body in `sections["script:customelement"]` and `attrs["tag"]` in `sections["script:customelement:tag"]`.
-4. In `ParseFile`, populate the two new fields from `sections`.
-5. Convert the current silent-ignore of `sections["script"]` and `sections["script:setup"]` into explicit error returns with the messages defined in §4.7.
+3. If `attrs["customelement"] != ""` or the attribute name `"customelement"` is present (boolean attribute), store the verbatim body in `sections["script:customelement"]`.
+4. In `ParseFile`, populate `CustomElementScript` from `sections["script:customelement"]`.
+5. Convert the current silent-ignore of `sections["script"]` and `sections["script:setup"]` into explicit error returns with the messages defined in §4.8.
 
-### `style.go` (or new `customelement.go`)
+### `customelement.go` (new file)
 
-1. Define `CustomElementEntry` struct with `TagName`, `ClassName`, `Script string` fields.
-2. Define `CustomElementCollector` struct with `seen map[string]struct{}` and `entries []CustomElementEntry`.
-3. Implement `(c *CustomElementCollector) Add(e CustomElementEntry)` — no-op if `TagName` already in `seen`.
-4. Implement `(c *CustomElementCollector) FlushCustomElements() template.HTML` — iterates `entries`, calls `emitCustomElement` for each, concatenates results.
-5. Add standalone `emitCustomElement(tagName, className, scriptBody string) template.HTML` helper.
-6. Add `DeriveTagName(filename string) (tagName, className string)` helper implementing the algorithm in §4.2.
+1. Define `CustomElementEntry` struct with `TagName`, `Script`, `SourcePath string` fields.
+2. Define `CustomElementCollector` struct with `seen map[string]string` (tag name → source path) and `entries []CustomElementEntry`.
+3. Implement `(c *CustomElementCollector) Add(e CustomElementEntry) error` — no-op if tag already seen from same source; error if tag seen from different source.
+4. Implement `(c *CustomElementCollector) FlushCustomElements() template.HTML` — iterates `entries`, calls `emitCustomElementScript` for each, concatenates results. Non-destructive.
+5. Add standalone `emitCustomElementScript(scriptBody string) template.HTML` helper.
+6. Add `DeriveTagName(relPath string) string` helper implementing the algorithm in §4.2 (splits on `/`, kebab-cases each PascalCase segment, joins with `-`).
+7. Add `BuildScriptsFS(components []*Component) (fs.FS, error)` that constructs an in-memory zip-backed `fs.FS` with one entry per component that has `CustomElementScript != ""`, keyed as `<tagName>.js`.
 
 ### `engine.go`
 
-1. In `renderComponent` (and its callers), allocate a `*CustomElementCollector` per render pass alongside the existing `*StyleCollector`.
-2. Pass the collector into the `Renderer` via a new `WithCustomElements(cc *CustomElementCollector)` builder method (mirroring `WithStyles`).
-3. In `RenderPage`, after injecting the style block, call `collector.FlushCustomElements()` and inject the result before `</body>`. Alternatively, expose `FlushCustomElements` as a template function so page authors control placement.
-4. Add `FlushCustomElements() template.HTML` as a public method on `Engine` (delegating to the per-pass collector) for use in `CompileToTemplate` / `TemplateText` workflows.
+1. Add `scripts fs.FS` field to `Engine`.
+2. During component loading (in `Load` or equivalent), call `DeriveTagName` for each component and set `component.CustomElementTag`.
+3. After all components are loaded, call `BuildScriptsFS` and store the result in `Engine.scripts`.
+4. Add `ScriptsFS() fs.FS` public method that returns `Engine.scripts`.
+5. In `renderComponent` (and its callers), allocate a `*CustomElementCollector` per render pass alongside the existing `*StyleCollector`.
+6. In `RenderPage`, after injecting the style block, call `collector.FlushCustomElements()` and inject the result before `</body>`. Alternatively, expose `FlushCustomElements` as a template function so page authors control placement.
+7. Add `FlushCustomElements() template.HTML` as a public method on `Engine` (delegating to the per-pass collector) for programmatic callers.
 
 ### `renderer.go`
 
 1. Add `customElementCollector *CustomElementCollector` field to `Renderer`.
-2. In `renderElement`, when resolving a component tag: if the resolved `Component.CustomElementScript != ""`, call `customElementCollector.Add(CustomElementEntry{...})`.
+2. In `renderElement`, when resolving a component tag: if the resolved `Component.CustomElementScript != ""`:
+   a. Call `customElementCollector.Add(CustomElementEntry{...})`.
+   b. Wrap the rendered template output in `<tagName>...</tagName>` (see §4.3).
 3. Propagate the collector into child `Renderer` instances (same pattern as `styleCollector`).
 
 ### Platform notes
 
-- All file-name manipulation uses `path/filepath` for OS portability.
+- All file-name manipulation uses `path` (not `path/filepath`) for OS portability, since component paths are relative paths derived from `fs.FS` which always uses forward slashes.
 - The `DeriveTagName` function should use `unicode` package functions for PascalCase splitting, not byte-level comparisons, to handle future non-ASCII names gracefully.
+- `archive/zip` provides an in-memory `fs.FS` implementation via `zip.NewReader` over a `bytes.Buffer`. No third-party dependency is required.
 
 ---
 
@@ -671,18 +796,19 @@ An existing project with no interactive components.
 
 ### `Component` struct
 
-A new **exported** field `CustomElementScript string` and `CustomElementTag string` are added. This is a backward-compatible addition in Go: existing code that constructs `Component` by field name is unaffected; code that uses positional struct literals (unusual and discouraged) would break at compile time — acceptable given that `Component` is an internal type not intended for direct construction by library consumers.
+New exported fields `CustomElementScript string` and `CustomElementTag string` are added. Backward-compatible in Go: existing code constructing `Component` by field name is unaffected.
 
 ### `ParseFile` and `ParseDir`
 
-For components without `<script customelement>`, both functions return the same results as today. The only observable behavioural change is that components with a plain `<script>` or `<script setup>` block — which previously silently stored the body in `Component.Script` (a field unused by any render path) — now return an error. This is a **breaking change** for any project that uses such blocks, but since those blocks had no effect on rendering, the only affected case is a misconfigured component that was silently broken. The error message is actionable.
+For components without `<script customelement>`, both functions return the same results as today. The only observable behavioural change is that components with a plain `<script>` or `<script setup>` block — which previously silently stored the body in `Component.Script` (unused) — now return an error. Since those blocks had no effect on rendering, the only affected case is a misconfigured component that was silently broken. The error message is actionable.
 
 ### `RenderPage` / `RenderFragment`
 
-No change for components without `<script customelement>`. For components that do use it, `RenderPage` gains automatic `FlushCustomElements()` injection before `</body>`. `RenderFragment` does not auto-flush (it has no `<body>` tag); callers must invoke `FlushCustomElements()` explicitly.
+No change for components without `<script customelement>`. For components that do use it, `RenderPage` gains automatic SSR wrapping and `FlushCustomElements()` injection before `</body>`. `RenderFragment` does not auto-flush; callers must invoke `FlushCustomElements()` explicitly.
 
 ### `Engine` public API
 
+- New method `ScriptsFS() fs.FS` — additive, no break.
 - New method `FlushCustomElements() template.HTML` — additive, no break.
 - No existing methods are removed or have their signatures changed.
 
@@ -696,163 +822,46 @@ Unchanged. The new `CustomElementCollector` is a parallel type, not a modificati
 
 ### A. Top-level `<customelement>` custom block
 
-Vue's SFC spec allows arbitrary custom blocks (e.g. `<docs>`, `<i18n>`). A `<customelement>` block would be syntactically valid in Vue (treated as a no-op custom block) and clearly distinct from `<script>`.
+Vue's SFC spec allows arbitrary custom blocks (e.g. `<docs>`, `<i18n>`). A `<customelement>` block would be syntactically valid in Vue and clearly distinct from `<script>`.
 
-**Rejected** because: Vue's custom block body is not parsed as JavaScript by IDEs or linters — it is treated as opaque text. Authors would lose syntax highlighting, `eslint`, and IDE completions for their element body. Using `<script customelement>` keeps the block recognised as a `<script>` by tooling, which applies JS parsing rules to the body.
+**Rejected** because: Vue's custom block body is not parsed as JavaScript by IDEs or linters — it is treated as opaque text. Authors would lose syntax highlighting, `eslint`, and IDE completions. Using `<script customelement>` keeps the block recognised as a `<script>` by tooling.
 
 ### B. A separate `.ce.js` file alongside the `.vue` file
 
 `Counter.vue` + `Counter.ce.js` → `htmlc` combines them automatically.
 
-**Rejected** because: the whole motivation is to keep the component boundary in one file. A companion file reintroduces the synchronisation problem described in §1. It also requires a new file-watching and association mechanism.
+**Rejected** because: the whole motivation is to keep the component boundary in one file. A companion file reintroduces the synchronisation problem described in §1.
 
-### C. Full Vue 3 client-side compilation
+### C. Auto-generate class boilerplate and `customElements.define()`
+
+`htmlc` wraps the script body in `class extends HTMLElement { … }` and appends `customElements.define(tagName, ClassName)`.
+
+**Rejected** because: the class wrapper is limiting (authors may prefer an IIFE, a factory function, or a class with a custom base) and confusing (the generated class name is not visible in the source file). Verbatim emission gives authors full control with no hidden indirection.
+
+### D. `htmlc-` prefix for tag names
+
+Use `htmlc-counter` instead of `counter` / `widgets-counter` to avoid collisions with HTML elements.
+
+**Rejected** because: the directory-based namespacing already provides collision avoidance. The `htmlc-` prefix is a synthetic namespace that does not reflect any meaningful structure in the project, whereas directory paths do. Authors who want a custom prefix can use their own directory names.
+
+### E. Full Vue 3 client-side compilation
 
 Compile the `<script setup>` block (Composition API) to a client-side Vue component, ship the Vue runtime, and mount it on the element.
 
-**Rejected** because: it requires shipping and initialising the Vue runtime (≈50 KB min+gzip), reimplementing a subset of the Vue compiler, and maintaining compatibility with Vue version upgrades. This is out of scope for a server-side rendering engine and contradicts the "no runtime" design principle.
-
-### D. Deriving `observedAttributes` automatically from `Component.Props()`
-
-The existing `Props()` method already extracts all template-referenced variable names. These could be automatically wired as `observedAttributes` and each one's `attributeChangedCallback` could update a corresponding property on `this`.
-
-**Deferred** (not rejected): automatic wiring is appealing but requires deciding on a naming convention (camelCase property names vs. kebab-case attribute names), the semantics of type coercion (all attributes are strings), and whether the author can opt out. Deferring keeps v1 minimal and correct; a follow-up RFC can address reactive attribute binding.
+**Rejected** because: requires shipping the Vue runtime (≈50 KB min+gzip), reimplementing the Vue compiler, and maintaining compatibility with Vue version upgrades. Out of scope for a server-side rendering engine.
 
 ---
 
 ## 10. Open Questions
 
-1. **Shadow DOM opt-in attribute** — Should shadow DOM be opt-in via `<script customelement shadowdom>`? If so, should `open` or `closed` mode be the default, and should it be configurable (`shadowdom="closed"`)? *Tentative recommendation*: yes, add `shadowdom` as a boolean attribute defaulting to open mode. **Blocking** before the `shadowdom` sub-feature ships; non-blocking for v1 (which defers shadow DOM).
+1. **Shadow DOM opt-in** — Should shadow DOM be opt-in via `<script customelement shadowdom>`? If so, should `open` or `closed` mode be the default? *Tentative recommendation*: reserve the `shadowdom` attribute for a future RFC. **Non-blocking** for v1.
 
-2. **Tag name override attribute** — The proposed `tag="my-counter"` attribute on `<script customelement>` provides override capability. Should validation enforce that the provided name begins with `htmlc-` (to prevent accidental shadowing of third-party elements), or allow any valid custom element name? *Tentative recommendation*: allow any valid name (contains hyphen, starts with lowercase letter) — the `htmlc-` prefix is a convention, not a requirement. **Non-blocking**.
+2. **`FlushCustomElements` placement** — Should auto-flush in `RenderPage` be opt-out (on by default, author can disable) or opt-in (off by default, author must call `{{FlushCustomElements}}`)? *Tentative recommendation*: opt-out — the overwhelming common case is to emit scripts before `</body>`. **Blocking** — the default must be decided before implementation.
 
-3. **`FlushCustomElements` placement** — Should this be a method on `Engine`, on `Renderer`, on the new `CustomElementCollector`, or exposed as a Go template function? *Tentative recommendation*: expose as a template function (like `styleBlock`) for `RenderPage`, and as a method on `Engine` for programmatic callers. **Blocking** — the public API surface must be decided before implementation.
+3. **`RenderFragment` ergonomics** — If an author calls `RenderFragment` to render a snippet containing a custom element, the element is in the DOM but no script is emitted. Should a combined `RenderFragmentWithElements() (html, scripts template.HTML, err error)` API be added? *Tentative recommendation*: yes, as a convenience method. **Non-blocking** for v1.
 
-4. **Nonce support for inline scripts** — CSP `script-src` policies require a nonce on inline `<script>` tags. Should `FlushCustomElements` accept a nonce string, or should nonce injection be handled by the caller post-hoc (e.g., via `strings.Replace`)? *Tentative recommendation*: add an optional `nonce string` parameter to `FlushCustomElements` and thread it through `emitCustomElement`. **Non-blocking** — can be added without API break if the method accepts variadic options.
+4. **Nonce support for inline scripts** — CSP `script-src` policies require a nonce on inline `<script>` tags. Should `FlushCustomElements` accept a nonce string? *Tentative recommendation*: yes, as a variadic option so the call site without a nonce is unchanged. **Non-blocking** — can be added without API break.
 
-5. **Duplicate tag name across namespaced components** — If `blog/Counter.vue` and `admin/Counter.vue` both define `<script customelement>`, they derive the same tag name `htmlc-counter`. Should `htmlc` error at startup (if both are loaded), or at emit time (if both are rendered in the same page), or allow the tag attribute to disambiguate (`tag="htmlc-blog-counter"`)? *Tentative recommendation*: error at startup — load-time detection is far less confusing than a runtime browser error. **Blocking**.
+5. **`ScriptsFS` file naming** — Should script files be named `<tagName>.js` (e.g. `widgets-counter.js`) or include a content hash for cache busting (e.g. `widgets-counter.a1b2c3d4.js`)? *Tentative recommendation*: plain `<tagName>.js` for v1; content-addressed naming can be added as an engine option in a follow-up. **Non-blocking**.
 
-6. **`RenderFragment` and orphaned elements** — If an author calls `RenderFragment` to render a snippet that contains a custom element, and does not call `FlushCustomElements`, the element is in the DOM but never upgraded. Should `RenderFragment` return the collector alongside the fragment so the caller can flush it, or should a combined `RenderFragmentWithElements() (html, scripts template.HTML, err error)` API be introduced? *Tentative recommendation*: expose the collector and let the caller decide. **Non-blocking** for v1.
-
----
-
-## Test Stage Findings
-
-### [ISSUE] Deduplication does not handle the same tag name derived from different files
-
-The deduplication mechanism (§4.4) keys on `TagName`. If `blog/Counter.vue` and `admin/Counter.vue` both produce `htmlc-counter` and are both rendered in the same page, the first one's script wins silently. Open Question 5 proposes a startup-time error, but the collector itself does not detect which file contributed the entry — so a subtle override is possible if the startup check is not implemented first.
-
-**Recommendation**: `CustomElementEntry` should also store `SourcePath string`. `CustomElementCollector.Add` should log a warning (or return an error) if two different `SourcePath` values are added for the same `TagName`.
-
----
-
-### [ISSUE] Class-name derivation breaks for single-word components
-
-`Counter.vue` → `HtmlcCounter` / `htmlc-counter`. This is correct. But consider `A.vue`: the algorithm produces `HtmlcA` / `htmlc-a`. The tag name `htmlc-a` is syntactically valid (contains a hyphen, starts with a letter), but it is a poor name. The PascalCase splitter must handle single-segment names gracefully without crashing. The RFC should add a validation rule: the file name (without extension) must contain at least one ASCII letter and must not be a single character.
-
----
-
-### [ISSUE] `FlushCustomElements` called in `<head>` vs. end-of-`<body>` — ordering hazard
-
-The RFC recommends flushing before `</body>`. If `RenderPage` auto-inserts the flush there, and the author also calls `{{FlushCustomElements}}` manually in `<head>`, both calls emit their scripts (the second call with an empty set, if the collector drains on first flush). The RFC does not specify whether `FlushCustomElements` is idempotent (no double-emit) or destructive (drains the collector). This must be stated explicitly.
-
-**Recommendation**: `FlushCustomElements` should be **non-destructive** (reads entries without clearing them), and `RenderPage`'s auto-flush should be opt-out. Or, state that auto-flush is the only supported mechanism and template-level `{{FlushCustomElements}}` is not exposed for `RenderPage`.
-
----
-
-### [QUESTION] Is verbatim body insertion safe against XSS?
-
-The `scriptBody` content comes from the `.vue` source file on disk, not from user input. It is therefore trusted. The RFC should state this explicitly so reviewers do not raise a false XSS concern. If `htmlc` ever gains a dynamic template evaluation path where component source could come from user-controlled input, this assumption must be revisited.
-
----
-
-### [QUESTION] What is the interaction between `CustomElementCollector` and `RenderPage`'s existing `<head>` injection?
-
-`RenderPage` already injects a `<style>` block before `</head>` by searching the rendered HTML for the `</head>` string. If custom element scripts are also injected there, two separate string-search-and-replace operations run on the rendered output. This is fragile if the page contains `</head>` in a comment or string literal. The RFC should acknowledge this fragility and suggest that the injection logic be refactored into a single pass.
-
----
-
-### [SUGGESTION] Add a `Validate` method to `DeriveTagName`
-
-`DeriveTagName` should return an error (not panic) for invalid inputs: empty string, single-character name, names that produce an invalid custom element tag. This makes the failure surface clear and testable.
-
----
-
-### [SUGGESTION] Document the `observedAttributes` manual pattern in §6
-
-Since automatic `observedAttributes` wiring is deferred, at least one example in §6 should show how an author manually declares `static observedAttributes` and `attributeChangedCallback` inside the `<script customelement>` body. This prevents confusion for authors who expect the attribute-to-property bridge to happen automatically.
-
----
-
-### [QUESTION] Should `FlushCustomElements` be on `Engine` or exposed via a context-aware helper?
-
-The current design implies the `CustomElementCollector` is per-render-pass. If `Engine` exposes `FlushCustomElements()` as a method, it must internally retrieve the current render pass's collector. This is non-trivial in a concurrent server: multiple goroutines may be rendering simultaneously. The per-pass collector must live in a request-scoped context, not on `Engine` directly. The RFC should address this concurrency concern explicitly in §7.
-
----
-
-## Inspection Findings
-
-### Scenario 1 — Progressive Enhancement Island (`<Tabs>`)
-
-**What this enables**: Example 2 in §6 already demonstrates this pattern. With RFC 006, a `<Tabs>` component can render all panels as static HTML (visible to search engines and no-JS users) and simultaneously register a custom element that hides inactive panels and wires click handlers. The server-rendered output is a complete, accessible document; the custom element is a progressive enhancement layer applied in `connectedCallback`.
-
-**What friction remains**:
-- The author must ensure the outer element in `<template>` is `<htmlc-tabs>` (the custom element tag name) rather than a generic `<div>`. This is a naming discipline that `htmlc` does not currently enforce — the template can render any tag, including one that does not match the registered custom element name.
-- If the author uses `<div class="tabs">` in the template but registers `htmlc-tabs`, the browser never upgrades the element. The RFC should include guidance (or a lint rule) requiring the template's root element to match the derived custom element tag name.
-- Slot-based content (`<slot name="overview" />`) is resolved server-side, so the tab panels are fully rendered. The custom element script must use `querySelector` to find panels in the already-rendered DOM, not a VDOM — this is idiomatic for custom elements but unfamiliar to Vue developers.
-
----
-
-### Scenario 2 — Shared Component, Two Contexts (`Button.vue`)
-
-**Scenario**: `Button.vue` is used on dozens of server-side pages. One page adds a `<script customelement>` block for an analytics ping on click.
-
-**Problem**: The RFC defines `<script customelement>` as a block in the `.vue` file itself. A `<script customelement>` block in `Button.vue` applies to **all** usages of `Button.vue`. There is no per-usage or per-page opt-in mechanism. Every page that uses `<Button>` will trigger `CustomElementCollector.Add(...)` and eventually emit the analytics script, even pages where analytics is unwanted.
-
-**Desired behaviour**: the author likely wants the custom element script only on specific pages. The current design forces an all-or-nothing choice: either every usage gets the script, or no usage does.
-
-**Recommendation for RFC**: add a note that `<script customelement>` is a component-level declaration, not a usage-level opt-in. Authors who need per-page opt-in should create a wrapper component (e.g., `TrackedButton.vue`) that includes `<script customelement>` and composes `<Button>`. This is the idiomatic pattern and should be documented in §6.
-
-**Gap**: the RFC currently has no example of this pattern. An Example 5 covering the "composition-as-opt-in" pattern would address this.
-
----
-
-### Scenario 3 — Import Map and CDN Delivery
-
-**Scenario**: static assets are served from a CDN; the import map maps custom element specifiers to versioned CDN URLs.
-
-**Current design accommodation**: Option B in §4.5 describes URL-based delivery but defers it. The current proposal (Option A, inline) does not produce URLs and does not emit an import map. A deployment team that wants CDN delivery cannot use v1 for this scenario without post-processing the rendered HTML.
-
-**What would need to be added**: §4.5 Option B describes the mechanism. The key additions are:
-1. A configurable `AssetsDir` where generated JS files are written at startup.
-2. A hash-based file name (`htmlc-counter.a1b2c3d4.js`) for cache busting.
-3. An `ImportMapEmitter` that builds the `<script type="importmap">` JSON from the set of registered custom elements.
-4. A CDN base URL configuration option so the import map can reference `https://cdn.example.com/assets/htmlc-counter.a1b2c3d4.js`.
-
-**Gap**: the RFC should explicitly state in §10 that CDN delivery is the primary motivating use case for Option B, and that the open question of when to write asset files (startup vs. first render vs. build step) must be resolved before Option B can be implemented.
-
----
-
-### Scenario 4 — Multiple Custom Elements on One Page (Dashboard)
-
-**Scenario**: a dashboard with five different custom elements (`<Chart>`, `<Sparkline>`, `<Toggle>`, `<DateRange>`, `<LiveCounter>`).
-
-**Deduplication scale**: `CustomElementCollector` uses a `map[string]struct{}` keyed by tag name. With five distinct elements, five entries accumulate. `FlushCustomElements()` emits five `<script>` blocks. This is correct and scales linearly. There is no inherent performance cliff.
-
-**Where the author calls `FlushCustomElements`**: in `RenderPage`, the auto-flush before `</body>` is the recommended path. For `RenderFragment`, the author calls the returned collector's `FlushCustomElements()` and appends the result to the fragment — or wraps the fragment in a layout template that handles the flush. The RFC's §8 mentions this but does not show a concrete example for the fragment path.
-
-**Gap**: the RFC should add an example showing a `RenderFragment`-based page assembly pattern where the caller is responsible for flushing. This is a common use case for server-side Go applications that compose page sections independently.
-
----
-
-### Scenario 5 — Nested Custom Elements (`<Modal>` contains `<DatePicker>`)
-
-**Scenario**: `<Modal>` has `<script customelement>`. `<DatePicker>` has `<script customelement>`. `<Modal>` renders `<DatePicker>` in its template.
-
-**Emission order**: during a render of `<Modal>`, the renderer processes `<Modal>`'s template, encounters `<DatePicker>`, and recursively renders it. The recursive `renderElement` call processes `<DatePicker>` first (depth-first), calling `collector.Add(DatePicker entry)`. When the recursion returns, `renderElement` processes `<Modal>` and calls `collector.Add(Modal entry)`. Entries in `collector.entries` are therefore in depth-first order: `[HtmlcDatePicker, HtmlcModal]`.
-
-`FlushCustomElements()` emits `<script>` blocks in insertion order: `DatePicker` first, then `Modal`. This is correct — a browser upgrading `htmlc-modal` may immediately render `<htmlc-date-picker>` inside its shadow DOM (if shadow DOM is used), and the `DatePicker` definition is already registered.
-
-**Shadow DOM nesting**: if `<Modal>` uses shadow DOM and renders `<htmlc-date-picker>` inside its shadow root, the browser needs `HtmlcDatePicker` to be registered before or simultaneously with `HtmlcModal`. Since both definitions are in the same `<head>` or end-of-`<body>` block and are executed in order, this is safe.
-
-**Gap**: the depth-first emission order is a consequence of the rendering algorithm, not an explicit guarantee. The RFC should state that `FlushCustomElements()` emits definitions in the order the collector received them (depth-first, reflecting the component tree), and that this order is safe for nested custom elements because parent elements are registered after their children's definitions are already present.
+6. **Top-level components and single-word tag names** — `Counter.vue` derives `counter`, which is not a valid browser custom element name. Should `htmlc` emit a warning (not an error) when a component with `<script customelement>` derives a single-word tag name? *Tentative recommendation*: yes, warn at load time. **Blocking** — authors need to know this constraint.
