@@ -1,6 +1,6 @@
 # RFC 005: Structured Logging with `log/slog`
 
-- **Status**: Draft
+- **Status**: Accepted
 - **Date**: 2026-03-16
 - **Author**: TBD
 
