@@ -882,3 +882,68 @@ func TestEngine_Proximity_ForwardSlashKeysOnAllPlatforms(t *testing.T) {
 		t.Errorf("got %q, want 'deep-leaf'", out)
 	}
 }
+
+func TestRenderPage_InspectorInjected_WhenDebug(t *testing.T) {
+	memFS := fstest.MapFS{
+		"Page.vue": &fstest.MapFile{Data: []byte(
+			`<template><html><head></head><body><p>hello</p></body></html></template>`,
+		)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: ".", Debug: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := e.RenderPageString("Page", nil)
+	if err != nil {
+		t.Fatalf("RenderPageString: %v", err)
+	}
+	if !strings.Contains(out, "<script>") {
+		t.Errorf("expected <script> in output, got: %q", out)
+	}
+	if !strings.Contains(out, "htmlc-inspector") {
+		t.Errorf("expected 'htmlc-inspector' in output, got: %q", out)
+	}
+	scriptIdx := strings.Index(out, "<script>")
+	bodyIdx := strings.Index(out, "</body>")
+	if scriptIdx < 0 || bodyIdx < 0 || scriptIdx >= bodyIdx {
+		t.Errorf("expected <script> to appear before </body>; scriptIdx=%d bodyIdx=%d", scriptIdx, bodyIdx)
+	}
+}
+
+func TestRenderPage_InspectorAbsent_WhenNoDebug(t *testing.T) {
+	memFS := fstest.MapFS{
+		"Page.vue": &fstest.MapFile{Data: []byte(
+			`<template><html><head></head><body><p>hello</p></body></html></template>`,
+		)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := e.RenderPageString("Page", nil)
+	if err != nil {
+		t.Fatalf("RenderPageString: %v", err)
+	}
+	if strings.Contains(out, "htmlc-inspector") {
+		t.Errorf("expected no inspector script in non-debug output, got: %q", out)
+	}
+}
+
+func TestRenderPage_InspectorFallback_NoBodyTag(t *testing.T) {
+	memFS := fstest.MapFS{
+		"Frag.vue": &fstest.MapFile{Data: []byte(
+			`<template><div><p>no body tag here</p></div></template>`,
+		)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: ".", Debug: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := e.RenderPageString("Frag", nil)
+	if err != nil {
+		t.Fatalf("RenderPageString: %v", err)
+	}
+	if !strings.Contains(out, "htmlc-inspector") {
+		t.Errorf("expected 'htmlc-inspector' in fallback output, got: %q", out)
+	}
+}

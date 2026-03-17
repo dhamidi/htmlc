@@ -847,24 +847,27 @@ func (e *Engine) RenderPageContext(ctx context.Context, w io.Writer, name string
 		return err
 	}
 	out := buf.String()
+
+	// Inject scoped styles before </head>.
 	style := styleBlock(sc)
-	if style == "" {
-		_, err = io.WriteString(w, out)
-		return err
-	}
-	if idx := strings.Index(out, "</head>"); idx >= 0 {
-		if _, err = io.WriteString(w, out[:idx]); err != nil {
-			return err
+	if style != "" {
+		if idx := strings.Index(out, "</head>"); idx >= 0 {
+			out = out[:idx] + style + out[idx:]
+		} else {
+			out = style + out
 		}
-		if _, err = io.WriteString(w, style); err != nil {
-			return err
+	}
+
+	// Inject inspector script before </body> when debug mode is active.
+	if e.varDebug.Value() != 0 {
+		script := "\n<script>\n" + InspectorScript + "\n</script>\n"
+		if idx := strings.Index(out, "</body>"); idx >= 0 {
+			out = out[:idx] + script + out[idx:]
+		} else {
+			out = out + script
 		}
-		_, err = io.WriteString(w, out[idx:])
-		return err
 	}
-	if _, err = io.WriteString(w, style); err != nil {
-		return err
-	}
+
 	_, err = io.WriteString(w, out)
 	return err
 }
