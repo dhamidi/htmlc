@@ -385,28 +385,31 @@ camelCase prop names are converted to SCREAMING_SNAKE_CASE automatically (`autho
 
 ### Debug a rendering problem
 
-Add `-debug` to `render` or `page`.  The output is still valid HTML, but HTML comments are injected that describe what the engine did at each step.
+Add `-debug` to `render` or `page`.  Each component's root element gains three `data-htmlc-*` attributes carrying the component name, source file, and props.
 
 ```
 htmlc render -debug -dir ./templates Card -props '{"title":"Test"}'
 ```
 
-Example comment annotations in the output:
+Example annotated output:
 
 ```html
-<!-- [htmlc:debug] component=Card file=templates/Card.vue -->
-<!-- [htmlc:debug] expr="title" value="Test" -->
-<!-- [htmlc:debug] v-if="showBadge" → false: node skipped -->
+<div data-htmlc-component="Card"
+     data-htmlc-file="templates/Card.vue"
+     data-htmlc-props="{&quot;title&quot;:&quot;Test&quot;}">
+  ...
+</div>
 ```
 
-Pipe the output through `grep htmlc:debug` to see only the diagnostic lines:
+The attributes are standard HTML `data-*` attributes and are visible in browser DevTools.  Inspect all rendered components with JavaScript:
 
-```
-htmlc render -debug -dir ./templates Card -props '{"title":"Test"}' \
-  | grep htmlc:debug
+```javascript
+document.querySelectorAll('[data-htmlc-component]').forEach(el => {
+  console.log(el.dataset.htmlcComponent, JSON.parse(el.dataset.htmlcProps));
+});
 ```
 
-Never use `-debug` in production — the comments expose internal expression values.
+Avoid `-debug` in production — the attributes increase output size and expose prop values.
 
 ---
 
@@ -569,7 +572,7 @@ htmlc render [-dir <path>] [-props <json|->] [-debug] <component>
 |---|---|---|
 | `-dir` | `.` | Directory that contains `.vue` files |
 | `-props` | _(empty)_ | Props as a JSON object literal, or `-` to read from stdin |
-| `-debug` | false | Annotate output with diagnostic HTML comments |
+| `-debug` | false | Annotate output with `data-htmlc-*` attributes on each component's root element |
 
 Exits non-zero and prints an error to stderr when the component is not found, props JSON is malformed, or rendering fails.
 
@@ -585,7 +588,7 @@ htmlc page [-dir <path>] [-props <json|->] [-debug] [-layout <component>] <compo
 |---|---|---|
 | `-dir` | `.` | Directory that contains `.vue` files |
 | `-props` | _(empty)_ | Props as a JSON object literal, or `-` to read from stdin |
-| `-debug` | false | Annotate output with diagnostic HTML comments |
+| `-debug` | false | Annotate output with `data-htmlc-*` attributes on each component's root element |
 | `-layout` | _(none)_ | Wrap the rendered page inside this layout component. The layout receives the rendered HTML as a `content` prop. |
 
 Differences from `render`:
@@ -609,7 +612,7 @@ htmlc build [-dir <path>] [-pages <path>] [-out <path>] [-layout <name>] [-debug
 | `-pages` | `./pages` | Page tree root |
 | `-out` | `./out` | Output directory (created if absent) |
 | `-layout` | _(none)_ | Layout component to wrap every page |
-| `-debug` | false | Annotate output with diagnostic HTML comments |
+| `-debug` | false | Annotate output with `data-htmlc-*` attributes on each component's root element |
 
 Files in the pages directory whose base name starts with `_` are skipped — they are treated as shared partials, not pages.
 
@@ -961,24 +964,19 @@ The `render` subcommand prepends the rewritten `<style>` block to the output.  T
 
 ### Debug mode
 
-Passing `-debug` activates a secondary rendering pass that inserts HTML comments before or inside affected nodes.  The comment format is:
+Passing `-debug` injects three `data-htmlc-*` attributes onto the root element of every rendered component:
 
-```
-<!-- [htmlc:debug] key=value key2=value2 -->
-```
-
-Common keys:
-
-| Key | Meaning |
+| Attribute | Value |
 |---|---|
-| `component` | Component name being rendered |
-| `file` | Source file path |
-| `expr` | Expression text |
-| `value` | Evaluated expression value |
-| `v-if` / `v-for` / … | Directive and its outcome |
-| `slot` | Slot name and node count |
+| `data-htmlc-component` | Component name (e.g. `"Card"`) |
+| `data-htmlc-file` | Relative path to the `.vue` source file |
+| `data-htmlc-props` | HTML-escaped JSON object of the props passed to the component |
 
-Because comments are part of the HTML output, they survive round-trips through most HTML parsers and are visible in browser DevTools.  They are intended solely for development use.
+If the props cannot be JSON-serialised (e.g. a non-marshallable Go type), `data-htmlc-props` is replaced by `data-htmlc-props-error` containing the error message.
+
+Components whose template has no single root element (fragment templates) are not annotated — there is no element to carry the attributes.
+
+The attributes are standard HTML `data-*` attributes.  They are visible in browser DevTools and accessible via the `dataset` API.  They are intended solely for development use.
 
 ---
 

@@ -25,9 +25,9 @@ FLAGS
                 components are validated before rendering.
   -dir string   Directory containing .vue component files. (default ".")
   -props string Props as a JSON object, or "-" to read JSON from stdin.
-  -debug        Enable debug render mode: annotate output with HTML comments
-                describing component boundaries, expression values, slot
-                contents, and skipped nodes. For development use only.
+  -debug        Enable debug render mode: annotate output with data-htmlc-*
+                attributes on each component's root element, carrying the
+                component name, source file, and props. For development use only.
 
 EXAMPLES
   # Render Button with no props
@@ -49,7 +49,7 @@ func runRender(args []string, stdout, stderr io.Writer, strict bool) error {
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", ".", "directory containing .vue components")
 	propsFlag := fs.String("props", "", "props as JSON object string, or - to read from stdin")
-	debugFlag := fs.Bool("debug", false, "enable debug render mode (annotates output with HTML comments)")
+	debugFlag := fs.Bool("debug", false, "enable debug render mode (annotates output with data-htmlc-* attributes)")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Fprint(stdout, helpRender)

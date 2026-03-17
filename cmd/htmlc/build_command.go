@@ -46,7 +46,8 @@ FLAGS
   -pages string   Root of the page tree. (default "./pages")
   -out string     Output directory. Created if it does not exist. (default "./out")
   -layout string  Layout component (from -dir) to wrap every page. (default: none)
-  -debug          Annotate output with diagnostic HTML comments.
+  -debug          Annotate output with data-htmlc-* attributes on each
+                  component's root element (component name, source file, props).
   -dev string     Start a development server at <addr> (e.g. :8080) that serves
                   the output directory and automatically rebuilds when source
                   files change. The server runs until interrupted (Ctrl-C).
