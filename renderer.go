@@ -160,9 +160,11 @@ type Renderer struct {
 	ctx                context.Context // optional; nil means no cancellation
 	debug              bool
 	debugW             *debugWriter
-	funcs              map[string]any // engine-registered functions, propagated to child renderers
-	logger             *slog.Logger  // nil = no slog output
-	cw                 countingWriter // Reset()ed at each child dispatch
+	funcs                 map[string]any // engine-registered functions, propagated to child renderers
+	logger                *slog.Logger  // nil = no slog output
+	cw                    countingWriter // Reset()ed at each child dispatch
+	componentPath         []string       // ordered path from root to this component
+	componentErrorHandler ComponentErrorHandler // nil = abort on error (default)
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -249,6 +251,21 @@ func (r *Renderer) WithFuncs(funcs map[string]any) *Renderer {
 // the Renderer for chaining.
 func (r *Renderer) WithLogger(l *slog.Logger) *Renderer {
 	r.logger = l
+	return r
+}
+
+// WithComponentErrorHandler sets the handler called when a child component
+// fails to render. When nil (default), the first component error aborts the
+// render. Returns the Renderer for chaining.
+func (r *Renderer) WithComponentErrorHandler(h ComponentErrorHandler) *Renderer {
+	r.componentErrorHandler = h
+	return r
+}
+
+// WithComponentPath sets the ordered component path from the page root to
+// this renderer's component. Returns the Renderer for chaining.
+func (r *Renderer) WithComponentPath(path []string) *Renderer {
+	r.componentPath = path
 	return r
 }
 
@@ -1668,26 +1685,37 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		childScope = merged
 	}
 
+	// Build child component path by appending the component name to the current path.
+	childPath := make([]string, len(r.componentPath)+1)
+	copy(childPath, r.componentPath)
+	childPath[len(childPath)-1] = n.Data
+
 	// Build a child renderer that shares the registry and style collector.
 	childRenderer := &Renderer{
-		component:          comp,
-		styleCollector:     r.styleCollector,
-		registry:           r.registry,
-		nsRegistry:         r.nsRegistry,        // propagate NS registry to child renderers
-		componentDir:       r.componentDir,       // propagate componentDir to child renderers
-		missingPropHandler: r.missingPropHandler,
-		slotDefs:           slotDefs,
-		directives:         r.directives,
-		ctx:                r.ctx,
-		debug:              r.debug,
-		debugW:             r.debugW,
-		funcs:              r.funcs,              // propagate engine functions to child renderers
-		logger:             r.logger,
+		component:             comp,
+		styleCollector:        r.styleCollector,
+		registry:              r.registry,
+		nsRegistry:            r.nsRegistry,        // propagate NS registry to child renderers
+		componentDir:          r.componentDir,       // propagate componentDir to child renderers
+		missingPropHandler:    r.missingPropHandler,
+		slotDefs:              slotDefs,
+		directives:            r.directives,
+		ctx:                   r.ctx,
+		debug:                 r.debug,
+		debugW:                r.debugW,
+		funcs:                 r.funcs,              // propagate engine functions to child renderers
+		logger:                r.logger,
+		componentPath:         childPath,
+		componentErrorHandler: r.componentErrorHandler,
 	}
 
 	if r.logger == nil {
-		if err := childRenderer.Render(w, childScope); err != nil {
-			return fmt.Errorf("component %q: %w", n.Data, err)
+		if renderErr := childRenderer.Render(w, childScope); renderErr != nil {
+			wrapped := wrapComponentError(childPath, n.Data, renderErr)
+			if r.componentErrorHandler != nil {
+				return r.componentErrorHandler(w, childPath, wrapped)
+			}
+			return wrapped
 		}
 		return nil
 	}
@@ -1704,7 +1732,11 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 			slog.Int64("bytes", childRenderer.cw.n),
 			slog.Any("error", renderErr),
 		)
-		return fmt.Errorf("component %q: %w", n.Data, renderErr)
+		wrapped := wrapComponentError(childPath, n.Data, renderErr)
+		if r.componentErrorHandler != nil {
+			return r.componentErrorHandler(w, childPath, wrapped)
+		}
+		return wrapped
 	}
 	r.logger.DebugContext(r.ctx, MsgComponentRendered,
 		slog.String("component", compName),

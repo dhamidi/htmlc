@@ -71,6 +71,14 @@ type Options struct {
 	// component name, render duration (subtree), bytes written (subtree), and
 	// any error. The nil value (default) disables all slog output.
 	Logger *slog.Logger
+	// ComponentErrorHandler, if non-nil, is called in place of aborting the
+	// render when a child component fails. The handler writes an HTML
+	// placeholder to w and returns nil to continue rendering, or returns a
+	// non-nil error to abort. When the handler returns nil for all failures,
+	// the partial page (with placeholders) is written to the io.Writer passed
+	// to RenderPage. The nil value (default) preserves the existing behaviour:
+	// the first component error aborts the render and w receives nothing.
+	ComponentErrorHandler ComponentErrorHandler
 }
 
 // engineEntry holds a parsed component together with its source path and the
@@ -747,6 +755,10 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 	if e.opts.Logger != nil {
 		renderer = renderer.WithLogger(e.opts.Logger)
 	}
+	if e.opts.ComponentErrorHandler != nil {
+		renderer = renderer.WithComponentErrorHandler(e.opts.ComponentErrorHandler)
+	}
+	renderer = renderer.WithComponentPath([]string{name})
 	renderFn := func(out io.Writer) error {
 		return renderer.Render(out, scope)
 	}

@@ -1024,7 +1024,72 @@ Records appear in post-order: leaf components are logged before their parents.
 
 ---
 
-## 10. Custom Directives
+## 10. Component Error Handling
+
+By default, the first component render failure aborts the entire page render and the response writer receives nothing. Two complementary features make failures observable and recoverable.
+
+### Structured component path
+
+Every `*RenderError` now carries a `ComponentPath []string` field — the ordered list of component names from the page root to the failing component:
+
+```go
+var rerr *htmlc.RenderError
+err := engine.RenderPage(w, "HomePage", data)
+if errors.As(err, &rerr) {
+    fmt.Println(strings.Join(rerr.ComponentPath, " > "))
+    // Output: HomePage > Layout > Sidebar
+}
+```
+
+`RenderError.Error()` automatically includes the path when depth > 1:
+
+```text
+HomePage > Layout > Sidebar: render Sidebar.vue: expr "items.length": type error
+```
+
+### In-place error handler
+
+Register a `ComponentErrorHandler` on `Options` to intercept component failures, write a placeholder into the output buffer, and allow rendering to continue:
+
+```go
+engine, _ := htmlc.New(htmlc.Options{
+    ComponentDir:          "templates/",
+    ComponentErrorHandler: htmlc.HTMLErrorHandler(), // built-in dev helper
+})
+err := engine.RenderPage(w, "HomePage", data)
+// err == nil; w contains the page with <div class="htmlc-error"> placeholders
+```
+
+The `ComponentErrorHandler` type is:
+
+```go
+type ComponentErrorHandler func(w io.Writer, path []string, err error) error
+```
+
+- Return `nil` to write a placeholder and continue rendering sibling nodes.
+- Return a non-nil error to abort the entire render immediately.
+
+When the handler returns `nil` for every failure, `RenderPage` returns `nil` and the partial page (with placeholders) is written to `w` exactly like a successful render.
+
+### Built-in development helper
+
+`HTMLErrorHandler()` returns a handler that renders a visible `<div class="htmlc-error">` placeholder at each failure site:
+
+```html
+<div class="htmlc-error" data-path="HomePage &gt; Sidebar">
+  render Sidebar.vue: expr "items.length": type error
+</div>
+```
+
+Both `path` and the error message are HTML-escaped. The `htmlc-error` class lets you style the placeholder with CSS.
+
+### Nil handler (default)
+
+A nil `ComponentErrorHandler` preserves the existing behaviour: the first component error aborts the render and `w` receives nothing.
+
+---
+
+## 11. Custom Directives
 
 The engine supports user-defined directives that extend the template language. A custom directive is any Go type that implements the `Directive` interface:
 
@@ -1237,7 +1302,7 @@ echo '{"hook":"created","id":"1","tag":"pre","attrs":{},"text":"fmt.Println(1)",
 
 ---
 
-## 11. Compatibility with Vue.js
+## 12. Compatibility with Vue.js
 
 htmlc uses `.vue` Single File Component syntax and many of the same directive
 names as Vue.js, but it is a **server-side-only renderer** with intentional
@@ -1287,7 +1352,7 @@ passed at render time.
 
 ---
 
-## 12. html/template Integration
+## 13. html/template Integration
 
 Already using `html/template`? htmlc works alongside your existing templates
 with no changes required. Use `RegisterTemplate` to bring any existing partial

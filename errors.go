@@ -3,6 +3,8 @@ package htmlc
 import (
 	"errors"
 	"fmt"
+	stdhtml "html"
+	"io"
 	"strings"
 )
 
@@ -57,6 +59,11 @@ func (e *ParseError) Error() string {
 type RenderError struct {
 	// Component is the component name being rendered when the error occurred.
 	Component string
+	// ComponentPath is the ordered path of component names from the page root
+	// to the failing component (e.g. ["HomePage", "Layout", "Sidebar"]).
+	// It is populated at each component boundary as the error travels up the
+	// call stack. The last element matches Component.
+	ComponentPath []string
 	// Expr is the template expression that triggered the error (may be empty).
 	Expr string
 	// Wrapped is the underlying error.
@@ -72,14 +79,57 @@ func (e *RenderError) Error() string {
 		loc = fmt.Sprintf("%s:%d: ", e.Location.File, e.Location.Line)
 		snippet = e.Location.Snippet
 	}
-	if e.Expr != "" {
-		return fmt.Sprintf("%srender %s: expr %q: %s\n%s",
-			loc, e.Component, e.Expr, e.Wrapped, snippet)
+	path := ""
+	if len(e.ComponentPath) > 1 {
+		path = strings.Join(e.ComponentPath, " > ") + ": "
 	}
-	return fmt.Sprintf("%srender %s: %s", loc, e.Component, e.Wrapped)
+	if e.Expr != "" {
+		return fmt.Sprintf("%s%srender %s: expr %q: %s\n%s",
+			path, loc, e.Component, e.Expr, e.Wrapped, snippet)
+	}
+	return fmt.Sprintf("%s%srender %s: %s", path, loc, e.Component, e.Wrapped)
 }
 
 func (e *RenderError) Unwrap() error { return e.Wrapped }
+
+// ComponentErrorHandler is called when a child component fails to render.
+// w is the writer at the failure site; path is the full component path from
+// the page root to the failing component. err is the render error.
+//
+// Return nil to write a placeholder and continue rendering sibling nodes.
+// Return a non-nil error to abort the entire render immediately.
+type ComponentErrorHandler func(w io.Writer, path []string, err error) error
+
+// HTMLErrorHandler returns a ComponentErrorHandler that renders a visible
+// <div> placeholder for each failed component. It is intended for development
+// use. The generated markup uses the class "htmlc-error" for easy targeting
+// with CSS. path and err are HTML-escaped before inclusion.
+func HTMLErrorHandler() ComponentErrorHandler {
+	return func(w io.Writer, path []string, err error) error {
+		msg := stdhtml.EscapeString(err.Error())
+		p := stdhtml.EscapeString(strings.Join(path, " > "))
+		fmt.Fprintf(w, `<div class="htmlc-error" data-path=%q>%s</div>`, p, msg)
+		return nil
+	}
+}
+
+// wrapComponentError wraps err in a *RenderError carrying the given path. If
+// err is already a *RenderError without a path set, it populates the path in
+// place and returns the same pointer.
+func wrapComponentError(path []string, componentName string, err error) error {
+	var re *RenderError
+	if errors.As(err, &re) {
+		if len(re.ComponentPath) == 0 {
+			re.ComponentPath = path
+		}
+		return re
+	}
+	return &RenderError{
+		Component:     componentName,
+		ComponentPath: path,
+		Wrapped:       err,
+	}
+}
 
 // ValidationError describes a single problem found by Engine.ValidateAll.
 type ValidationError struct {
