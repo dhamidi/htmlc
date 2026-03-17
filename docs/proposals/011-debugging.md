@@ -1,6 +1,6 @@
 # RFC 011: Attribute-Based Debug Annotations
 
-- **Status**: Draft
+- **Status**: Accepted
 - **Date**: 2026-03-17
 - **Author**: TBD
 
@@ -73,15 +73,13 @@ Example output for `<HeroBanner headline="Hello">` with debug mode enabled:
 
 **Current state** (`renderer.go`): `renderComponentElement` constructs a child `Renderer` and calls `childRenderer.Render(w, childScope)`. The child renderer walks the template's `<template>` node and emits its root element via `renderElement`.
 
-**Proposed extension**: Before calling `childRenderer.Render`, populate a new `debugAttrs map[string]string` field on the child renderer with the three key-value pairs. Inside `renderElement`, after writing all existing attributes of an element, check whether `r.debugAttrs != nil` AND `r.templateDepth == 0` (meaning this is the root element of the component template). If both conditions hold, emit the debug attributes in attribute order and set `r.debugAttrs = nil` to prevent re-injection on nested elements.
-
-A new `templateDepth int` field on `Renderer` tracks the element nesting depth within the current render pass. It is incremented when `renderElement` opens a tag and decremented when the corresponding close tag is emitted. Each child renderer starts with `templateDepth` at zero.
+**Proposed extension**: Before calling `childRenderer.Render`, populate a new `debugAttrs map[string]string` field on the child renderer with the three key-value pairs. Inside `renderElement`, after writing all existing attributes of an element, check whether `r.debugAttrs != nil` AND `n.Parent == r.component.Template` (meaning this is the root element of the component template). If both conditions hold, emit the debug attributes in attribute order and set `r.debugAttrs = nil`. The parent-pointer check is allocation-free and scoped to each child renderer's own `component` pointer, so it is unaffected by slot content rendered at deeper nesting levels.
 
 Two implementation strategies for injecting the attributes:
 
 | Option | Description                                                                                                                       | Verdict |
 |--------|-----------------------------------------------------------------------------------------------------------------------------------|---------|
-| A      | Add `debugAttrs map[string]string` field to `Renderer`; `renderElement` checks `debugAttrs != nil && templateDepth == 0`, injects, then sets `debugAttrs = nil`. | ✅ Clean, no structural change to the render loop. One field, two sites. |
+| A      | Add `debugAttrs map[string]string` field to `Renderer`; `renderElement` checks `debugAttrs != nil && n.Parent == r.component.Template`, injects, then sets `debugAttrs = nil`. | ✅ Clean, no structural change to the render loop. One field, one site. |
 | B      | Post-process rendered bytes using `html.Tokenizer` to inject attributes after the fact.                                           | ❌ Fragile, doubles allocations, requires special handling for void elements, reintroduces a second parse pass. |
 
 **Verdict**: Option A.
@@ -257,7 +255,7 @@ The `<!--` and `-->` sequences inside the JSON string value are HTML-escaped and
 
 ### Example 4: Debug disabled (zero output change)
 
-When `Options.Debug` is false (the default), `debugAttrs` is nil on every renderer. The `renderElement` check `r.debugAttrs != nil && r.templateDepth == 0` is false at every call site. No `data-htmlc-*` attributes are emitted. The rendered HTML is byte-for-byte identical to today's non-debug output. No allocations are introduced on the hot path.
+When `Options.Debug` is false (the default), `debugAttrs` is nil on every renderer. The `renderElement` check `r.debugAttrs != nil && n.Parent == r.component.Template` is false at every call site. No `data-htmlc-*` attributes are emitted. The rendered HTML is byte-for-byte identical to today's non-debug output. No allocations are introduced on the hot path.
 
 ### Example 5: Fragment template (limitation)
 
@@ -342,9 +340,8 @@ Remove the file entirely once the implementation is complete. While the current 
 
 ### `renderer.go`
 
-1. Add two fields to `Renderer`:
+1. Add one field to `Renderer`:
    - `debugAttrs map[string]string` — nil when debug is disabled or after injection. (~1 field)
-   - `templateDepth int` — element nesting depth within the current render pass, reset to 0 for each new child renderer. (~1 field)
 2. Remove the `withDebug(dw *debugWriter) *Renderer` builder method. (~3 lines deleted)
 3. In `renderComponentElement`, after constructing the child renderer and before calling `childRenderer.Render`, populate `childRenderer.debugAttrs` when `r.debug` is true:
    ```go
@@ -370,7 +367,7 @@ Remove the file entirely once the implementation is complete. While the current 
 4. In `renderElement`, after writing all existing attributes of the element's opening tag, add:
    ```go
    // pseudo-code — not implementation
-   if r.debugAttrs != nil && r.templateDepth == 0 {
+   if r.debugAttrs != nil && n.Parent == r.component.Template {
        for _, key := range debugAttrOrder {
            if val, ok := r.debugAttrs[key]; ok {
                writeAttr(w, key, html.EscapeString(val))
@@ -378,11 +375,9 @@ Remove the file entirely once the implementation is complete. While the current 
        }
        r.debugAttrs = nil
    }
-   r.templateDepth++
    ```
-   (~8 lines; `debugAttrOrder` is a package-level `[]string` defining deterministic attribute output order)
-5. In the element close-tag path, decrement `r.templateDepth`. (~1 line)
-6. Remove all `if r.debug { r.debugW.exprValue(...) }`, `r.debugW.vifSkipped(...)`, `r.debugW.slotStart(...)`, `r.debugW.slotEnd(...)` call sites. (~8 deletions)
+   (~7 lines; `debugAttrOrder` is a package-level `[]string` defining deterministic attribute output order)
+5. Remove all `if r.debug { r.debugW.exprValue(...) }`, `r.debugW.vifSkipped(...)`, `r.debugW.slotStart(...)`, `r.debugW.slotEnd(...)` call sites. (~8 deletions)
 
 ### `engine.go`
 
@@ -454,22 +449,21 @@ Wrap each component's output in `<template data-htmlc-component="...">`.
 
 ---
 
-## 10. Open Questions
+## 10. Resolved Design Decisions
 
-1. **Props serialisation of non-JSON-serialisable values** (blocking)
-   If a prop value is an `io.Reader`, a Go channel, or any type that `encoding/json` cannot marshal, `json.Marshal` returns an error. The proposed resolution (§4.4) is to omit `data-htmlc-props` and emit `data-htmlc-props-error` with the error string. Confirm this is preferable to rendering an error (which would break the render entirely for a debug-only annotation).
+All design questions were resolved during RFC authoring. The decisions are recorded here for traceability.
 
-2. **`templateDepth` counter and slot rendering** (blocking)
-   When slot content provided by a parent component is rendered inside a child component, the slot content's elements are walked by the child renderer. The `templateDepth` counter must be scoped to each `Renderer` instance so that slot content rendered inside a child does not inherit a non-zero depth from the parent. Verify that constructing a new `Renderer` struct for each child component (via `rendererWithComponent` or equivalent) zeroes `templateDepth`. Tentative answer: yes, since child renderers are new struct values initialised to zero; confirm during implementation.
+1. **Props serialisation of non-JSON-serialisable values**
+   If a prop value is an `io.Reader`, a Go channel, or any type that `encoding/json` cannot marshal, `json.Marshal` returns an error. **Decision**: omit `data-htmlc-props` and emit `data-htmlc-props-error` containing the error string. The render is never failed for a debug-only annotation.
 
-3. **Attribute order** (non-blocking)
-   Should `data-htmlc-*` attributes be injected before or after the component's own attributes (e.g., `id`, `class`)? Injecting last minimises diff noise when comparing debug vs. non-debug output. Tentative answer: inject last (after all existing attributes).
+2. **Root-element detection and slot rendering**
+   The `templateDepth int` counter originally proposed for this purpose has been removed. The root element is identified by the parent-pointer check `n.Parent == r.component.Template`. This check is scoped to each child renderer's own `component` pointer and is unaffected by slot content rendered at deeper nesting levels — slot content is walked by its own renderer whose `component` points to the slot's defining component, not the host. No counter to maintain; no zeroing required on renderer construction.
 
-4. **`data-htmlc-component` casing** (non-blocking)
-   The HTML parser lowercases tag names (e.g., `<HeroBanner>` is parsed as `herobanner`). The component registry key may preserve original casing (e.g., `"HeroBanner"`). Should `data-htmlc-component` use the registry key (original casing) or the lowercased tag name? Tentative answer: use the registry key (original casing, e.g., `"HeroBanner"`) for clarity when inspecting DevTools — the lowercase form is already visible in the tag name itself.
+3. **Attribute order**
+   **Decision**: `data-htmlc-*` attributes are appended after all attributes already present on the root element. This minimises diff noise when comparing debug vs. non-debug output.
 
-5. **Interaction with scoped styles** (non-blocking)
+4. **`data-htmlc-component` casing**
+   **Decision**: use the component registry key with its original casing (e.g., `"HeroBanner"`). The lowercase tag name is already visible in the element tag itself; the registry key provides the canonical identifier used throughout the codebase.
 
-   Scoped styles are already implemented. When a component uses `<style scoped>`, the renderer injects a `data-v-XXXXXXXX` attribute (computed by `ScopeID(path)`) on the component's root element. RFC 011 adds `data-htmlc-component`, `data-htmlc-file`, and `data-htmlc-props` to the same element. Both sets of attributes will coexist on the root element.
-
-   The implementation must ensure that `data-htmlc-*` attributes are injected after the existing `data-v-*` scope attribute in the rendered output, consistent with the "inject last" verdict in Open Question 3. Verify during implementation that the injection order is stable across both code paths (scoped-style injection and debug-attr injection) so that snapshot test output is reproducible.
+5. **Interaction with scoped styles**
+   **Decision**: `data-htmlc-*` attributes are injected after any existing `data-v-*` scope attribute, consistent with the "inject last" rule from decision 3. Verify during implementation that snapshot output is stable across both code paths.
