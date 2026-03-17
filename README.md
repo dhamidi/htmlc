@@ -961,10 +961,34 @@ Everything else is truthy, including empty arrays and empty objects.
 
 ## Debug Mode
 
-> **Note:** Debug mode is temporarily disabled while a replacement is designed
-> (see [RFC 011: Attribute-Based Debugging](docs/proposals/011-debugging.md)).
-> Passing `-debug` is accepted without error but produces no annotations in the
-> output. The flag will be re-enabled once RFC 011 is implemented.
+Enable debug mode via `Options.Debug` (or the `-debug` CLI flag) to annotate the rendered HTML with component metadata. When active, the root element of each rendered component receives three `data-htmlc-*` attributes:
+
+| Attribute | Value |
+|---|---|
+| `data-htmlc-component` | Component name (registry key, original casing) |
+| `data-htmlc-file` | Relative path to the `.vue` source file |
+| `data-htmlc-props` | HTML-escaped JSON-encoded props passed to the component |
+
+If the props cannot be JSON-serialised (for example, a prop value is an `io.Reader`), `data-htmlc-props-error` is emitted instead of `data-htmlc-props`.
+
+Fragment templates (components with no single root element) are silently skipped — there is no element to annotate.
+
+**Example output** for `<HeroBanner headline="Hello">` with debug mode enabled:
+
+```html
+<section
+  id="hero"
+  data-htmlc-component="HeroBanner"
+  data-htmlc-file="components/HeroBanner.vue"
+  data-htmlc-props="{&quot;headline&quot;:&quot;Hello&quot;}"
+>
+  ...
+</section>
+```
+
+The `data-htmlc-*` attributes are standard HTML `data-*` attributes and are accessible via the browser's `dataset` API (`el.dataset.htmlcComponent`, `el.dataset.htmlcProps`, etc.).
+
+> **Note:** Debug mode adds extra attributes and increases output size. Do not use it in production for performance reasons. It does not corrupt the document — all attribute values are HTML-escaped before emission.
 
 ### AST inspection
 

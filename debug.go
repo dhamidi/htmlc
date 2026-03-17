@@ -1,44 +1,57 @@
 package htmlc
 
 import (
-	"io"
+	"encoding/json"
+
+	"golang.org/x/net/html"
 )
 
-// debugWriter wraps an io.Writer and provides helpers for emitting structured
-// HTML debug comments. It is used by Renderer when Debug mode is active.
-type debugWriter struct {
-	w     io.Writer
-	depth int
+// debugAttrOrder defines the fixed emission order of data-htmlc-* debug
+// attributes. Attributes are always emitted in this order, appended after all
+// existing element attributes on the component root element.
+var debugAttrOrder = []string{
+	"data-htmlc-component",
+	"data-htmlc-file",
+	"data-htmlc-props",
+	"data-htmlc-props-error",
 }
 
-func newDebugWriter(w io.Writer) *debugWriter { return &debugWriter{w: w} }
-
-func (d *debugWriter) Write(p []byte) (int, error) { return d.w.Write(p) }
-
-func (d *debugWriter) comment(format string, args ...any) {}
-
-func (d *debugWriter) componentStart(name, file string) {
-	d.comment("component=%s file=%s", name, file)
-	d.depth++
+// propsToJSON serialises props through the Props interface into a JSON object.
+// Nested Props values are recursed into and emitted as nested JSON objects.
+// If p is nil, the returned bytes represent an empty JSON object "{}".
+func propsToJSON(p Props) ([]byte, error) {
+	if p == nil {
+		return []byte("{}"), nil
+	}
+	keys := p.Keys()
+	m := make(map[string]any, len(keys))
+	for _, k := range keys {
+		v, _ := p.Get(k)
+		if nested, ok := v.(Props); ok {
+			raw, err := propsToJSON(nested)
+			if err != nil {
+				return nil, err
+			}
+			m[k] = json.RawMessage(raw)
+		} else {
+			m[k] = v
+		}
+	}
+	return json.Marshal(m)
 }
 
-func (d *debugWriter) componentEnd(name string) {
-	d.depth--
-	d.comment("/component=%s", name)
-}
-
-func (d *debugWriter) exprValue(expr string, value any) {
-	d.comment("expr=%q value=%v", expr, value)
-}
-
-func (d *debugWriter) vifSkipped(expr string, result bool) {
-	d.comment("v-if=%q \u2192 %v: node skipped", expr, result)
-}
-
-func (d *debugWriter) slotStart(name string, nodeCount int) {
-	d.comment("slot=%s nodes=%d", name, nodeCount)
-}
-
-func (d *debugWriter) slotEnd(name string) {
-	d.comment("/slot=%s", name)
+// isFragmentTemplate reports whether the component template has no single
+// element root — either it has multiple element children or only text nodes.
+// Fragment templates cannot carry debug attributes and are silently skipped.
+func isFragmentTemplate(tmpl *html.Node) bool {
+	var count int
+	for c := tmpl.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode {
+			count++
+			if count > 1 {
+				return true
+			}
+		}
+	}
+	return count == 0
 }

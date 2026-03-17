@@ -524,8 +524,13 @@
 //	engine.SetReload(true)   // enable hot-reload
 //	engine.SetDebug(false)   // disable debug mode
 //
-// Debug mode is currently a no-op. The HTML-comment annotation mechanism
-// is being replaced; see docs/proposals/011-debugging.md.
+// When debug mode is active, the root element of each rendered component
+// carries three data-htmlc-* attributes: data-htmlc-component (component
+// registry key), data-htmlc-file (relative path to the .vue source file),
+// and data-htmlc-props (HTML-escaped JSON-encoded props). If props cannot be
+// serialised, data-htmlc-props-error is emitted instead of data-htmlc-props.
+// Debug mode should not be used in production; it adds extra attributes and
+// increases HTML output size.
 //
 // The component directory and filesystem can be changed atomically; discovery
 // is re-run under the engine's write lock and the engine's state is only

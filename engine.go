@@ -60,9 +60,14 @@ type Options struct {
 	// (e.g. "switch" handles v-switch). Built-in directives (v-if, v-for, etc.)
 	// cannot be overridden.
 	Directives DirectiveRegistry
-	// Debug enables debug render mode. Accepted without error but currently
-	// a no-op: the HTML-comment annotation mechanism is being replaced;
-	// see docs/proposals/011-debugging.md.
+	// Debug enables debug render mode. When true, the root element of each
+	// rendered component carries three data-htmlc-* attributes:
+	// data-htmlc-component (component name), data-htmlc-file (source path),
+	// and data-htmlc-props (JSON-encoded props). If props cannot be
+	// serialised, data-htmlc-props-error is emitted instead. Debug mode
+	// has no effect on components whose template has no single root element
+	// (fragment templates). Debug mode should not be used in production as
+	// it adds extra attributes and increases output size.
 	Debug bool
 	// Logger, if non-nil, receives one structured log record per component
 	// rendered. Records are emitted at slog.LevelDebug for successful renders
@@ -747,9 +752,7 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 		renderer = renderer.WithMissingPropHandler(e.missingPropHandler)
 	}
 	if e.varDebug.Value() != 0 {
-		dw := newDebugWriter(w)
-		renderer = renderer.withDebug(dw)
-		w = dw
+		renderer.debug = true
 	}
 	if e.opts.Logger != nil {
 		renderer = renderer.WithLogger(e.opts.Logger)
@@ -1224,10 +1227,10 @@ func (e *Engine) SetReload(enabled bool) {
 	}
 }
 
-// SetDebug enables or disables debug render mode at runtime. Currently a no-op:
-// the HTML-comment annotation mechanism is being replaced; see
-// docs/proposals/011-debugging.md. The call is accepted without error and the
-// expvar counter is updated.
+// SetDebug enables or disables debug render mode at runtime. When enabled,
+// the root element of each rendered component carries data-htmlc-* attributes
+// for component name, source file, and serialised props. See Options.Debug for
+// the full description.
 func (e *Engine) SetDebug(enabled bool) {
 	if enabled {
 		e.varDebug.Set(1)

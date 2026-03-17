@@ -159,7 +159,7 @@ type Renderer struct {
 	directives         DirectiveRegistry
 	ctx                context.Context // optional; nil means no cancellation
 	debug              bool
-	debugW             *debugWriter
+	debugAttrs         map[string]string
 	funcs                 map[string]any // engine-registered functions, propagated to child renderers
 	logger                *slog.Logger  // nil = no slog output
 	cw                    countingWriter // Reset()ed at each child dispatch
@@ -229,14 +229,6 @@ func (r *Renderer) WithContext(ctx context.Context) *Renderer {
 	return r
 }
 
-// withDebug enables debug render mode on this renderer. dw must wrap the same
-// io.Writer that will be passed to Render so that debug comments are
-// interleaved with HTML output in the correct order.
-func (r *Renderer) withDebug(dw *debugWriter) *Renderer {
-	r.debug = true
-	r.debugW = dw
-	return r
-}
 
 // WithFuncs attaches engine-registered functions to this renderer so they are
 // available in template expressions and propagated to all child renderers.
@@ -482,9 +474,6 @@ func (r *Renderer) interpolate(w io.Writer, text string, scope map[string]any) e
 			}
 		}
 		// html/template.HTML values are already safe — emit verbatim.
-		if r.debug {
-			r.debugW.exprValue(exprSrc, val)
-		}
 		if safe, ok := val.(htmltemplate.HTML); ok {
 			io.WriteString(w, string(safe))
 		} else {
@@ -642,9 +631,6 @@ func (r *Renderer) renderConditionalChain(w io.Writer, vIfNode *html.Node, scope
 			truthy = expr.IsTruthy(val)
 		}
 		if !truthy {
-			if r.debug && !b.isElse {
-				r.debugW.vifSkipped(b.expr, false)
-			}
 			continue
 		}
 		// Render the branch. <template> renders only its children.
@@ -888,9 +874,6 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 			slotName = nameAttr
 		}
 		if def, ok := r.slotDefs[slotName]; ok {
-			if r.debug {
-				r.debugW.slotStart(slotName, len(def.Nodes))
-			}
 			// Collect slot props from the <slot> element's attributes (child's scope).
 			slotProps := make(map[string]any)
 			for _, attr := range n.Attr {
@@ -977,9 +960,6 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 					return err
 				}
 				i++
-			}
-			if r.debug {
-				r.debugW.slotEnd(slotName)
 			}
 			return nil
 		}
@@ -1258,6 +1238,20 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 	if r.component.Scoped {
 		w.Write([]byte{' '})
 		io.WriteString(w, ScopeID(r.component.Path))
+	}
+
+	// Inject debug attributes on the root element of a component template.
+	if r.debugAttrs != nil && n.Parent == r.component.Template {
+		for _, key := range debugAttrOrder {
+			if val, ok := r.debugAttrs[key]; ok {
+				w.Write([]byte{' '})
+				io.WriteString(w, key)
+				io.WriteString(w, `="`)
+				io.WriteString(w, stdhtml.EscapeString(val))
+				w.Write([]byte{'"'})
+			}
+		}
+		r.debugAttrs = nil
 	}
 
 	if isVoidElement(working.Data) {
@@ -1562,10 +1556,6 @@ func collectSlotDefs(n *html.Node, parentScope map[string]any, parentComp *Compo
 // from the element's attributes, slot definitions are collected from the
 // children, and then the child component's template is rendered with those props.
 func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[string]any, comp *Component) error {
-	if r.debug {
-		r.debugW.componentStart(n.Data, comp.Path)
-		defer r.debugW.componentEnd(n.Data)
-	}
 	childScope := make(map[string]any)
 
 	// Phase 1: Apply v-bind spread maps (lower priority).
@@ -1673,6 +1663,9 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		slotDefs = collectSlotDefs(n, scope, r.component, r.slotDefs)
 	}
 
+	// Capture the explicit props (before engine funcs are merged in) for debug serialisation.
+	rawChildScope := childScope
+
 	// Apply engine funcs as lower-priority values (explicit props win over funcs).
 	if len(r.funcs) > 0 {
 		merged := make(map[string]any, len(r.funcs)+len(childScope))
@@ -1702,11 +1695,32 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		directives:            r.directives,
 		ctx:                   r.ctx,
 		debug:                 r.debug,
-		debugW:                r.debugW,
 		funcs:                 r.funcs,              // propagate engine functions to child renderers
 		logger:                r.logger,
 		componentPath:         childPath,
 		componentErrorHandler: r.componentErrorHandler,
+	}
+
+	// Populate debug attributes on the child renderer when debug mode is active.
+	// The component name is derived from the source file name (base without extension),
+	// preserving original casing (e.g. "NavBar" from "components/NavBar.vue").
+	// TODO(RFC-011): fragment template debug annotation not supported.
+	if r.debug && !isFragmentTemplate(comp.Template) {
+		debugCompName := strings.TrimSuffix(pathpkg.Base(comp.Path), pathpkg.Ext(comp.Path))
+		propsJSON, err := propsToJSON(newMapProps(rawChildScope))
+		if err != nil {
+			childRenderer.debugAttrs = map[string]string{
+				"data-htmlc-component":   debugCompName,
+				"data-htmlc-file":        comp.Path,
+				"data-htmlc-props-error": err.Error(),
+			}
+		} else {
+			childRenderer.debugAttrs = map[string]string{
+				"data-htmlc-component": debugCompName,
+				"data-htmlc-file":      comp.Path,
+				"data-htmlc-props":     string(propsJSON),
+			}
+		}
 	}
 
 	if r.logger == nil {

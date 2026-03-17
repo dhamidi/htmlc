@@ -88,9 +88,8 @@ func TestPublishExpvars_counters(t *testing.T) {
 	}
 }
 
-// TestSetDebug_toggles verifies that SetDebug is accepted without panicking and
-// that the expvar counter is updated correctly. Debug mode is currently a no-op
-// (TODO(RFC-011): re-enable output assertions when attribute-based debug is implemented).
+// TestSetDebug_toggles verifies that SetDebug correctly enables and disables
+// attribute-based debug annotations and updates the expvar counter.
 func TestSetDebug_toggles(t *testing.T) {
 	dir := t.TempDir()
 	writeVueExpvar(t, filepath.Join(dir, "DbgChild.vue"), `<template><span>child</span></template>`)
@@ -102,23 +101,23 @@ func TestSetDebug_toggles(t *testing.T) {
 	}
 	e.PublishExpvars("htmlc_test_a3")
 
-	// Render with debug off — no debug comments expected.
+	// Render with debug off — no data-htmlc-* attributes expected.
 	out, err := e.RenderFragmentString("DbgParent", nil)
 	if err != nil {
 		t.Fatalf("render (debug off): %v", err)
 	}
-	if strings.Contains(out, "[htmlc:debug]") {
-		t.Errorf("debug off: unexpected debug comment in output: %s", out)
+	if strings.Contains(out, "data-htmlc-") {
+		t.Errorf("debug off: unexpected data-htmlc-* attribute in output: %s", out)
 	}
 
-	// Enable debug — accepted without error; no annotations emitted (no-op).
+	// Enable debug — data-htmlc-* attributes should appear on component root elements.
 	e.SetDebug(true)
 	out, err = e.RenderFragmentString("DbgParent", nil)
 	if err != nil {
 		t.Fatalf("render (debug on): %v", err)
 	}
-	if strings.Contains(out, "[htmlc:debug]") {
-		t.Errorf("debug is a no-op: unexpected debug comment in output: %s", out)
+	if !strings.Contains(out, `data-htmlc-component="DbgChild"`) {
+		t.Errorf("debug on: expected data-htmlc-component attribute in output: %s", out)
 	}
 
 	// Verify expvar reflects debug=1.
@@ -128,14 +127,14 @@ func TestSetDebug_toggles(t *testing.T) {
 		t.Errorf("debug expvar = %v, want 1", m["debug"])
 	}
 
-	// Disable debug again.
+	// Disable debug again — no data-htmlc-* attributes expected.
 	e.SetDebug(false)
 	out, err = e.RenderFragmentString("DbgParent", nil)
 	if err != nil {
 		t.Fatalf("render (debug off again): %v", err)
 	}
-	if strings.Contains(out, "[htmlc:debug]") {
-		t.Errorf("debug off again: unexpected debug comment in output: %s", out)
+	if strings.Contains(out, "data-htmlc-") {
+		t.Errorf("debug off again: unexpected data-htmlc-* attribute in output: %s", out)
 	}
 
 	// Verify expvar reflects debug=0.

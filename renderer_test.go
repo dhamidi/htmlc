@@ -1766,45 +1766,54 @@ func renderTemplateDebug(t *testing.T, tmpl string, scope map[string]any) string
 		t.Fatalf("ParseFile: %v", err)
 	}
 	var sb strings.Builder
-	dw := newDebugWriter(&sb)
-	r := NewRenderer(c).withDebug(dw)
-	if err := r.Render(dw, scope); err != nil {
+	r := NewRenderer(c)
+	r.debug = true
+	if err := r.Render(&sb, scope); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	return sb.String()
 }
 
-func TestDebug_ComponentBoundaryComments(t *testing.T) {
-	// TODO(RFC-011): re-enable when attribute-based debug is implemented.
-	// Debug mode is currently a no-op; verify render succeeds without panicking.
+func TestDebug_ComponentAttributes(t *testing.T) {
+	// Rendering a child component in debug mode should annotate its root element
+	// with data-htmlc-component, data-htmlc-file, and data-htmlc-props attributes.
 	childSrc := "<template><span>child</span></template>"
-	child, err := ParseFile("Child.vue", childSrc)
+	child, err := ParseFile("components/Child.vue", childSrc)
 	if err != nil {
 		t.Fatalf("ParseFile child: %v", err)
 	}
 
-	parentSrc := "<template><Child /></template>"
+	parentSrc := `<template><Child name="world" /></template>`
 	parent, err := ParseFile("Parent.vue", parentSrc)
 	if err != nil {
 		t.Fatalf("ParseFile parent: %v", err)
 	}
 
 	reg := Registry{"Child": child}
-	var sb strings.Builder
-	dw := newDebugWriter(&sb)
-	r := NewRenderer(parent).WithComponents(reg).withDebug(dw)
-	if err := r.Render(dw, map[string]any{}); err != nil {
+	r := NewRenderer(parent).WithComponents(reg)
+	r.debug = true
+	out, err := r.RenderString(map[string]any{})
+	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 
-	out := sb.String()
-	if strings.Contains(out, "[htmlc:debug]") {
-		t.Errorf("debug is a no-op: unexpected debug comment in output:\n%s", out)
+	if !strings.Contains(out, `data-htmlc-component="Child"`) {
+		t.Errorf("expected data-htmlc-component=\"Child\", got:\n%s", out)
+	}
+	if !strings.Contains(out, `data-htmlc-file="components/Child.vue"`) {
+		t.Errorf("expected data-htmlc-file attribute, got:\n%s", out)
+	}
+	if !strings.Contains(out, `data-htmlc-props=`) {
+		t.Errorf("expected data-htmlc-props attribute, got:\n%s", out)
+	}
+	// Props should encode name=world.
+	if !strings.Contains(out, "world") {
+		t.Errorf("expected props to contain 'world', got:\n%s", out)
 	}
 }
 
-func TestDebug_NoCommentsWhenDisabled(t *testing.T) {
-	// When Debug is false (default), no debug comments appear in the output.
+func TestDebug_NoAttrsWhenDisabled(t *testing.T) {
+	// When Debug is false (default), no data-htmlc-* attributes appear in the output.
 	childSrc := "<template><span>child</span></template>"
 	child, err := ParseFile("Child.vue", childSrc)
 	if err != nil {
@@ -1823,20 +1832,15 @@ func TestDebug_NoCommentsWhenDisabled(t *testing.T) {
 		t.Fatalf("RenderString: %v", err)
 	}
 
-	if strings.Contains(out, "[htmlc:debug]") {
-		t.Errorf("output should not contain debug comments when debug is disabled, got:\n%s", out)
+	if strings.Contains(out, "data-htmlc-") {
+		t.Errorf("output should not contain data-htmlc-* attributes when debug is disabled, got:\n%s", out)
 	}
 }
 
 func TestDebug_VIfSkippedComment(t *testing.T) {
-	// TODO(RFC-011): re-enable when attribute-based debug is implemented.
-	// Debug mode is currently a no-op; verify render succeeds and v-if still
-	// skips the element correctly.
+	// Debug mode does not annotate non-component elements; v-if still skips correctly.
 	scope := map[string]any{"show": false}
 	out := renderTemplateDebug(t, `<p v-if="show">visible</p>`, scope)
-	if strings.Contains(out, "[htmlc:debug]") {
-		t.Errorf("debug is a no-op: unexpected debug comment in output:\n%s", out)
-	}
 	// The element itself should NOT be rendered.
 	if strings.Contains(out, "<p>") {
 		t.Errorf("skipped element should not appear in output, got:\n%s", out)
@@ -1844,30 +1848,123 @@ func TestDebug_VIfSkippedComment(t *testing.T) {
 }
 
 func TestDebug_VIfSkippedComment_NotEmittedWhenTrue(t *testing.T) {
-	// When Debug is true and v-if evaluates to true, no skipped comment is emitted.
+	// When Debug is true and v-if evaluates to true, the element is rendered normally.
 	scope := map[string]any{"show": true}
 	out := renderTemplateDebug(t, `<p v-if="show">visible</p>`, scope)
-	if strings.Contains(out, "node skipped") {
-		t.Errorf("should not emit skipped comment for true v-if, got:\n%s", out)
+	if !strings.Contains(out, "<p>visible</p>") {
+		t.Errorf("expected rendered element, got:\n%s", out)
 	}
 }
 
 func TestDebug_ExpressionValueComment(t *testing.T) {
-	// TODO(RFC-011): re-enable when attribute-based debug is implemented.
-	// Debug mode is currently a no-op; verify render succeeds without debug comments.
+	// Debug mode does not annotate expression values; expressions still render correctly.
 	scope := map[string]any{"title": "Hello World"}
 	out := renderTemplateDebug(t, `<h1>{{ title }}</h1>`, scope)
-	if strings.Contains(out, "[htmlc:debug]") {
-		t.Errorf("debug is a no-op: unexpected debug comment in output:\n%s", out)
+	if !strings.Contains(out, "Hello World") {
+		t.Errorf("expected expression value in output, got:\n%s", out)
 	}
 }
 
 func TestDebug_ExpressionComment_NotEmittedWhenDisabled(t *testing.T) {
-	// When Debug is false, no expression comment appears.
+	// When Debug is false, expressions still render correctly and no debug attrs appear.
 	scope := map[string]any{"title": "Hello World"}
 	out := renderTemplate(t, `<h1>{{ title }}</h1>`, scope)
-	if strings.Contains(out, "[htmlc:debug]") {
-		t.Errorf("output should not contain debug comments when debug is disabled, got:\n%s", out)
+	if strings.Contains(out, "data-htmlc-") {
+		t.Errorf("output should not contain data-htmlc-* attributes when debug is disabled, got:\n%s", out)
+	}
+}
+
+func TestDebug_PropsHTMLEscaping(t *testing.T) {
+	// Props containing HTML-special characters (including --> sequences) must be
+	// safely encoded in data-htmlc-props without corrupting the document.
+	childSrc := "<template><div>code</div></template>"
+	child, err := ParseFile("components/CodeStep.vue", childSrc)
+	if err != nil {
+		t.Fatalf("ParseFile child: %v", err)
+	}
+
+	parentSrc := `<template><CodeStep :code="snippet" /></template>`
+	parent, err := ParseFile("Parent.vue", parentSrc)
+	if err != nil {
+		t.Fatalf("ParseFile parent: %v", err)
+	}
+
+	reg := Registry{"CodeStep": child}
+	r := NewRenderer(parent).WithComponents(reg)
+	r.debug = true
+	out, err := r.RenderString(map[string]any{"snippet": `<!-- Greeting.vue -->`})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	// The --> sequence must NOT appear unescaped inside any attribute.
+	if strings.Contains(out, `-->`) {
+		t.Errorf("-->  must not appear unescaped in output; got:\n%s", out)
+	}
+	// The data-htmlc-props attribute must be present.
+	if !strings.Contains(out, `data-htmlc-props=`) {
+		t.Errorf("expected data-htmlc-props attribute, got:\n%s", out)
+	}
+}
+
+func TestDebug_FragmentTemplateNoAttrs(t *testing.T) {
+	// Fragment templates (multiple root elements) must not receive debug attributes.
+	childSrc := "<template><dt>key</dt><dd>value</dd></template>"
+	child, err := ParseFile("components/Pair.vue", childSrc)
+	if err != nil {
+		t.Fatalf("ParseFile child: %v", err)
+	}
+
+	parentSrc := `<template><dl><Pair /></dl></template>`
+	parent, err := ParseFile("Parent.vue", parentSrc)
+	if err != nil {
+		t.Fatalf("ParseFile parent: %v", err)
+	}
+
+	reg := Registry{"Pair": child}
+	r := NewRenderer(parent).WithComponents(reg)
+	r.debug = true
+	out, err := r.RenderString(map[string]any{})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	if strings.Contains(out, "data-htmlc-") {
+		t.Errorf("fragment template should not receive debug attributes, got:\n%s", out)
+	}
+}
+
+func TestDebug_NestedComponents(t *testing.T) {
+	// Each component annotates only its own root element, not nested components.
+	navSrc := "<template><nav>navigation</nav></template>"
+	nav, err := ParseFile("components/NavBar.vue", navSrc)
+	if err != nil {
+		t.Fatalf("ParseFile nav: %v", err)
+	}
+
+	pageSrc := "<template><div><NavBar /></div></template>"
+	page, err := ParseFile("pages/HomePage.vue", pageSrc)
+	if err != nil {
+		t.Fatalf("ParseFile page: %v", err)
+	}
+
+	reg := Registry{"NavBar": nav}
+	r := NewRenderer(page).WithComponents(reg)
+	r.debug = true
+	out, err := r.RenderString(map[string]any{})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	if !strings.Contains(out, `data-htmlc-component="NavBar"`) {
+		t.Errorf("expected NavBar debug attrs, got:\n%s", out)
+	}
+	if !strings.Contains(out, `data-htmlc-file="components/NavBar.vue"`) {
+		t.Errorf("expected NavBar file attr, got:\n%s", out)
+	}
+	// The outer <div> from page should not have debug attrs (it's a plain HTML element).
+	if strings.Contains(out, `<div data-htmlc-`) {
+		t.Errorf("plain HTML element should not receive debug attrs, got:\n%s", out)
 	}
 }
 
