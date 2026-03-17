@@ -524,6 +524,9 @@
 //	engine.SetReload(true)   // enable hot-reload
 //	engine.SetDebug(false)   // disable debug mode
 //
+// Debug mode is currently a no-op. The HTML-comment annotation mechanism
+// is being replaced; see docs/proposals/011-debugging.md.
+//
 // The component directory and filesystem can be changed atomically; discovery
 // is re-run under the engine's write lock and the engine's state is only
 // updated on success:

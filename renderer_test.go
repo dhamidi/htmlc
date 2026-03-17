@@ -1775,7 +1775,8 @@ func renderTemplateDebug(t *testing.T, tmpl string, scope map[string]any) string
 }
 
 func TestDebug_ComponentBoundaryComments(t *testing.T) {
-	// When Debug is true, component boundaries are wrapped with HTML comments.
+	// TODO(RFC-011): re-enable when attribute-based debug is implemented.
+	// Debug mode is currently a no-op; verify render succeeds without panicking.
 	childSrc := "<template><span>child</span></template>"
 	child, err := ParseFile("Child.vue", childSrc)
 	if err != nil {
@@ -1797,12 +1798,8 @@ func TestDebug_ComponentBoundaryComments(t *testing.T) {
 	}
 
 	out := sb.String()
-	// Note: the HTML parser lowercases tag names, so "Child" becomes "child" in n.Data.
-	if !strings.Contains(out, "<!-- [htmlc:debug] component=child") {
-		t.Errorf("output missing component start comment, got:\n%s", out)
-	}
-	if !strings.Contains(out, "<!-- [htmlc:debug] /component=child -->") {
-		t.Errorf("output missing component end comment, got:\n%s", out)
+	if strings.Contains(out, "[htmlc:debug]") {
+		t.Errorf("debug is a no-op: unexpected debug comment in output:\n%s", out)
 	}
 }
 
@@ -1832,14 +1829,13 @@ func TestDebug_NoCommentsWhenDisabled(t *testing.T) {
 }
 
 func TestDebug_VIfSkippedComment(t *testing.T) {
-	// When Debug is true and a v-if evaluates to false, a skipped-node comment is emitted.
+	// TODO(RFC-011): re-enable when attribute-based debug is implemented.
+	// Debug mode is currently a no-op; verify render succeeds and v-if still
+	// skips the element correctly.
 	scope := map[string]any{"show": false}
 	out := renderTemplateDebug(t, `<p v-if="show">visible</p>`, scope)
-	if !strings.Contains(out, `<!-- [htmlc:debug] v-if="show"`) {
-		t.Errorf("output missing v-if skipped comment, got:\n%s", out)
-	}
-	if !strings.Contains(out, "node skipped") {
-		t.Errorf("output missing 'node skipped' in v-if comment, got:\n%s", out)
+	if strings.Contains(out, "[htmlc:debug]") {
+		t.Errorf("debug is a no-op: unexpected debug comment in output:\n%s", out)
 	}
 	// The element itself should NOT be rendered.
 	if strings.Contains(out, "<p>") {
@@ -1857,11 +1853,12 @@ func TestDebug_VIfSkippedComment_NotEmittedWhenTrue(t *testing.T) {
 }
 
 func TestDebug_ExpressionValueComment(t *testing.T) {
-	// When Debug is true, expression interpolation emits an expr/value comment.
+	// TODO(RFC-011): re-enable when attribute-based debug is implemented.
+	// Debug mode is currently a no-op; verify render succeeds without debug comments.
 	scope := map[string]any{"title": "Hello World"}
 	out := renderTemplateDebug(t, `<h1>{{ title }}</h1>`, scope)
-	if !strings.Contains(out, `<!-- [htmlc:debug] expr="title" value=Hello World -->`) {
-		t.Errorf("output missing expr value comment, got:\n%s", out)
+	if strings.Contains(out, "[htmlc:debug]") {
+		t.Errorf("debug is a no-op: unexpected debug comment in output:\n%s", out)
 	}
 }
 

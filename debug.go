@@ -1,7 +1,6 @@
 package htmlc
 
 import (
-	"fmt"
 	"io"
 )
 
@@ -16,9 +15,7 @@ func newDebugWriter(w io.Writer) *debugWriter { return &debugWriter{w: w} }
 
 func (d *debugWriter) Write(p []byte) (int, error) { return d.w.Write(p) }
 
-func (d *debugWriter) comment(format string, args ...any) {
-	fmt.Fprintf(d.w, "<!-- [htmlc:debug] %s -->\n", fmt.Sprintf(format, args...))
-}
+func (d *debugWriter) comment(format string, args ...any) {}
 
 func (d *debugWriter) componentStart(name, file string) {
 	d.comment("component=%s file=%s", name, file)

@@ -88,14 +88,11 @@ func TestPublishExpvars_counters(t *testing.T) {
 	}
 }
 
-// TestSetDebug_toggles verifies that SetDebug(true) causes debug HTML comments
-// to appear in rendered output, and SetDebug(false) removes them again.
-//
-// Debug comments are emitted for child component references (<Child/> tags)
-// inside a parent template, so we need a parent-child component pair.
+// TestSetDebug_toggles verifies that SetDebug is accepted without panicking and
+// that the expvar counter is updated correctly. Debug mode is currently a no-op
+// (TODO(RFC-011): re-enable output assertions when attribute-based debug is implemented).
 func TestSetDebug_toggles(t *testing.T) {
 	dir := t.TempDir()
-	// Child is used as a component tag inside Parent, which triggers debug comments.
 	writeVueExpvar(t, filepath.Join(dir, "DbgChild.vue"), `<template><span>child</span></template>`)
 	writeVueExpvar(t, filepath.Join(dir, "DbgParent.vue"), `<template><div><DbgChild /></div></template>`)
 
@@ -114,14 +111,14 @@ func TestSetDebug_toggles(t *testing.T) {
 		t.Errorf("debug off: unexpected debug comment in output: %s", out)
 	}
 
-	// Enable debug.
+	// Enable debug — accepted without error; no annotations emitted (no-op).
 	e.SetDebug(true)
 	out, err = e.RenderFragmentString("DbgParent", nil)
 	if err != nil {
 		t.Fatalf("render (debug on): %v", err)
 	}
-	if !strings.Contains(out, "[htmlc:debug]") {
-		t.Errorf("debug on: expected debug comment in output, got: %s", out)
+	if strings.Contains(out, "[htmlc:debug]") {
+		t.Errorf("debug is a no-op: unexpected debug comment in output: %s", out)
 	}
 
 	// Verify expvar reflects debug=1.

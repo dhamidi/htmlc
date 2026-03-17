@@ -10,6 +10,8 @@ import (
 )
 
 func TestPageDebugFlag(t *testing.T) {
+	// TODO(RFC-011): re-enable debug comment assertion when attribute-based debug is implemented.
+	// Debug mode is currently a no-op; verify the flag is accepted without error.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "MyPage.vue")
 	os.WriteFile(path, []byte(`<template><div>{{ title }}</div></template>`), 0644)
@@ -20,8 +22,8 @@ func TestPageDebugFlag(t *testing.T) {
 		t.Fatalf("expected exit code 0, got %d", code)
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "[htmlc:debug]") {
-		t.Errorf("--debug flag: output should contain debug comments, got:\n%s", out)
+	if strings.Contains(out, "[htmlc:debug]") {
+		t.Errorf("debug is a no-op: unexpected debug comment in output:\n%s", out)
 	}
 }
 

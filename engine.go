@@ -60,10 +60,9 @@ type Options struct {
 	// (e.g. "switch" handles v-switch). Built-in directives (v-if, v-for, etc.)
 	// cannot be overridden.
 	Directives DirectiveRegistry
-	// Debug enables debug render mode. When true, the rendered HTML is
-	// annotated with HTML comments describing component boundaries, expression
-	// values, conditional branch outcomes, and slot contents.
-	// Intended for development use only; never enable in production.
+	// Debug enables debug render mode. Accepted without error but currently
+	// a no-op: the HTML-comment annotation mechanism is being replaced;
+	// see docs/proposals/011-debugging.md.
 	Debug bool
 	// Logger, if non-nil, receives one structured log record per component
 	// rendered. Records are emitted at slog.LevelDebug for successful renders
@@ -1225,10 +1224,10 @@ func (e *Engine) SetReload(enabled bool) {
 	}
 }
 
-// SetDebug enables or disables debug render mode at runtime. When enabled,
-// rendered HTML is annotated with HTML comments describing component
-// boundaries, expression values, and slot contents. The change takes effect
-// on the next render call.
+// SetDebug enables or disables debug render mode at runtime. Currently a no-op:
+// the HTML-comment annotation mechanism is being replaced; see
+// docs/proposals/011-debugging.md. The call is accepted without error and the
+// expvar counter is updated.
 func (e *Engine) SetDebug(enabled bool) {
 	if enabled {
 		e.varDebug.Set(1)

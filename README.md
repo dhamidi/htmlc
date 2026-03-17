@@ -961,51 +961,10 @@ Everything else is truthy, including empty arrays and empty objects.
 
 ## Debug Mode
 
-Debug mode annotates rendered HTML with structured HTML comments that describe component boundaries, expression values, conditional branch outcomes, and slot contents. The annotated output is valid HTML that renders identically in a browser but carries diagnostic information visible in DevTools or via `curl | grep -i debug`.
-
-**Debug output is intended for development only. Never enable it in production.**
-
-### Enabling via Go API
-
-```go
-engine, err := htmlc.New(htmlc.Options{
-    ComponentDir: "templates/",
-    Debug:        true,
-})
-```
-
-### Enabling via CLI
-
-```
-htmlc render --debug -dir ./templates Card -props '{"title":"Hello"}'
-htmlc page --debug -dir ./templates PostPage -props '{"slug":"intro"}'
-```
-
-### Example annotated output
-
-```html
-<!-- [htmlc:debug] component=PostPage file=templates/PostPage.vue -->
-<article>
-  <!-- [htmlc:debug] expr="post.Title" value=Hello World -->
-  <h1>Hello World</h1>
-  <!-- [htmlc:debug] v-if="post.Draft" → false: node skipped -->
-  <!-- [htmlc:debug] slot=default nodes=2 -->
-  <p>Body content here</p>
-  <!-- [htmlc:debug] /slot=default -->
-</article>
-<!-- [htmlc:debug] /component=PostPage -->
-```
-
-### What the comments describe
-
-| Comment pattern | Meaning |
-|---|---|
-| `component=Name file=path` | Start of a child component render |
-| `/component=Name` | End of a child component render |
-| `expr="..." value=...` | Expression evaluated during text interpolation |
-| `v-if="..." → false: node skipped` | Conditional node that was not rendered |
-| `slot=name nodes=N` | Start of slot content being rendered |
-| `/slot=name` | End of slot content |
+> **Note:** Debug mode is temporarily disabled while a replacement is designed
+> (see [RFC 011: Attribute-Based Debugging](docs/proposals/011-debugging.md)).
+> Passing `-debug` is accepted without error but produces no annotations in the
+> output. The flag will be re-enabled once RFC 011 is implemented.
 
 ### AST inspection
 
