@@ -96,6 +96,10 @@ passing it to a component:
 8. **`accessStructField` handles embedded field promotion** so that `{{ user.Street }}`
    works consistently with `v-bind="user"` when `User` embeds a struct with a
    `Street` field.
+9. **First-rune lowercase aliasing**: `StructProps.Get` and `accessStructField`
+   match a key against the first-rune-lowercased form of a Go field name as a
+   fallback, so that Vue/JS authors can write `user.address` to access a Go field
+   named `Address` when no json tag is present. Only the first rune is affected.
 
 ---
 
@@ -211,6 +215,11 @@ func (p StructProps) Keys() []string {
 }
 
 func (p StructProps) Get(key string) (any, bool) {
+    // Resolution order:
+    //   1. exact json tag match
+    //   2. exact Go field name match
+    //   3. first-rune-lowercased Go field name match (Vue/JS alias)
+    // Only the first rune is lowercased; rest of the name is unchanged.
     // resolve via accessStructField logic — no full map materialisation
 }
 ```
@@ -311,17 +320,27 @@ reachable via dot notation (e.g., `{{ user.Street }}` returns `Undefined` when
 #### Proposed extension
 
 Restructure `accessStructField` to use the same two-pass strategy as
-`collectStructFields`:
+`collectStructFields`, and apply the same three-step field-name resolution order
+used by `StructProps.Get`:
 
-1. **First pass** — check direct (non-anonymous) fields. Return immediately on a
-   match. These have priority over promoted fields.
+1. **First pass** — check direct (non-anonymous) fields using three-step resolution
+   per field:
+   1. Exact json tag match (case-sensitive).
+   2. Exact Go field name match (case-sensitive).
+   3. First-rune-lowercased Go field name match — so that `{{ user.address }}`
+      and `{{ user.Address }}` both resolve to the `Address` field when no json
+      tag is present. Only the first rune is lowercased; the rest of the name is
+      unchanged.
+   Return immediately on a match. Direct fields have priority over promoted fields.
 2. **Second pass** — recurse into anonymous embedded struct fields (dereferencing
    pointer-to-struct embedded fields as needed). An embedded field with an explicit
    json name is not promoted: only its own key is checked. An embedded field with
-   `json:"-"` is skipped.
+   `json:"-"` is skipped. The same three-step resolution is applied at each level
+   of recursion.
 
 This makes `{{ user.Street }}` consistent with `v-bind="user"` spread when `User`
-embeds a struct with a `Street` field.
+embeds a struct with a `Street` field, and makes `{{ user.address }}` equivalent
+to `{{ user.Address }}` when no json tag overrides the field name.
 
 ```go
 // pseudo-code — not implementation
@@ -331,12 +350,18 @@ func accessStructField(rv reflect.Value, name string) (any, error) {
     for i := 0; i < rt.NumField(); i++ {
         f := rt.Field(i)
         if !f.IsExported() || f.Anonymous { continue }
-        if f.Name == name { return rv.Field(i).Interface(), nil }
+        // step 1: exact json tag match
         tag := f.Tag.Get("json")
         if tag != "" {
             tagName := strings.Split(tag, ",")[0]
             if tagName != "-" && tagName == name { return rv.Field(i).Interface(), nil }
+            if tagName != "" && tagName != "-" { continue } // tag present — skip steps 2 & 3
         }
+        // step 2: exact Go field name match
+        if f.Name == name { return rv.Field(i).Interface(), nil }
+        // step 3: first-rune lowercase alias
+        lcName := strings.ToLower(string([]rune(f.Name)[:1])) + string([]rune(f.Name)[1:])
+        if lcName == name { return rv.Field(i).Interface(), nil }
     }
     // Second pass: recurse into embedded fields.
     for i := 0; i < rt.NumField(); i++ {
@@ -427,6 +452,7 @@ regression risk since the function previously always errored on structs.
 | `<Comp v-bind="structValue"/>` | Spread all exported fields of `structValue` as props. **New.**      |
 | `<Comp v-bind="nil" />`       | No-op spread. Unchanged.                                             |
 | `<el v-bind="structValue" />` | Spread struct fields as HTML attributes on an element. **New.**     |
+| `{{ user.address }}`          | Accesses Go field `Address` via first-rune-lowercase alias when no json tag is present. **New.** |
 
 ---
 
@@ -685,6 +711,54 @@ type Page  struct { Title string; Theme Theme }
 `v-bind="Theme"`. Because `ToProps` is applied at each component boundary,
 this chain works transitively: `Navbar` receives `Color` and `Font` as props.
 
+### Example 10 — First-rune lowercase alias
+
+When no json tag is present, `StructProps.Get` and `accessStructField` match the
+first-rune-lowercased form of a Go field name as a fallback. This lets Vue/JS
+authors use conventional camelCase initial-lowercase identifiers without requiring
+json tags on every field.
+
+```go
+type User struct {
+    Name    string
+    Address string
+}
+```
+
+```html
+<template>
+  <!-- Both are equivalent when no json tag is present -->
+  <p>{{ user.Name }}</p>
+  <p>{{ user.name }}</p>   <!-- first-rune lowercase alias -->
+  <p>{{ user.Address }}</p>
+  <p>{{ user.address }}</p> <!-- first-rune lowercase alias -->
+</template>
+```
+
+**json tags take precedence**: if the struct has `Address \`json:"addr"\``, then
+the canonical key is `"addr"`. The key `"address"` does **not** match — the
+first-rune alias is only consulted when there is no json tag. Only `user.addr`
+resolves to the `Address` field in that case.
+
+```go
+type User struct {
+    Name    string
+    Address string `json:"addr"`
+}
+```
+
+```html
+<template>
+  <p>{{ user.addr }}</p>    <!-- resolves: json tag match -->
+  <p>{{ user.address }}</p> <!-- does NOT resolve: json tag "addr" is the canonical key -->
+  <p>{{ user.Address }}</p> <!-- does NOT resolve: json tag takes precedence -->
+</template>
+```
+
+`Keys()` returns the canonical names only — `["Name", "addr"]` in the tagged
+example above — and is unaffected by the alias. The lowercase alias is a
+lookup-only affordance for `Get` and `accessStructField`.
+
 ---
 
 ## 7. Implementation Sketch
@@ -705,8 +779,11 @@ Primary changes are in a new `props.go` file, with secondary changes in
 
 3. **`expr/eval.go`** — `accessStructField` is now used by `StructProps.Get`
    as its field-resolution back-end; the two-pass embedded-field logic (§4.2) is
-   shared between both. No new types in this file; only the two-pass restructure
-   of `accessStructField`. ~35 lines (replacing ~20 lines).
+   shared between both. Each direct field is checked with a three-step resolution
+   (exact json tag → exact Go field name → first-rune-lowercased Go field name).
+   No new types in this file; only the two-pass restructure with the added step-3
+   comparison. ~45 lines (replacing ~20 lines). ~10 additional lines for
+   first-rune alias logic.
 
 4. **Tests** (`props_test.go`) — `MapProps` and `StructProps` are independently
    unit-testable without a running engine. Add table-driven tests for each,
@@ -727,6 +804,11 @@ Primary changes are in a new `props.go` file, with secondary changes in
    - nil pointer-to-struct embedded field is skipped
    - outer-wins: `fromEmbedded=true` skips keys already present in `out`
    ~40 lines.
+   **`StructProps.Get`** applies the same three-step resolution as
+   `accessStructField` (exact json tag → exact Go field name → first-rune-lowercased
+   Go field name). `Keys()` is **unchanged** — it returns only the canonical key
+   (json tag or Go field name); the lowercase alias is a lookup-only affordance and
+   is never added to the `Keys()` output. ~10 additional lines for step-3 alias.
 
 7. **`structFieldKey`** (`props.go`) — private helper; returns json tag name or Go
    field name; `""` means skip. ~10 lines.
@@ -794,6 +876,14 @@ the parent must also account for `v-bind` spreads. When a parent uses
 `v-bind="structValue"`, the required props are satisfied at runtime by
 `ToProps`; there is no static way to verify that the struct type has all the
 required fields. This is a known limitation — see §4.4.
+
+### First-rune lowercase aliasing
+
+Additive change. Templates that previously accessed `{{ user.Address }}` continue
+to work identically — exact Go field name match (step 2) succeeds before the alias
+is consulted. Templates that mistakenly wrote `{{ user.address }}` previously
+returned `Undefined`; they now return the correct value. No existing working
+template changes behaviour.
 
 ### Nil pointer nested struct fields
 
@@ -911,3 +1001,10 @@ coherent type hierarchy.
    demonstrating that `StructProps.Get` avoids the upfront allocation of the old
    eager materialisation approach **must be produced before the RFC is accepted**,
    so the lazy-lookup performance claim is validated with data. See §7.
+
+6. **Full camelCase vs. first-rune-only lowercasing**: should `MyFieldName` also
+   be accessible as `myFieldName` (first-rune only, proposed) or as a fully
+   camel-cased variant? *Recommendation*: first-rune only. Full camelCase
+   conversion is ambiguous (acronyms, multi-word abbreviations) and the Vue/JS
+   convention for props received from a parent is to match the name as provided —
+   only the initial capital is conventionally lowercased. Non-blocking.
