@@ -70,12 +70,11 @@ structurally impossible without introducing a new type.
 3. **Fluent DOM queries**: a `Query` builder and `Selection` type allow asserting
    element presence, count, text content, and attributes without CSS selector
    strings or external dependencies.
-4. **Table-driven helper**: `RunCases` runs a `[]Case` slice as sub-tests, reducing
-   the boilerplate loop to a single call.
-5. **Improved diff in failure messages** so test output pinpoints the changed region
-   rather than showing two full strings.
-6. **Full backward compatibility**: the three existing free functions are preserved
-   with identical signatures.
+4. **Tree-structural failure reporting** so test output pinpoints the exact differing
+   node path in the HTML tree rather than showing two full serialised strings.
+5. **Extensibility via `SelectionChecker`**: callers can write custom assertion types
+   that integrate with the same `t.Fatalf`/`t.Helper` reporting path as built-in
+   assertions.
 
 ---
 
@@ -88,13 +87,19 @@ structurally impossible without introducing a new type.
    XPath is not planned.
 3. **Parallel `t.Parallel()` management**: callers are responsible for calling
    `t.Parallel()` where desired. `Harness` does not call it automatically.
-4. **Typed prop validation at compile time**: `RunCases.Data` remains
-   `map[string]any`. Static type-checked props are a separate concern.
+4. **Typed prop validation at compile time**: `Data` remains `map[string]any`.
+   Static type-checked props are a separate concern.
 5. **Integration with external test frameworks** (testify, gomega): the API uses
    the standard `testing.TB` interface only. Interoperability is not blocked, but
    not explicitly designed for.
 6. **Snapshot / golden-file regression testing**: storing expected output in
    committed files makes the test suite stateful and is out of scope.
+7. **Table-driven loop helper**: the fluent API makes each sub-test a one-liner;
+   `RunCases` / `Case` are not included. Callers who want a loop write it themselves
+   with `t.Run`.
+8. **Pre-built assertion library**: `htmlctest` ships only the core assertions
+   (`AssertExists`, `AssertText`, etc.). Domain-specific checkers are the caller's
+   responsibility; `SelectionChecker` provides the integration point.
 
 ---
 
@@ -191,10 +196,15 @@ func (h *Harness) Fragment(name string, data map[string]any) *Result
 // HTML returns the raw rendered string.
 func (r *Result) HTML() string
 
+// Document returns the root *html.Node of the parsed rendered output.
+// The document is parsed once and cached. Callers can walk the tree directly
+// using golang.org/x/net/html without going through the Query/Selection API.
+func (r *Result) Document() *html.Node
+
 // --- Equality assertion ---
 
 // AssertHTML asserts the rendered output equals want after normalising
-// whitespace. On failure it prints a line-level diff.
+// whitespace. On failure it reports a tree-structural diff.
 func (r *Result) AssertHTML(want string) *Result
 
 // --- DOM query entry point ---
@@ -236,6 +246,12 @@ type Query struct { ... }
 // ByTag matches elements with the given tag name (case-insensitive).
 func ByTag(name string) Query
 
+// ByClass returns a Query matching elements that have the given CSS class.
+func ByClass(class string) Query
+
+// ByAttr returns a Query matching elements with attribute attr equal to value.
+func ByAttr(attr, value string) Query
+
 // WithClass returns a new Query that additionally requires the element to have
 // the given CSS class in its class attribute.
 func (q Query) WithClass(class string) Query
@@ -275,6 +291,17 @@ func (s *Selection) AssertText(text string) *Selection
 // AssertAttr fails if the first matched node does not have attribute attr
 // equal to value.
 func (s *Selection) AssertAttr(attr, value string) *Selection
+
+// Nodes returns the raw matched html.Node slice.
+// Callers that want to write imperative assertions using t.Fatalf directly
+// can obtain the node list and inspect it without going through the
+// SelectionChecker interface.
+func (s *Selection) Nodes() []*html.Node
+
+// Check runs checker against the matched nodes.
+// If checker.Check returns a non-nil error, the test fails with that error's
+// message. Returns *Selection to allow chaining.
+func (s *Selection) Check(checker SelectionChecker) *Selection
 ```
 
 `Selection` methods return `*Selection` to allow chaining:
@@ -292,37 +319,32 @@ is needed beyond the existing `golang.org/x/net/html` transitive dependency.
 checking of query structure, zero new dependencies, and a straightforward
 implementation.
 
-### 4.4 Table-driven helper — `RunCases`
+#### Query factory methods on `*Harness` and `*Result`
 
-#### Current state
-
-Table-driven tests require a manual `for _, tc := range cases { t.Run(tc.Name, ...) }`
-loop that duplicates boilerplate across every test file.
-
-#### Proposed extension
+To avoid repeating the `htmlctest.` package qualifier at call sites, `*Harness` and
+`*Result` each expose thin delegating wrappers over the package-level constructors:
 
 ```go
 // pseudo-code — not implementation
 
-// Case is one entry in a table-driven component test.
-type Case struct {
-    Name string         // sub-test name (passed to t.Run)
-    Data map[string]any // props to pass to the component
-    Want string         // expected HTML (normalised)
-}
+// ByTag returns a Query matching elements with the given tag name.
+// Identical to the package-level htmlctest.ByTag but avoids the package qualifier
+// at call sites: h.Fragment(...).Find(h.ByTag("p")).
+func (h *Harness) ByTag(name string) Query
+func (h *Harness) ByClass(class string) Query
+func (h *Harness) ByAttr(attr, value string) Query
 
-// RunCases runs each Case as a t.Run sub-test against component on h.
-// Pass page=true for full-page rendering; omit (or false) for fragment rendering.
-func RunCases(t *testing.T, h *Harness, component string, cases []Case, page ...bool)
+// Same methods on *Result for callers who only have a result in scope.
+func (r *Result) ByTag(name string) Query
+func (r *Result) ByClass(class string) Query
+func (r *Result) ByAttr(attr, value string) Query
 ```
 
-`RunCases` calls `t.Run(tc.Name, ...)` for each case. Inside the sub-test it calls
-`h.Fragment` (or `h.Page` when `page[0]` is true) and then `r.AssertHTML(tc.Want)`.
+These introduce no new logic; each delegates to the package-level constructor.
+The package-level `ByTag`, `ByClass`, `ByAttr` remain exported for use in helper
+functions that do not have a `*Harness` or `*Result` in scope.
 
-**Verdict**: a single helper reduces 6-line boilerplate loops to a single
-`RunCases` call while retaining sub-test granularity for `go test -run`.
-
-### 4.5 Line-level diff in failure messages
+### 4.4 Structured failure reporting via `AssertionFailure`
 
 #### Current state
 
@@ -336,50 +358,145 @@ want:
 <full expected html>
 ```
 
-For large outputs this is unreadable.
+For large outputs this is unreadable. A string-level line diff is a poor fit
+because the subject of every assertion is an HTML tree: a string diff obscures
+structure and conflates whitespace differences with semantic differences.
 
 #### Proposed extension
 
-A private helper provides a `lineDiff(want, got string) string` function
-implemented using only the standard library:
-
-- Split `want` and `got` on newlines (`strings.Split`).
-- Walk the lines to emit `+`/`-` prefix markers for differing regions, with up
-  to ±5 lines of context around each changed region.
-- No external library is required.
-
-The diff output is embedded in the `AssertHTML` failure message.
-
-**Verdict**: a stdlib-only line diff is sufficient to pinpoint the changed region
-in HTML output. The implementation requires no new dependencies.
-
-### 4.6 Backward-compatibility shims
-
-The three existing free functions are preserved unchanged. Internally they become
-thin wrappers over `Harness`/`Result`:
+Introduce a private (unexported) interface:
 
 ```go
 // pseudo-code — not implementation
 
-func NewEngine(t testing.TB, files map[string]string, opts ...htmlc.Options) *htmlc.Engine {
-    return NewHarness(t, files, opts...).Engine()
-}
-
-func AssertRendersHTML(t testing.TB, e *htmlc.Engine, name string, data map[string]any, want string) {
-    t.Helper()
-    h := &Harness{t: t, eng: e}
-    h.Page(name, data).AssertHTML(want)
-}
-
-func AssertFragment(t testing.TB, e *htmlc.Engine, name string, data map[string]any, want string) {
-    t.Helper()
-    h := &Harness{t: t, eng: e}
-    h.Fragment(name, data).AssertHTML(want)
+// assertionFailure is implemented by each typed failure value.
+// format returns the human-readable failure message for t.Fatalf.
+type assertionFailure interface {
+    format() string
 }
 ```
 
-This guarantees that callers using the old API benefit from the improved diff
-output without any code changes.
+Each assertion method constructs a typed failure value when the assertion does not
+hold, then calls `r.t.Fatalf("%s", f.format())` (after `r.t.Helper()`). This
+separates what-failed from how-to-report-it, and makes each assertion independently
+testable by inspecting the failure value in unit tests for `htmlctest` itself.
+
+Define one concrete failure type per assertion kind:
+
+| Failure type | Fields | `format()` output |
+|---|---|---|
+| `textMismatch` | `want, got string`, `node *html.Node` | Shows element path, expected text, actual text — no raw diff |
+| `attrMismatch` | `attr, want, got string`, `node *html.Node` | Shows element, attribute name, expected vs actual value |
+| `existenceFailure` | `query Query`, `wantPresent bool` | Shows the query description and whether nothing / something was matched |
+| `countMismatch` | `query Query`, `want, got int` | Shows query description, expected count, actual count |
+| `htmlMismatch` | `want, got string`, `root *html.Node` | Shows a **tree-structural** comparison: tag paths that differ, not a line diff |
+
+For `htmlMismatch`, the `format()` method walks both the want-parsed tree and the
+got-parsed tree simultaneously, emitting lines like:
+
+```text
+AssertHTML: trees differ
+  expected: <div class="card"><h2>Alice</h2></div>
+  got:      <div class="card"><h2>Bob</h2></div>
+  first difference at: div > h2 > #text
+    want: "Alice"
+    got:  "Bob"
+```
+
+This is implemented with zero external dependencies (only `golang.org/x/net/html`
+and the standard library). The tree walk is a paired depth-first traversal.
+
+**Verdict**: typed failure values provide tree-aware, human-readable output for
+every assertion kind, with no external dependencies and independently testable
+failure formatting logic.
+
+### 4.5 User-defined assertions via `SelectionChecker`
+
+#### Problem
+
+There is no way for a caller to write a custom assertion (e.g.,
+`AssertNoBrokenLinks`, `AssertAccessibleHeadings`) that receives the matched
+`*html.Node` slice, reports failure through the same `t.Fatalf`/`t.Helper` path as
+built-in assertions, and chains with the rest of the fluent API.
+
+#### `SelectionChecker` interface
+
+```go
+// pseudo-code — not implementation
+
+// SelectionChecker is implemented by user-defined assertion types.
+// Check receives the matched nodes and returns a non-nil error if the assertion
+// fails. The error message is used verbatim as the t.Fatalf argument, so it
+// should be human-readable and include enough context.
+//
+// htmlctest calls t.Helper() before t.Fatalf so failure lines point to the
+// caller, not into htmlctest itself.
+type SelectionChecker interface {
+    Check(nodes []*html.Node) error
+}
+```
+
+`Selection.Check` (defined in §4.3) drives this interface. Callers can implement
+domain-specific assertions and use them in the same fluent chain as built-in
+assertions. See Example 4 in §6 for a complete worked example.
+
+**Verdict**: a single-method interface is the minimal extension point that admits
+arbitrary user logic, integrates with the existing failure path, and enables fluent
+chaining — without requiring `htmlctest` to ship a large assertion library.
+
+### 4.6 Migration stubs for removed free functions
+
+The three existing free functions — `NewEngine`, `AssertRendersHTML`, and
+`AssertFragment` — are not preserved as working code. Because there are no existing
+users, backward compatibility has no value; forwarding wrappers would only clutter
+the design and signal that the old API remains acceptable.
+
+Instead, the three symbols are **kept as exported stubs** whose bodies call
+`t.Helper(); t.Fatalf(...)` with a clear migration message:
+
+```go
+// pseudo-code — not implementation
+
+// Deprecated: NewEngine is removed. Replace with:
+//   h := htmlctest.NewHarness(t, files, opts...)
+func NewEngine(t testing.TB, files map[string]string, opts ...htmlc.Options) *htmlc.Engine {
+    t.Helper()
+    t.Fatalf("htmlctest.NewEngine is removed.\n" +
+        "Replace with:\n" +
+        "  h := htmlctest.NewHarness(t, files)\n" +
+        "  h.Fragment(\"ComponentName\", data).AssertHTML(want)")
+    return nil
+}
+
+// Deprecated: AssertRendersHTML is removed. Replace with:
+//   h := htmlctest.NewHarness(t, files)
+//   h.Page("ComponentName", data).AssertHTML(want)
+func AssertRendersHTML(t testing.TB, e *htmlc.Engine, name string, data map[string]any, want string) {
+    t.Helper()
+    t.Fatalf("htmlctest.AssertRendersHTML is removed.\n" +
+        "Replace with:\n" +
+        "  h := htmlctest.NewHarness(t, files)\n" +
+        "  h.Page(\"%s\", data).AssertHTML(want)", name)
+}
+
+// Deprecated: AssertFragment is removed. Replace with:
+//   h := htmlctest.NewHarness(t, files)
+//   h.Fragment("ComponentName", data).AssertHTML(want)
+func AssertFragment(t testing.TB, e *htmlc.Engine, name string, data map[string]any, want string) {
+    t.Helper()
+    t.Fatalf("htmlctest.AssertFragment is removed.\n" +
+        "Replace with:\n" +
+        "  h := htmlctest.NewHarness(t, files)\n" +
+        "  h.Fragment(\"%s\", data).AssertHTML(want)", name)
+}
+```
+
+The stubs compile (source-level compatibility) but fail immediately at test time
+with a message that shows the exact replacement code, making migration mechanical.
+
+**Verdict**: fail-fast stubs with migration instructions are preferable to silent
+forwarding wrappers when there are no existing users. They make the break explicit
+and self-documenting.
 
 ---
 
@@ -396,10 +513,19 @@ Go API surfaces.*
 | `h.Engine()`                                   | Access the underlying `*htmlc.Engine`.                               |
 | `h.Page(name, data)`                           | Render a full HTML page; returns `*Result`.                          |
 | `h.Fragment(name, data)`                       | Render an HTML fragment; returns `*Result`.                          |
+| `h.ByTag(name)`                                | `Query` matching by tag; avoids `htmlctest.` qualifier at call sites. |
+| `h.ByClass(class)`                             | `Query` matching by CSS class; instance method on `*Harness`.        |
+| `h.ByAttr(attr, value)`                        | `Query` matching by attribute; instance method on `*Harness`.        |
 | `r.HTML()`                                     | Raw rendered string.                                                  |
-| `r.AssertHTML(want)`                           | Whole-output whitespace-normalized comparison with line-level diff.   |
+| `r.Document()`                                 | Root `*html.Node` of the parsed rendered output (parsed once, cached).|
+| `r.AssertHTML(want)`                           | Whole-output whitespace-normalized comparison with tree-structural diff.|
 | `r.Find(q)`                                    | Return a `*Selection` of all nodes matching `Query` q.               |
+| `r.ByTag(name)`                                | `Query` matching by tag; instance method on `*Result`.               |
+| `r.ByClass(class)`                             | `Query` matching by CSS class; instance method on `*Result`.         |
+| `r.ByAttr(attr, value)`                        | `Query` matching by attribute; instance method on `*Result`.         |
 | `htmlctest.ByTag(name)`                        | `Query` matching elements by tag name (case-insensitive).            |
+| `htmlctest.ByClass(class)`                     | `Query` matching elements by CSS class.                              |
+| `htmlctest.ByAttr(attr, value)`                | `Query` matching elements by attribute value.                        |
 | `q.WithClass(class)`                           | Extend `Query` to also require the given CSS class.                  |
 | `q.WithAttr(attr, value)`                      | Extend `Query` to also require an attribute equals value.            |
 | `q.Descendant(ancestor)`                       | Extend `Query` to only match descendants of `ancestor`.              |
@@ -408,7 +534,8 @@ Go API surfaces.*
 | `s.AssertCount(n)`                             | Fail if the number of matched nodes is not `n`.                      |
 | `s.AssertText(text)`                           | Fail if the first matched node's visible text is not `text`.         |
 | `s.AssertAttr(attr, value)`                    | Fail if the first matched node's attribute is not `value`.           |
-| `htmlctest.RunCases(t, h, comp, cases, page?)` | Run `[]Case` as sub-tests.                                            |
+| `s.Nodes()`                                    | Return the raw `[]*html.Node` slice for imperative inspection.       |
+| `s.Check(checker)`                             | Run a `SelectionChecker` against the matched nodes; chains.          |
 
 ---
 
@@ -452,65 +579,96 @@ func TestUserCard(t *testing.T) {
         "avatarURL": "/img/alice.png",
         "admin":     true,
     })
-    r.Find(htmlctest.ByTag("div").WithClass("card")).AssertExists()
-    r.Find(htmlctest.ByTag("h2")).AssertText("Alice")
-    r.Find(htmlctest.ByTag("img")).AssertAttr("src", "/img/alice.png")
-    r.Find(htmlctest.ByTag("span").WithClass("badge")).AssertExists().AssertText("Admin")
+    r.Find(r.ByTag("div").WithClass("card")).AssertExists()
+    r.Find(r.ByTag("h2")).AssertText("Alice")
+    r.Find(r.ByTag("img")).AssertAttr("src", "/img/alice.png")
+    r.Find(r.ByTag("span").WithClass("badge")).AssertExists().AssertText("Admin")
 }
 ```
 
 Each assertion is independent: adding new elements to `UserCard.vue` does not
-break the test, because only specific elements are checked.
+break the test, because only specific elements are checked. Instance methods
+`r.ByTag`, `r.ByClass`, `r.ByAttr` avoid repeating the `htmlctest.` qualifier.
 
-### Example 3 — Table-driven with `RunCases`
+### Example 3 — Tree-structural failure output
 
+When `AssertHTML` fails, the output identifies the first differing node path rather
+than dumping two full strings:
+
+```text
+--- FAIL: TestUserCard (0.00s)
+    htmlctest.go:47: AssertHTML: trees differ
+          expected: <div class="card"><h2>Alice</h2></div>
+          got:      <div class="card"><h2>Bob</h2></div>
+          first difference at: div > h2 > #text
+            want: "Alice"
+            got:  "Bob"
 ```
-components/
-  Button.vue
-```
+
+### Example 4 — User-defined `SelectionChecker`
+
+Callers can implement domain-specific assertions that integrate with the fluent
+chain:
 
 ```go
-func TestButton(t *testing.T) {
+// caller code — not part of htmlctest
+
+// noEmptyAlt is a user-defined checker that fails if any matched <img> has an
+// empty or missing alt attribute.
+type noEmptyAlt struct{}
+
+func (noEmptyAlt) Check(nodes []*html.Node) error {
+    for _, n := range nodes {
+        hasAlt := false
+        for _, a := range n.Attr {
+            if a.Key == "alt" {
+                hasAlt = true
+                if strings.TrimSpace(a.Val) == "" {
+                    return fmt.Errorf("img element has empty alt attribute")
+                }
+            }
+        }
+        if !hasAlt {
+            return fmt.Errorf("img element is missing alt attribute")
+        }
+    }
+    return nil
+}
+
+func TestImagesHaveAlt(t *testing.T) {
     h := htmlctest.NewHarness(t, map[string]string{
-        "Button.vue": `<template>
-            <button :disabled="disabled" :class="variant">{{ label }}</button>
+        "Gallery.vue": `<template>
+            <img :src="src" :alt="caption">
         </template>`,
     })
 
-    htmlctest.RunCases(t, h, "Button", []htmlctest.Case{
-        {
-            Name: "default",
-            Data: map[string]any{"label": "Save", "variant": "primary"},
-            Want: `<button class="primary">Save</button>`,
-        },
-        {
-            Name: "disabled",
-            Data: map[string]any{"label": "Save", "variant": "primary", "disabled": true},
-            Want: `<button disabled class="primary">Save</button>`,
-        },
-    })
+    r := h.Fragment("Gallery", map[string]any{"src": "/img/photo.jpg", "caption": "A photo"})
+    r.Find(r.ByTag("img")).Check(noEmptyAlt{})
 }
 ```
 
-Sub-tests are named `TestButton/default` and `TestButton/disabled` and can be
-targeted individually with `go test -run TestButton/disabled`.
+If the assertion fails, the test output is:
 
-### Example 4 — Backward-compatible existing test (unchanged)
-
-```go
-func TestLegacy(t *testing.T) {
-    e := htmlctest.NewEngine(t, map[string]string{
-        "Greeting.vue": `<template><p>Hello {{ name }}!</p></template>`,
-    })
-    htmlctest.AssertFragment(t, e, "Greeting",
-        map[string]any{"name": "World"},
-        "<p>Hello World!</p>",
-    )
-}
+```text
+--- FAIL: TestImagesHaveAlt (0.00s)
+    htmlctest.go:82: img element has empty alt attribute
 ```
 
-This test compiles and runs without modification. The failure message now includes
-a line-level diff if the output does not match.
+### Example 5 — Migration stub output
+
+When an existing test calls one of the removed free functions, the test fails
+immediately with a message showing the exact replacement:
+
+```text
+--- FAIL: TestLegacy (0.00s)
+    htmlctest.go:12: htmlctest.AssertFragment is removed.
+        Replace with:
+          h := htmlctest.NewHarness(t, files)
+          h.Fragment("Greeting", data).AssertHTML(want)
+```
+
+The old call site compiles without modification; the stub makes the required
+migration mechanical and explicit.
 
 ---
 
@@ -521,20 +679,21 @@ are required.
 
 | File | Contents | Approx. lines |
 |------|----------|--------------|
-| `htmlctest/harness.go` | `Harness` struct, `NewHarness`, `Build`, `With`, `Engine`, `Page`, `Fragment` | ~60 |
-| `htmlctest/result.go` | `Result` struct (holds `t testing.TB`, `html string`, lazy `*html.Node`); `HTML()`, `AssertHTML()`, `Find()` | ~40 |
-| `htmlctest/query.go` | `Query` type and constructors (`ByTag`, `WithClass`, `WithAttr`, `Descendant`); `Selection` type and assertion methods; recursive node-walk helpers | ~120 |
-| `htmlctest/cases.go` | `Case` struct, `RunCases` | ~30 |
-| `htmlctest/compat.go` | Backward-compat shims for `NewEngine`, `AssertRendersHTML`, `AssertFragment` | ~25 |
+| `htmlctest/harness.go` | `Harness` struct, `NewHarness`, `Build`, `With`, `Engine`, `Page`, `Fragment`; plus `ByTag`, `ByClass`, `ByAttr` delegating methods (~15 additional lines) | ~75 |
+| `htmlctest/result.go` | `Result` struct (holds `t testing.TB`, `html string`, lazy `*html.Node`); `HTML()`, `Document()`, `AssertHTML()`, `Find()`; plus `ByTag`, `ByClass`, `ByAttr` delegating methods (~15 additional lines) | ~55 |
+| `htmlctest/query.go` | `Query` type and constructors (`ByTag`, `ByClass`, `ByAttr`, `WithClass`, `WithAttr`, `Descendant`); `Selection` type, assertion methods, `Nodes()`, `Check()`; `SelectionChecker` interface; recursive node-walk helpers | ~140 |
+| `htmlctest/failure.go` | `assertionFailure` interface; concrete failure types (`textMismatch`, `attrMismatch`, `existenceFailure`, `countMismatch`, `htmlMismatch`) with `format()` methods; paired depth-first tree-walk for `htmlMismatch` | ~80 |
+| `htmlctest/stubs.go` | Migration stubs for `NewEngine`, `AssertRendersHTML`, `AssertFragment` — each calls `t.Fatalf` with migration instructions | ~25 |
 
-**`result.go`**: `AssertHTML` calls the private `lineDiff(want, got string) string`
-helper (defined in the same file or a small private file) implemented with
-`strings.Split` and a linear line walk. No external library.
+**`failure.go`**: `htmlMismatch.format()` performs a paired depth-first traversal
+of the want-parsed and got-parsed `*html.Node` trees, emitting the path to the
+first differing node. No external library; `golang.org/x/net/html` only.
 
 **`query.go`**: the recursive node walk is a plain depth-first traversal of
 `*html.Node`. `Query` matching uses `strings.EqualFold` for tag names and
 `strings.Fields` for class tokenization. `Descendant` is checked by walking the
-ancestor chain of candidate nodes.
+ancestor chain of candidate nodes. `SelectionChecker` is a single-method interface
+defined here alongside `Selection`.
 
 **New dependencies**: none. `golang.org/x/net/html` is already present as a
 transitive dependency. It is listed as a direct dependency of `htmlctest`
@@ -544,23 +703,19 @@ transitive dependency. It is listed as a direct dependency of `htmlctest`
 
 ## 8. Backward Compatibility
 
-### `NewEngine` (public)
+### `NewEngine`, `AssertRendersHTML`, `AssertFragment` (public)
 
-Signature is unchanged. Internally re-implemented as `NewHarness(t, files, opts...).Engine()`.
-All callers are source-compatible and binary-compatible.
+These three functions are **not** preserved as working code. They remain as exported
+symbols (source-level compatibility: existing code that references them still
+compiles), but their bodies call `t.Fatalf` with a migration message. Any call site
+that invokes them at test time will receive an immediate test failure with
+instructions showing the exact replacement code.
 
-### `AssertRendersHTML` (public)
+This is intentional: there are no existing users, so backward compatibility has no
+value. Fail-fast stubs make the migration path explicit and mechanical. See §4.6
+for the stub implementations and Example 5 in §6 for sample output.
 
-Signature is unchanged. Now delegates to `h.Page(name, data).AssertHTML(want)`.
-Failure messages now include a line-level diff; this is a strictly better output,
-not a breaking change.
-
-### `AssertFragment` (public)
-
-Signature is unchanged. Now delegates to `h.Fragment(name, data).AssertHTML(want)`.
-Same improved failure message as above.
-
-### New exports: `Harness`, `Result`, `Query`, `Selection`, `Case`, `NewHarness`, `Build`, `ByTag`, `RunCases`
+### New exports: `Harness`, `Result`, `Query`, `Selection`, `SelectionChecker`, `NewHarness`, `Build`, `ByTag`, `ByClass`, `ByAttr`
 
 All new. No existing code references these identifiers.
 
@@ -646,9 +801,3 @@ implementation over `*html.Node`.
    separate `AssertRawText` method?
    *Recommendation*: add `AssertRawText` only if a real need arises during
    implementation. Non-blocking.
-
-3. **`RunCases` and `page` variadic**: the `page ...bool` variadic is slightly
-   unusual. An alternative is `RunPageCases` / `RunFragmentCases` as two separate
-   functions.
-   *Recommendation*: use the variadic form for API simplicity; the two-function
-   alternative is acceptable but adds surface area. Non-blocking.
