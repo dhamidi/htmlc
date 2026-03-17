@@ -543,64 +543,108 @@ func main() {
     <h2 id="testing">Testing components</h2>
     <p class="howto-goal">Write unit tests for <code>.vue</code> components without touching the filesystem.</p>
 
-    <p>The <code>htmlctest</code> package provides a lightweight test harness for htmlc components. Import it in your <code>_test.go</code> files:</p>
+    <p>The <code>htmlctest</code> package provides a fluent harness for testing htmlc components using an in-memory filesystem and a DOM-query API. Add it to your module:</p>
 
     <pre v-syntax-highlight="'bash'"><code v-pre>go get github.com/dhamidi/htmlc/htmlctest</code></pre>
 
-    <h3>NewEngine</h3>
-    <pre v-syntax-highlight="'go'"><code v-pre>func NewEngine(t testing.TB, files map[string]string, opts ...htmlc.Options) *htmlc.Engine</code></pre>
-    <p>Creates a test <code>Engine</code> backed by an in-memory filesystem. The <code>files</code> map uses file names as keys (e.g. <code>"Button.vue"</code>) and component source text as values. Pass optional <code>htmlc.Options</code> to configure directives, missing-prop handlers, etc.; the <code>FS</code> and <code>ComponentDir</code> fields are always overridden. The test fails immediately if the engine cannot be created.</p>
+    <h3>Quick start — <code>Build</code> shorthand</h3>
+    <p><code>Build</code> wraps a template snippet in <code>&lt;template&gt;…&lt;/template&gt;</code>, registers it as a component named <code>Root</code>, and returns a <code>*Harness</code> ready to render. Chain <code>Fragment</code> → <code>Find</code> → assertion:</p>
 
-    <h3>AssertFragment</h3>
-    <pre v-syntax-highlight="'go'"><code v-pre>func AssertFragment(t testing.TB, e *htmlc.Engine, name string, data map[string]any, want string)</code></pre>
-    <p>Renders <code>name</code> as an HTML fragment with <code>data</code> and fails the test if the output does not match <code>want</code> after whitespace normalisation (runs of whitespace collapsed to single spaces).</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>func TestGreeting(t *testing.T) {
+    htmlctest.Build(t, `&lt;p class="greeting"&gt;Hello {{<!-- --> name }}!&lt;/p&gt;`).
+        Fragment("Root", map[string]any{"name": "World"}).
+        Find(htmlctest.ByTag("p").WithClass("greeting")).
+        AssertText("Hello World!")
+}</code></pre>
 
-    <h3>AssertRendersHTML</h3>
-    <pre v-syntax-highlight="'go'"><code v-pre>func AssertRendersHTML(t testing.TB, e *htmlc.Engine, name string, data map[string]any, want string)</code></pre>
-    <p>Like <code>AssertFragment</code> but renders a full HTML page (with <code>&lt;!DOCTYPE html&gt;</code> and scoped styles injected into <code>&lt;head&gt;</code>).</p>
+    <h3>Multiple components — <code>NewHarness</code></h3>
+    <p>When the component under test references child components, register all required <code>.vue</code> files with <code>NewHarness</code>:</p>
 
-    <h3>Example</h3>
-    <pre v-syntax-highlight="'go'"><code v-pre>package myapp_test
-
-import (
-    &#34;testing&#34;
-
-    &#34;github.com/dhamidi/htmlc/htmlctest&#34;
-)
-
-func TestGreeting(t *testing.T) {
-    e := htmlctest.NewEngine(t, map[string]string{
-        &#34;Greeting.vue&#34;: `&lt;template&gt;&lt;p&gt;Hello {{<!-- --> name }}!&lt;/p&gt;&lt;/template&gt;`,
+    <pre v-syntax-highlight="'go'"><code v-pre>func TestCard(t *testing.T) {
+    h := htmlctest.NewHarness(t, map[string]string{
+        "Badge.vue": `&lt;template&gt;&lt;span class="badge"&gt;{{<!-- --> label }}&lt;/span&gt;&lt;/template&gt;`,
+        "Card.vue": `&lt;template&gt;
+            &lt;div class="card"&gt;
+                &lt;h2&gt;{{<!-- --> title }}&lt;/h2&gt;
+                &lt;Badge :label="status" /&gt;
+            &lt;/div&gt;
+        &lt;/template&gt;`,
     })
-    htmlctest.AssertFragment(t, e, &#34;Greeting&#34;,
-        map[string]any{&#34;name&#34;: &#34;World&#34;},
-        &#34;&lt;p&gt;Hello World!&lt;/p&gt;&#34;,
-    )
-}
 
-func TestCard(t *testing.T) {
-    e := htmlctest.NewEngine(t, map[string]string{
-        &#34;Card.vue&#34;: `
-&lt;template&gt;
-  &lt;div class=&#34;card&#34;&gt;
-    &lt;h2&gt;{{<!-- --> title }}&lt;/h2&gt;
-    &lt;slot&gt;&lt;/slot&gt;
-  &lt;/div&gt;
-&lt;/template&gt;`,
-    })
-    htmlctest.AssertFragment(t, e, &#34;Card&#34;,
-        map[string]any{&#34;title&#34;: &#34;Hello&#34;},
-        `&lt;div class=&#34;card&#34;&gt;&lt;h2&gt;Hello&lt;/h2&gt;&lt;/div&gt;`,
-    )
+    h.Fragment("Card", map[string]any{
+        "title":  "Order #42",
+        "status": "shipped",
+    }).
+        Find(htmlctest.ByTag("h2")).AssertText("Order #42").
+        Find(htmlctest.ByClass("badge")).AssertText("shipped")
+}</code></pre>
+
+    <h3>Assertion methods</h3>
+    <p>All <code>Assert*</code> methods call <code>t.Fatalf</code> on failure and return the receiver for chaining:</p>
+
+    <table>
+      <thead><tr><th>Method</th><th>Checks</th></tr></thead>
+      <tbody>
+        <tr><td><code>r.AssertHTML(want)</code></td><td>Exact HTML after whitespace normalisation; reports tree diff on mismatch</td></tr>
+        <tr><td><code>r.Find(query)</code></td><td>Returns a <code>Selection</code> of all matching nodes</td></tr>
+        <tr><td><code>s.AssertExists()</code></td><td>At least one node matched</td></tr>
+        <tr><td><code>s.AssertNotExists()</code></td><td>No nodes matched</td></tr>
+        <tr><td><code>s.AssertCount(n)</code></td><td>Exactly <code>n</code> nodes matched</td></tr>
+        <tr><td><code>s.AssertText(text)</code></td><td>Normalised text of the first matched node</td></tr>
+        <tr><td><code>s.AssertAttr(attr, value)</code></td><td>Named attribute value of the first matched node</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Query constructors and combinators</h3>
+    <p>Queries are immutable. Build and refine them with constructors and combinators:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>// Match &lt;li class="active" data-id="1"&gt; inside a &lt;ul&gt;
+htmlctest.ByTag("li").
+    WithClass("active").
+    WithAttr("data-id", "1").
+    Descendant(htmlctest.ByTag("ul"))</code></pre>
+
+    <table>
+      <thead><tr><th>Constructor / combinator</th><th>Matches</th></tr></thead>
+      <tbody>
+        <tr><td><code>ByTag("div")</code></td><td>Elements by tag name (case-insensitive)</td></tr>
+        <tr><td><code>ByClass("active")</code></td><td>Elements that have the given CSS class</td></tr>
+        <tr><td><code>ByAttr("data-id", "42")</code></td><td>Elements where <code>data-id="42"</code></td></tr>
+        <tr><td><code>q.WithClass(class)</code></td><td>Also requires the given class</td></tr>
+        <tr><td><code>q.WithAttr(attr, value)</code></td><td>Also requires the given attribute</td></tr>
+        <tr><td><code>q.Descendant(ancestor)</code></td><td>Matched element must be inside <code>ancestor</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>Testing v-for output</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>func TestList(t *testing.T) {
+    htmlctest.Build(t, `
+        &lt;ul&gt;
+            &lt;li v-for="item in items"&gt;{{<!-- --> item }}&lt;/li&gt;
+        &lt;/ul&gt;
+    `).
+        Fragment("Root", map[string]any{
+            "items": []string{"alpha", "beta", "gamma"},
+        }).
+        Find(htmlctest.ByTag("li")).
+        AssertCount(3)
+}</code></pre>
+
+    <h3>Testing conditional rendering</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>func TestBadge_Hidden(t *testing.T) {
+    htmlctest.Build(t, `&lt;span v-if="show" class="badge"&gt;NEW&lt;/span&gt;`).
+        Fragment("Root", map[string]any{"show": false}).
+        Find(htmlctest.ByClass("badge")).
+        AssertNotExists()
 }</code></pre>
 
     <h3>Testing with custom directives</h3>
-    <p>Pass an <code>htmlc.Options</code> with a <code>Directives</code> map to test components that use custom directives:</p>
-    <pre v-syntax-highlight="'go'"><code v-pre>e := htmlctest.NewEngine(t, map[string]string{
-    &#34;Page.vue&#34;: `&lt;template&gt;&lt;pre v-upper=&#34;text&#34;&gt;&lt;/pre&gt;&lt;/template&gt;`,
+    <p>Pass an <code>htmlc.Options</code> with a <code>Directives</code> map to <code>NewHarness</code> to test components that use custom directives:</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>h := htmlctest.NewHarness(t, map[string]string{
+    "Page.vue": `&lt;template&gt;&lt;pre v-upper="text"&gt;&lt;/pre&gt;&lt;/template&gt;`,
 }, htmlc.Options{
     Directives: htmlc.DirectiveRegistry{
-        &#34;upper&#34;: &amp;UpperDirective{},
+        "upper": &amp;UpperDirective{},
     },
 })</code></pre>
 
