@@ -570,7 +570,7 @@ import (
 
 func TestGreeting(t *testing.T) {
     e := htmlctest.NewEngine(t, map[string]string{
-        &#34;Greeting.vue&#34;: `&lt;template&gt;&lt;p&gt;Hello {{<!-- -->name }}!&lt;/p&gt;&lt;/template&gt;`,
+        &#34;Greeting.vue&#34;: `&lt;template&gt;&lt;p&gt;Hello {{<!-- --> name }}!&lt;/p&gt;&lt;/template&gt;`,
     })
     htmlctest.AssertFragment(t, e, &#34;Greeting&#34;,
         map[string]any{&#34;name&#34;: &#34;World&#34;},
@@ -583,7 +583,7 @@ func TestCard(t *testing.T) {
         &#34;Card.vue&#34;: `
 &lt;template&gt;
   &lt;div class=&#34;card&#34;&gt;
-    &lt;h2&gt;{{<!-- -->title }}&lt;/h2&gt;
+    &lt;h2&gt;{{<!-- --> title }}&lt;/h2&gt;
     &lt;slot&gt;&lt;/slot&gt;
   &lt;/div&gt;
 &lt;/template&gt;`,
