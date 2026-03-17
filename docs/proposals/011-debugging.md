@@ -112,6 +112,16 @@ If `json.Marshal` returns an error (for example, because a prop value contains a
 
 The existing `debug.go` file and `debugWriter` struct become dead code once RFC 011 is implemented. The `debugW *debugWriter` field on `Renderer` is replaced by `debugAttrs map[string]string`. The `exprValue`, `vifSkipped`, `slotStart`, and `slotEnd` methods on `debugWriter` have no equivalent in the new design (per §3) and are deleted. The `withDebug(dw *debugWriter)` builder method on `Renderer` is replaced by population of `debugAttrs` directly in `renderComponentElement`.
 
+### 4.6 Attribute contract
+
+The three `data-htmlc-*` attributes form an atomic unit: they are always emitted together or not at all. The contract is:
+
+1. **All-or-nothing**: if `debugAttrs != nil` at injection time, all three attributes from the map are emitted. No partial emission.
+2. **Encoding**: attribute names are literal ASCII lowercase strings. Attribute values are passed through the renderer's existing HTML attribute-value escaper, which encodes `"`, `<`, `>`, `&`, and `'`. The JSON produced by `json.Marshal` is a valid UTF-8 string; after attribute-value escaping, it is safe inside a double-quoted HTML attribute.
+3. **Injection point**: debug attributes are appended after all attributes already present on the root element. Existing attributes are not reordered.
+4. **Deterministic order**: the three debug attributes are always emitted in the fixed order `data-htmlc-component`, `data-htmlc-file`, `data-htmlc-props` (or `data-htmlc-props-error`). A package-level `debugAttrOrder []string` slice defines this order.
+5. **Single injection**: once the attributes are emitted for a renderer's root element, `r.debugAttrs` is set to `nil`. Nested elements within the same component template do not receive the attributes.
+
 ---
 
 ## 5. Syntax Summary
@@ -206,6 +216,20 @@ With debug mode enabled, no attributes are injected because there is no single r
 ```
 
 A `// TODO(RFC-011): fragment template debug annotation not supported` comment is placed at the injection site in `renderComponentElement` to mark the limitation.
+
+### Example 6: Non-serialisable prop value
+
+`StreamWidget` receives a prop `reader` of type `io.Reader`, which `encoding/json` cannot marshal:
+
+```html
+<div data-htmlc-component="StreamWidget"
+     data-htmlc-file="components/StreamWidget.vue"
+     data-htmlc-props-error="json: unsupported type: *os.File">
+  ...
+</div>
+```
+
+The `data-htmlc-props` attribute is absent. The `data-htmlc-props-error` attribute surfaces the marshalling failure without aborting the render. The component output itself is unaffected — debug annotations are best-effort and never cause a render failure.
 
 ---
 
