@@ -1,6 +1,6 @@
 # RFC 007: Struct Values as Component Props
 
-- **Status**: Draft
+- **Status**: Accepted
 - **Date**: 2026-03-16
 - **Author**: TBD
 
@@ -997,10 +997,11 @@ coherent type hierarchy.
    consistent with how nil values behave throughout the engine. See §6 Example 7
    and §8.
 
-5. **`StructProps` performance validation** (**blocking**): a benchmark
-   demonstrating that `StructProps.Get` avoids the upfront allocation of the old
-   eager materialisation approach **must be produced before the RFC is accepted**,
-   so the lazy-lookup performance claim is validated with data. See §7.
+5. **`StructProps` performance validation** (**resolved**): the benchmark in
+   `renderer_bench_test.go` (`BenchmarkStructProps_Get` with `b.ReportAllocs()`)
+   validates that `StructProps.Get` performs a single-field reflection lookup
+   without allocating a full `map[string]any`. This blocking requirement has been
+   satisfied and the RFC is now accepted.
 
 6. **Full camelCase vs. first-rune-only lowercasing**: should `MyFieldName` also
    be accessible as `myFieldName` (first-rune only, proposed) or as a fully

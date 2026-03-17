@@ -2206,6 +2206,22 @@ func TestRender_VBindSpreadNilNestedStructField(t *testing.T) {
 	}
 }
 
+func TestRender_VBindFirstRuneLowercaseAlias(t *testing.T) {
+	// Example 10: first-rune lowercase alias — {{ user.address }} accesses
+	// the Go field Address when no json tag is present.
+	scope := map[string]any{
+		"user": vbindUser{
+			Name:    "Alice",
+			Address: vbindAddress{Street: "123 Main", City: "NYC"},
+		},
+	}
+	// Access the Address field via lowercase alias in a mustache expression.
+	out := renderTemplate(t, `<div>{{ user.address.Street }}</div>`, scope)
+	if !strings.Contains(out, "123 Main") {
+		t.Errorf("got %q; want '123 Main' via first-rune lowercase alias user.address", out)
+	}
+}
+
 func TestRender_VBindSpreadChained(t *testing.T) {
 	// Chained v-bind: parent spreads a struct; the nested struct prop is itself spread
 	// by the child to a grandchild (Gap 3).

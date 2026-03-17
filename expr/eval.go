@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // UndefinedValue is the type of the undefined sentinel.
@@ -406,6 +407,14 @@ func accessStructField(rv reflect.Value, name string) (any, error) {
 		if tag != "" {
 			tagName := strings.Split(tag, ",")[0]
 			if tagName != "-" && tagName == name {
+				return rv.Field(i).Interface(), nil
+			}
+		}
+		// Step 3: first-rune-lowercased Go field name match,
+		// only when no json tag is present on that field.
+		if tag == "" && len(f.Name) > 0 {
+			alias := string(unicode.ToLower(rune(f.Name[0]))) + f.Name[1:]
+			if alias == name {
 				return rv.Field(i).Interface(), nil
 			}
 		}
