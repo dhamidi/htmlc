@@ -9,6 +9,7 @@
       {href: '#step-2', label: '2 — Write a component'},
       {href: '#step-3', label: '3 — Create an engine'},
       {href: '#step-4', label: '4 — Render with props'},
+      {href: '#step-4b', label: '4b — Props from a struct'},
       {href: '#step-5', label: '5 — Use slots'},
       {label: 'See also'},
       {href: '/docs/components.html', label: 'Component system'},
@@ -90,6 +91,33 @@ fmt.Println(html)</code></pre>
 &lt;/div&gt;</code></pre>
 
     <p>The fallback text <em>"No content provided."</em> is rendered because no slot content was passed. Step 5 shows how to supply it.</p>
+
+    <!-- ═══════════════════════════════════════════════ Step 4b -->
+    <h2 id="step-4b">Step 4b — Pass a struct as props</h2>
+    <p>Instead of building a <code>map[string]any</code> by hand you can pass any Go struct directly. The engine reads exported fields using their <code>json</code> struct tag (if present) and the Go field name otherwise.</p>
+    <p>Define a struct that mirrors the props your component expects:</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>type CardData struct {
+    Title string `json:"title"`
+}
+
+data := CardData{Title: "Hello from a struct!"}
+
+html, err := engine.RenderFragmentString("Card", data)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(html)</code></pre>
+
+    <p>The <code>Card</code> component template accesses <code>{{ "{{" }} title }}</code> exactly as before — nothing changes on the template side. Structs and maps are interchangeable from the template's point of view.</p>
+
+    <p>You can also spread a struct onto a child component using <code>v-bind</code> in a parent template:</p>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/PostPage.vue --&gt;
+&lt;template&gt;
+  &lt;!-- The struct's fields become individual props of PostCard --&gt;
+  &lt;PostCard v-bind="post" /&gt;
+&lt;/template&gt;</code></pre>
+
+    <p>The engine accepts any struct or <code>map[string]any</code> as the right-hand side of <code>v-bind</code>. Embedded struct fields are promoted and resolved as if they were declared directly on the outer struct.</p>
 
     <!-- ═══════════════════════════════════════════════ Step 5 -->
     <h2 id="step-5">Step 5 — Use slots</h2>
