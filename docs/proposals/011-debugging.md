@@ -100,19 +100,81 @@ If a component's `<template>` has no element root — only text nodes or multipl
 
 ### 4.4 Props serialisation
 
-Props are serialised with `encoding/json`. The resulting JSON string is then passed through the existing attribute-value escaping that the renderer applies to all attribute values (which HTML-encodes `"`, `<`, `>`, `&`, and `'`). This means:
+Props cannot be serialised with a direct `json.Marshal(childScope.props)` call because `childScope.props` is a `Props` interface value (`Keys() []string`, `Get(key string) (any, bool)`). The `encoding/json` package has no knowledge of the `Props` interface and would either produce `{}` for an unexported concrete type or panic on an interface value. Serialisation must be performed through the `Props` interface itself, with recursive handling for nested `Props` values.
+
+The serialisation algorithm is:
+
+1. If `props` is nil, emit `data-htmlc-props="{}"`.
+2. Otherwise, call `props.Keys()` to enumerate key names, then `props.Get(key)` for each key to retrieve its value.
+3. For each value returned by `Get`, check whether it implements `Props`. If it does, recurse into step 1 with that value, producing a nested JSON object (stored as `json.RawMessage`). If it does not, pass the value to `json.Marshal` directly (scalar types, slices, maps, plain structs with exported fields, etc.).
+4. Collect all key-value pairs into a `map[string]any`, then call `json.Marshal` on the map to produce the final JSON bytes.
+
+The resulting JSON string is then passed through the existing attribute-value escaping that the renderer applies to all attribute values (which HTML-encodes `"`, `<`, `>`, `&`, and `'`). This means:
 
 - No special-casing of single vs. double quote delimiters is required.
 - Values containing `<!--`, `-->`, `"`, or any other HTML-special character are safe.
 - The attribute is always wrapped in double quotes by the renderer's existing attribute emitter.
 
-If `json.Marshal` returns an error (for example, because a prop value contains a Go channel or an un-marshallable struct), the `data-htmlc-props` attribute is omitted and a `data-htmlc-props-error` attribute is emitted containing the error message string. This keeps the output valid and surfaces the problem without causing a render failure.
+```go
+// pseudo-code — not implementation
+func propsToJSON(p Props) ([]byte, error) {
+    if p == nil {
+        return []byte("{}"), nil
+    }
+    m := make(map[string]any, len(p.Keys()))
+    for _, k := range p.Keys() {
+        v, _ := p.Get(k)
+        if nested, ok := v.(Props); ok {
+            raw, err := propsToJSON(nested)
+            if err != nil {
+                return nil, err
+            }
+            m[k] = json.RawMessage(raw)
+        } else {
+            m[k] = v
+        }
+    }
+    return json.Marshal(m)
+}
+```
+
+If `propsToJSON` returns an error (for example, because a leaf prop value contains a Go channel or an un-marshallable struct), the `data-htmlc-props` attribute is omitted and a `data-htmlc-props-error` attribute is emitted containing the error message string. This keeps the output valid and surfaces the problem without causing a render failure.
 
 ### 4.5 `debugWriter` removal
 
 The existing `debug.go` file and `debugWriter` struct become dead code once RFC 011 is implemented. The `debugW *debugWriter` field on `Renderer` is replaced by `debugAttrs map[string]string`. The `exprValue`, `vifSkipped`, `slotStart`, and `slotEnd` methods on `debugWriter` have no equivalent in the new design (per §3) and are deleted. The `withDebug(dw *debugWriter)` builder method on `Renderer` is replaced by population of `debugAttrs` directly in `renderComponentElement`.
 
-### 4.6 Attribute contract
+### 4.6 Interactive inspector (debug mode)
+
+The interactive inspector is not part of this RFC's implementation scope — it remains a Non-Goal per §3.4. This section documents the intended design so that a future RFC or PR can implement it without re-litigating the architecture.
+
+#### 4.6.1 Injection mechanism
+
+When `Options.Debug` is true and an inspector script path (or inline flag) is configured, the engine appends a `<script>` element as the last child of `<body>`. The script is a self-contained, no-dependency JS module. It must not be injected when `Options.Debug` is false.
+
+#### 4.6.2 Runtime behaviour
+
+**Component tree construction**: on `DOMContentLoaded`, the inspector walks `document.querySelectorAll('[data-htmlc-component]')` and builds a tree by testing containment — an ancestor component contains a descendant if `ancestor.contains(descendant)`. The resulting tree mirrors the server-side component nesting order.
+
+**Overlay panel**: the inspector renders a collapsible `<aside>` panel (injected into `<body>`) listing the component tree. Each entry shows the component name, its source file path, and a collapsed JSON props viewer.
+
+**Hover highlight**: hovering a component entry in the panel adds a CSS outline and a tooltip showing the component name on the corresponding DOM element. Hovering a DOM element that has `data-htmlc-component` highlights the panel entry.
+
+**Props viewer**: clicking a component entry expands an inline `<pre>` showing the JSON-pretty-printed props (via `JSON.stringify(props, null, 2)`). If `data-htmlc-props-error` is present, a red error badge is shown instead.
+
+**Keyboard shortcut**: pressing `Alt+Shift+D` toggles the panel visibility.
+
+#### 4.6.3 Isolation requirements
+
+- The panel is rendered inside a `<shadow-root>` attached to a `<htmlc-inspector>` custom element to avoid CSS leakage from the page's own styles.
+- The inspector must not modify any existing DOM nodes — only read `data-htmlc-*` attributes and append its own elements.
+- The inspector script must be idempotent: calling it twice (e.g. via HMR reload) must not add a second panel.
+
+#### 4.6.4 Attribute contract
+
+The inspector relies on exactly the three attributes defined in §4.1: `data-htmlc-component`, `data-htmlc-file`, `data-htmlc-props` (and the fallback `data-htmlc-props-error`). No additional attributes are required.
+
+### 4.7 Attribute contract
 
 The three `data-htmlc-*` attributes form an atomic unit: they are always emitted together or not at all. The contract is:
 
@@ -217,7 +279,46 @@ With debug mode enabled, no attributes are injected because there is no single r
 
 A `// TODO(RFC-011): fragment template debug annotation not supported` comment is placed at the injection site in `renderComponentElement` to mark the limitation.
 
-### Example 6: Non-serialisable prop value
+### Example 6: Accessing debug information in JavaScript
+
+The `data-htmlc-*` attributes are standard HTML `data-*` attributes and are accessible via the browser's `dataset` API. The `dataset` property maps hyphenated attribute names to camelCase property names: `data-htmlc-props` becomes `dataset.htmlcProps`, `data-htmlc-component` becomes `dataset.htmlcComponent`, and so on. `JSON.parse` is safe here because the attribute value is server-emitted JSON — not arbitrary user input at parse time. Component prop values may originate from user data, however, and should not be trusted blindly in production contexts.
+
+**Pattern A — reading a single component's props**
+
+```javascript
+// Find the rendered HeroBanner element and read its props
+const el = document.querySelector('[data-htmlc-component="HeroBanner"]');
+const props = JSON.parse(el.dataset.htmlcProps);
+console.log(props.headline); // "Hello"
+```
+
+**Pattern B — enumerating all debug-annotated components on the page**
+
+```javascript
+// Build a list of every component rendered on the page
+const components = [...document.querySelectorAll('[data-htmlc-component]')]
+  .map(el => ({
+    name:  el.dataset.htmlcComponent,
+    file:  el.dataset.htmlcFile,
+    props: JSON.parse(el.dataset.htmlcProps ?? '{}'),
+    el,
+  }));
+console.table(components.map(c => ({ name: c.name, file: c.file })));
+```
+
+**Pattern C — detecting prop-serialisation errors**
+
+```javascript
+// Surface any components whose props could not be serialised
+document.querySelectorAll('[data-htmlc-props-error]').forEach(el => {
+  console.warn(
+    `[htmlc] props serialisation failed for ${el.dataset.htmlcComponent}:`,
+    el.dataset.htmlcPropsError
+  );
+});
+```
+
+### Example 7: Non-serialisable prop value
 
 `StreamWidget` receives a prop `reader` of type `io.Reader`, which `encoding/json` cannot marshal:
 
@@ -249,7 +350,7 @@ Remove the file entirely once the implementation is complete. While the current 
    ```go
    // pseudo-code — not implementation
    if e.opts.Debug {
-       propsJSON, err := json.Marshal(childScope.props)
+       propsJSON, err := propsToJSON(childScope.props)
        if err != nil {
            childRenderer.debugAttrs = map[string]string{
                "data-htmlc-component":    comp.Name,
@@ -368,4 +469,7 @@ Wrap each component's output in `<template data-htmlc-component="...">`.
    The HTML parser lowercases tag names (e.g., `<HeroBanner>` is parsed as `herobanner`). The component registry key may preserve original casing (e.g., `"HeroBanner"`). Should `data-htmlc-component` use the registry key (original casing) or the lowercased tag name? Tentative answer: use the registry key (original casing, e.g., `"HeroBanner"`) for clarity when inspecting DevTools — the lowercase form is already visible in the tag name itself.
 
 5. **Interaction with scoped styles** (non-blocking)
-   If scoped styles are implemented in a future RFC, they will likely inject a `data-v-XXXX` scope attribute on the root element. The root element will then carry both `data-v-*` and `data-htmlc-*` attributes. Verify that attribute injection order is deterministic across both systems to ensure reproducible output for snapshot tests.
+
+   Scoped styles are already implemented. When a component uses `<style scoped>`, the renderer injects a `data-v-XXXXXXXX` attribute (computed by `ScopeID(path)`) on the component's root element. RFC 011 adds `data-htmlc-component`, `data-htmlc-file`, and `data-htmlc-props` to the same element. Both sets of attributes will coexist on the root element.
+
+   The implementation must ensure that `data-htmlc-*` attributes are injected after the existing `data-v-*` scope attribute in the rendered output, consistent with the "inject last" verdict in Open Question 3. Verify during implementation that the injection order is stable across both code paths (scoped-style injection and debug-attr injection) so that snapshot test output is reproducible.
