@@ -163,8 +163,9 @@ type Renderer struct {
 	funcs                 map[string]any // engine-registered functions, propagated to child renderers
 	logger                *slog.Logger  // nil = no slog output
 	cw                    countingWriter // Reset()ed at each child dispatch
-	componentPath         []string       // ordered path from root to this component
+	componentPath         []string            // ordered path from root to this component
 	componentErrorHandler ComponentErrorHandler // nil = abort on error (default)
+	ancestors             map[*Component]bool  // components being rendered by ancestor renderers; used for cycle detection
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -1683,6 +1684,19 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 	copy(childPath, r.componentPath)
 	childPath[len(childPath)-1] = n.Data
 
+	// Cycle detection: refuse to render a component already in the call stack.
+	if comp == r.component || r.ancestors[comp] {
+		return fmt.Errorf("component %q: cycle detected (%s)",
+			n.Data, strings.Join(append(childPath, n.Data), " → "))
+	}
+
+	// Build child ancestors set by adding the current component.
+	childAncestors := make(map[*Component]bool, len(r.ancestors)+1)
+	for k := range r.ancestors {
+		childAncestors[k] = true
+	}
+	childAncestors[r.component] = true
+
 	// Build a child renderer that shares the registry and style collector.
 	childRenderer := &Renderer{
 		component:             comp,
@@ -1699,6 +1713,7 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		logger:                r.logger,
 		componentPath:         childPath,
 		componentErrorHandler: r.componentErrorHandler,
+		ancestors:             childAncestors,
 	}
 
 	// Populate debug attributes on the child renderer when debug mode is active.
