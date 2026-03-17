@@ -96,8 +96,6 @@ passing it to a component:
 8. **`accessStructField` handles embedded field promotion** so that `{{ user.Street }}`
    works consistently with `v-bind="user"` when `User` embeds a struct with a
    `Street` field.
-9. **Types may implement a `Spreader` interface to supply props directly, bypassing
-   reflection.**
 
 ---
 
@@ -117,14 +115,14 @@ passing it to a component:
    beyond what reflection already provides.
 5. **v-bind on HTML elements** (not components): this RFC only affects `v-bind`
    spread on component invocations as a primary goal. However, because
-   `applyAttrSpread` also calls `toStringMap`, HTML element struct spread gains
+   `applyAttrSpread` also calls `ToProps`, HTML element struct spread gains
    support as a free side-effect.
 
 ---
 
 ## 4. Proposed Design
 
-### 4.1 `toStringMap` — struct reflection
+### 4.1 `Props` interface — unified spread abstraction
 
 #### Current state
 
@@ -141,136 +139,130 @@ func toStringMap(val any) (map[string]any, bool) {
 }
 ```
 
-#### Proposed extension
+#### Proposed design
 
-**`Spreader` interface** — any value that can expose itself as a flat string-keyed
-collection of props implements this interface, allowing it to bypass reflection
-entirely:
+Rather than extending `toStringMap` with more type-dispatch cases, the redesign
+asks the more fundamental question: *what does `htmlc` actually need from a props
+value?* The engine needs exactly two operations:
 
-```go
-// Spreader is implemented by any value that can expose itself as a
-// flat string-keyed collection of props. Types that implement this
-// interface are used by v-bind spread without reflection.
-type Spreader interface {
-    // SpreadProps returns the key/value pairs to be spread as component
-    // props. Implementations must not mutate the returned map after
-    // returning it. Returning nil is equivalent to an empty spread.
-    SpreadProps() map[string]any
-}
-```
+1. **Key enumeration** — "what prop names does this object expose?"
+2. **Value lookup by key** — "what is the value of prop `X`?"
 
-`toStringMap` checks for `Spreader` **before** the map fast-path and before
-reflection. The full priority order is:
-
-```text
-priority order in toStringMap:
-  1. nil → (nil, true)
-  2. Spreader → call SpreadProps(), return result
-  3. map[string]any → direct use (no copy)
-  4. reflect.Struct / reflect.Ptr-to-struct → structToMap (reflection)
-  5. anything else → (nil, false) — caller emits error
-```
-
-This aligns with the `expvar` pattern: the interface is the primary contract;
-reflection is a fallback for types the engine does not control.
-
-Replace the function with a reflection-aware version that also handles structs and
-pointers-to-structs:
+These two operations define the **`Props`** interface — the single contract the
+engine demands of any value used as component props:
 
 ```go
 // pseudo-code — not implementation
-func toStringMap(val any) (map[string]any, bool) {
-    if val == nil {
-        return nil, true  // nil spread is a no-op
-    }
-    if s, ok := val.(Spreader); ok {
-        return s.SpreadProps(), true  // interface fast-path — no reflection
-    }
-    if m, ok := val.(map[string]any); ok {
-        return m, true    // fast path — no reflection needed
-    }
-    rv := reflect.ValueOf(val)
+// Props is the interface htmlc demands of any value used as component props.
+// It models two operations: key enumeration and value lookup.
+type Props interface {
+    // Keys returns the set of prop names this object exposes.
+    // The returned slice must not be mutated by the caller.
+    Keys() []string
+
+    // Get returns the value associated with key and whether it was found.
+    Get(key string) (any, bool)
+}
+```
+
+The engine dispatches on `Props` at every boundary where it previously called
+`toStringMap` or consulted a scope map.
+
+**`MapProps`** — wraps `map[string]any`, replacing the map fast-path:
+
+```go
+// pseudo-code — not implementation
+type MapProps struct{ m map[string]any }
+
+func NewMapProps(m map[string]any) MapProps { return MapProps{m} }
+
+func (p MapProps) Keys() []string {
+    keys := make([]string, 0, len(p.m))
+    for k := range p.m { keys = append(keys, k) }
+    return keys
+}
+
+func (p MapProps) Get(key string) (any, bool) {
+    v, ok := p.m[key]
+    return v, ok
+}
+```
+
+**`StructProps`** — wraps a `reflect.Value` lazily, replacing both the old eager
+`structToMap` allocation and any lazy-wrapper variants:
+
+```go
+// pseudo-code — not implementation
+type StructProps struct{ rv reflect.Value }
+
+func NewStructProps(v any) (StructProps, bool) {
+    rv := reflect.ValueOf(v)
     for rv.Kind() == reflect.Ptr {
-        if rv.IsNil() {
-            return nil, true  // nil pointer is a no-op
-        }
+        if rv.IsNil() { return StructProps{}, false }
         rv = rv.Elem()
     }
-    if rv.Kind() != reflect.Struct {
-        return nil, false  // unsupported type — caller emits error
-    }
-    return structToMap(rv), true
+    if rv.Kind() != reflect.Struct { return StructProps{}, false }
+    return StructProps{rv}, true
 }
 
-// pseudo-code — not implementation
-func structToMap(rv reflect.Value) map[string]any {
-    out := make(map[string]any)
-    collectStructFields(rv, out, false)
-    return out
+func (p StructProps) Keys() []string {
+    // enumerate exported fields using structFieldKey() resolution order:
+    // json tag name first, then Go field name; recurse into anonymous embeds
 }
 
-// pseudo-code — not implementation
-// collectStructFields populates out with exported fields of rv.
-// fromEmbedded: when true, do not overwrite keys already present (outer wins).
-func collectStructFields(rv reflect.Value, out map[string]any, fromEmbedded bool) {
-    rt := rv.Type()
-    // First pass: collect direct (non-anonymous) fields — highest priority.
-    for i := 0; i < rt.NumField(); i++ {
-        f := rt.Field(i)
-        if !f.IsExported() || f.Anonymous { continue }
-        key := fieldKey(f)  // json tag name or Go field name; "" means skip
-        if key == "" { continue }
-        if fromEmbedded {
-            if _, exists := out[key]; exists { continue }  // outer already set this key
-        }
-        // Store nil pointer fields as untyped nil so that v-if guards work
-        // correctly (a typed nil pointer in an interface is non-nil, which
-        // would mislead IsTruthy and cause v-if="Field" to evaluate as true).
-        fval := rv.Field(i)
-        if fval.Kind() == reflect.Ptr && fval.IsNil() {
-            out[key] = nil
-        } else {
-            out[key] = fval.Interface()
-        }
-    }
-    // Second pass: recurse into anonymous (embedded) struct fields.
-    // Like encoding/json, recurse even when the anonymous field type is
-    // unexported, so that its exported sub-fields are still promoted.
-    for i := 0; i < rt.NumField(); i++ {
-        f := rt.Field(i)
-        if !f.Anonymous { continue }
-        tag := f.Tag.Get("json")
-        if tag != "" {
-            parts := strings.SplitN(tag, ",", 2)
-            if parts[0] == "-" { continue }  // json:"-" — exclude
-            if parts[0] != "" {
-                // Explicit json name on embedded field: not promoted.
-                // Treat like a named field — but only if exported (unexported
-                // field values cannot be retrieved via reflection).
-                if f.IsExported() {
-                    if _, exists := out[parts[0]]; !exists {
-                        out[parts[0]] = rv.Field(i).Interface()
-                    }
-                }
-                continue
-            }
-        }
-        // Dereference pointer-to-struct embedded fields.
-        fv := rv.Field(i)
-        if fv.Kind() == reflect.Ptr {
-            if fv.IsNil() { continue }
-            fv = fv.Elem()
-        }
-        if fv.Kind() != reflect.Struct { continue }
-        collectStructFields(fv, out, true)
-    }
+func (p StructProps) Get(key string) (any, bool) {
+    // resolve via accessStructField logic — no full map materialisation
 }
 ```
 
+`StructProps.Get` resolves field lookups **lazily**: only the specific field being
+accessed is read via reflection. There is no upfront materialisation of a
+`map[string]any`, so the O(fields × instances) allocation cost of an eager approach
+is avoided entirely.
+
+**`ToProps`** — the single dispatch entry point, replacing `toStringMap`:
+
+```go
+// pseudo-code — not implementation
+// ToProps converts val into a Props implementation, or returns an error
+// for unsupported types. This is the sole dispatch point for all spread
+// operations in the engine.
+func ToProps(val any) (Props, error) {
+    if val == nil {
+        return nil, nil         // nil spread is a no-op
+    }
+    if p, ok := val.(Props); ok {
+        return p, nil           // identity — already implements Props
+    }
+    if m, ok := val.(map[string]any); ok {
+        return NewMapProps(m), nil  // map fast-path
+    }
+    if sp, ok := NewStructProps(val); ok {
+        return sp, nil          // struct or pointer-to-struct
+    }
+    return nil, fmt.Errorf("expected map or struct, got %T", val)
+}
+```
+
+The priority order is:
+
+```text
+priority order in ToProps:
+  1. nil → (nil, nil) — nil spread is a no-op
+  2. Props → return as-is (identity)
+  3. map[string]any → NewMapProps
+  4. struct / ptr-to-struct → NewStructProps
+  5. anything else → error
+```
+
+Types that need to supply props without reflection can implement `Props` directly.
+The `Keys()` and `Get()` methods give implementors full control over prop exposure
+without forcing materialisation of a `map[string]any`.
+
 **Embedded struct flattening decision**: anonymous (embedded) struct fields are
-flattened into the top-level prop map, consistent with how Go's `encoding/json`
-handles embedded structs and with how Go itself promotes fields at the language
-level. This resolves §10.1.
+flattened into the top-level prop set returned by `StructProps.Keys()`, consistent
+with how Go's `encoding/json` handles embedded structs and with how Go itself
+promotes fields at the language level. This resolves §10.1.
 
 **Conflict resolution**: when an outer struct field has the same key as a promoted
 field from an embedded struct, the outer field wins. This matches `encoding/json`
@@ -281,58 +273,31 @@ json tag name (e.g., `Address \`json:"addr"\``), it is not promoted — it is st
 as a single prop under the tag name (here, `"addr"`). A tag of `json:"-"` causes
 the embedded field to be skipped entirely.
 
-**Named (non-embedded) struct fields**: when `structToMap` encounters a field whose
+**Named (non-embedded) struct fields**: when `StructProps` encounters a field whose
 value is itself a struct but the field is not anonymous (e.g., `Address Address`),
-it stores the struct value as-is under its key (e.g., `"Address": Address{...}`).
+it exposes the struct value as-is under its key (e.g., `"Address": Address{...}`).
 The child component receives this as a typed prop. The child template can access
 sub-fields via standard dot notation (e.g., `{{ Address.City }}`), which resolves
 via the existing `accessStructField` path. No changes to the expression evaluator
 are required for this case — the struct value is passed through transparently.
 
-**Chained v-bind**: `toStringMap` is applied at each component boundary. A parent
-can spread a large struct containing a nested struct field, and a child that
-receives the nested struct as a prop can in turn spread it to a grandchild with
-`v-bind="Address"`. Because `toStringMap` handles any struct, this chain works
+**Chained v-bind**: `ToProps` is applied at each component boundary. A parent can
+spread a large struct containing a nested struct field, and a child that receives
+the nested struct as a prop can in turn spread it to a grandchild with
+`v-bind="Address"`. Because `ToProps` handles any struct, this chain works
 transitively without any additional changes.
 
 **Nil pointer struct fields**: when a struct field is a pointer to a struct and its
-value is `nil` (e.g., `Address *Address = nil`), `structToMap` includes
-`"Address": nil` in the map. The child component receives a nil prop. If the child
-template accesses `{{ Address.City }}` without a guard, the expression evaluator
-returns an error on the nil dereference. Template authors must guard such access
-with `v-if="Address"` (see §6 Example 7 and §8).
+value is `nil` (e.g., `Address *Address = nil`), `StructProps.Get("Address")`
+returns `nil, true`. The child component receives a nil prop. If the child template
+accesses `{{ Address.City }}` without a guard, the expression evaluator returns an
+error on the nil dereference. Template authors must guard such access with
+`v-if="Address"` (see §6 Example 7 and §8).
 
 **Verdict**: the two-pass approach (direct fields first, then embedded recursion)
 cleanly implements outer-wins semantics without a separate conflict-detection step.
-
-#### Performance consideration
-
-`structToMap` allocates a new `map[string]any` and copies all field values on each
-call via reflection. This cost is O(fields) per call, paid even if the child
-component reads only one or two props. For pages that render many component instances
-in a loop, this means O(fields × instances) allocations and copies per request.
-
-The preferred implementation direction for the struct path is a **lazy wrapper**
-that avoids the upfront allocation. Rather than materialising a `map[string]any`,
-an internal type holds the `reflect.Value` of the struct and resolves individual
-field lookups on demand:
-
-```go
-// pseudo-code — not implementation
-// reflectScope wraps a struct reflect.Value and resolves prop lookups
-// lazily. It implements the same internal interface used by map scopes,
-// so the rest of the engine is unaware of the difference.
-type reflectScope struct{ rv reflect.Value }
-
-func (s reflectScope) Lookup(key string) (any, bool) {
-    // resolve via accessStructField logic — no full map materialisation
-}
-```
-
-The engine's scope resolution already calls a `Lookup`-style function at each
-`{{ expr }}` evaluation. Threading `reflectScope` through that path avoids the
-upfront allocation entirely. `structToMap` is retained as a convenience helper
-for the `Spreader` default implementation and for tests, but is not the hot path.
+`StructProps` subsumes both the eager `structToMap` and any lazy-wrapper variants
+into one coherent type.
 
 ### 4.2 `accessStructField` — embedded field promotion
 
@@ -408,7 +373,7 @@ The change is isolated to `expr/eval.go`.
 
 #### Current state
 
-When `toStringMap` returns `false`, the caller emits:
+When `ToProps` returns an error, the caller emits:
 
 ```text
 v-bind on component "user-card": expected map, got main.User
@@ -439,7 +404,7 @@ must special-case `v-bind` spread:
 
 > `Props()` returns the set of identifier names a template reads. When a parent
 > uses `v-bind="structValue"`, the engine satisfies those props at runtime via
-> `toStringMap`. Static tools that compare `Props()` output against explicit
+> `ToProps`. Static tools that compare `Props()` output against explicit
 > `:prop` bindings must also account for `v-bind` spreads; they cannot statically
 > verify that a given struct type has the required fields.
 
@@ -448,7 +413,7 @@ No code changes are required for this; it is a documentation-only note.
 ### 4.5 `applyAttrSpread` — HTML element spread
 
 `applyAttrSpread` (`renderer.go`) is used for `v-bind` on regular HTML elements.
-It also calls `toStringMap`. Because `toStringMap` is being extended, HTML element
+It also calls `ToProps`. Because `ToProps` now handles structs, HTML element
 spread will also gain struct support at no extra cost. This is desirable and not a
 regression risk since the function previously always errored on structs.
 
@@ -559,7 +524,7 @@ eng.RenderPage(w, "UserPage", map[string]any{
 ```
 
 The Go handler passes a pointer to a `User` struct. The engine dereferences any
-number of pointer indirections transparently inside `toStringMap` — the template
+number of pointer indirections transparently inside `NewStructProps` — the template
 author writes `v-bind="user"` exactly as they would for a plain struct value, with
 no special operator required. Behaviour is identical to Example 1.
 
@@ -594,7 +559,7 @@ Behaviour is identical to the current implementation. No change.
 
 ### Example 6 — Nested struct field access via dot notation
 
-When `structToMap` encounters a named (non-anonymous) struct field, it stores the
+When `StructProps` encounters a named (non-anonymous) struct field, it exposes the
 struct value as-is under its key. The child template accesses sub-fields via
 standard dot notation, which resolves via `accessStructField`.
 
@@ -623,7 +588,7 @@ type User struct {
 </template>
 ```
 
-`structToMap` produces `{"Name": "Alice", "Address": Address{...}}`.
+`StructProps.Keys()` returns `["Name", "Address"]`.
 `Props()` discovers `Name` and `Address` as the prop identifiers — this is
 correct; `Address` is the prop, not `Address.City`. The expression evaluator
 calls `accessStructField` for `.City` on the `Address` value, which works
@@ -652,13 +617,12 @@ type User struct {
 </template>
 ```
 
-`structToMap` produces `{"Name": "Alice", "Address": nil}` when `Address` is
-nil. Without the `v-if` guard, `{{ Address.City }}` would error on nil
-dereference.
+`StructProps.Get("Address")` returns `nil, true` when `Address` is nil.
+Without the `v-if` guard, `{{ Address.City }}` would error on nil dereference.
 
 ### Example 8 — Embedded struct flattening
 
-Anonymous embedded struct fields are promoted into the top-level prop map:
+Anonymous embedded struct fields are promoted into the top-level prop set:
 
 ```go
 type Address struct {
@@ -672,14 +636,10 @@ type User struct {
 }
 ```
 
-`v-bind="user"` produces:
+`v-bind="user"` exposes the following props via `StructProps.Keys()`:
 
 ```go
-map[string]any{
-    "Name":   "Alice",
-    "Street": "123 Main",
-    "City":   "NYC",
-}
+[]string{"Name", "Street", "City"}
 ```
 
 Both `{{ Street }}` and `{{ Name }}` are available as top-level props in the
@@ -720,41 +680,47 @@ type Page  struct { Title string; Theme Theme }
 </template>
 ```
 
-`Root` spreads `page`, producing `{"Title": "...", "Theme": Theme{...}}`.
+`Root` spreads `page`; `StructProps.Keys()` on `page` returns `["Title", "Theme"]`.
 `Layout` receives `Theme` as a typed prop and spreads it to `Navbar` with
-`v-bind="Theme"`. Because `toStringMap` is applied at each component boundary,
-this chain works transitively: `Navbar` receives `{"Color": "...", "Font": "..."}`.
+`v-bind="Theme"`. Because `ToProps` is applied at each component boundary,
+this chain works transitively: `Navbar` receives `Color` and `Font` as props.
 
 ---
 
 ## 7. Implementation Sketch
 
-All changes are in `renderer.go` and `expr/eval.go` unless stated otherwise.
+Primary changes are in a new `props.go` file, with secondary changes in
+`renderer.go` and `expr/eval.go`.
 
-1. **`Spreader` interface** (`spreader.go`) — defined in a new small file to keep
-   the interface close to its consumers. Placing it in its own file avoids
-   cluttering `renderer.go` and makes the interface easy to document and discover.
+1. **`Props` interface, `MapProps`, `StructProps`, `ToProps`** (`props.go`) — new
+   file containing the complete props abstraction. Defines the `Props` interface,
+   both standard implementations, and the `ToProps` dispatch constructor. Placing
+   these in a dedicated file makes the interface easy to document, discover, and
+   test in isolation. ~100 lines.
 
-2. **`toStringMap`** (`renderer.go`) — extend to check `Spreader` first, then
-   `map[string]any` fast path, then `reflect.Struct` and `reflect.Ptr`-to-struct.
-   ~20 lines added.
+2. **`renderer.go`** — replace all call sites of `toStringMap` with `ToProps`;
+   propagate `Props` through scope resolution instead of `map[string]any`. The
+   engine dispatches on `Props.Keys()` for `v-bind` spread enumeration and
+   `Props.Get()` for individual lookup. ~20 lines changed.
 
-3. **`structToMap`** (`renderer.go`) — new private helper; delegates to
-   `collectStructFields`. Retained as a convenience function for the `Spreader`
-   default implementation and for tests; not the hot path. ~5 lines.
+3. **`expr/eval.go`** — `accessStructField` is now used by `StructProps.Get`
+   as its field-resolution back-end; the two-pass embedded-field logic (§4.2) is
+   shared between both. No new types in this file; only the two-pass restructure
+   of `accessStructField`. ~35 lines (replacing ~20 lines).
 
-4. **`reflectScope`** (`renderer.go` or `expr/eval.go`) — new internal type
-   wrapping a `reflect.Value` that resolves prop lookups lazily on demand (see
-   §4.1 Performance consideration). Threading this through the scope-resolution
-   path eliminates the upfront `map[string]any` allocation for the struct path.
+4. **Tests** (`props_test.go`) — `MapProps` and `StructProps` are independently
+   unit-testable without a running engine. Add table-driven tests for each,
+   covering: plain struct, json tags, pointer-to-struct, embedded field promotion,
+   embedded field with explicit json name, outer field shadows promoted field,
+   nil pointer field. ~60 lines.
 
-5. **Benchmark** (`renderer_test.go` or `renderer_bench_test.go`) — a benchmark
-   comparing the map-copy path against the lazy-lookup (`reflectScope`) path is
-   **required before the RFC is accepted**, so the performance claim can be
-   validated with data.
+5. **Benchmark** (`renderer_bench_test.go`) — a benchmark verifying that
+   `StructProps.Get` avoids the upfront allocation of the old `structToMap` path
+   is **required before the RFC is accepted**, so the lazy-lookup performance
+   claim can be validated with data.
 
-6. **`collectStructFields`** (`renderer.go`) — new private helper; two-pass
-   algorithm (direct fields first, embedded recursion second). Handles:
+6. **`collectStructKeys`** (`props.go`) — private helper used by `StructProps.Keys`;
+   two-pass algorithm (direct fields first, embedded recursion second). Handles:
    - `f.Anonymous` recursion (embedded struct flattening)
    - json tag name on embedded field prevents promotion
    - `json:"-"` on embedded field skips it
@@ -762,28 +728,25 @@ All changes are in `renderer.go` and `expr/eval.go` unless stated otherwise.
    - outer-wins: `fromEmbedded=true` skips keys already present in `out`
    ~40 lines.
 
-7. **`structFieldKey`** (`renderer.go`) — new private helper; returns json tag
-   name or Go field name; `""` means skip. ~10 lines.
+7. **`structFieldKey`** (`props.go`) — private helper; returns json tag name or Go
+   field name; `""` means skip. ~10 lines.
 
 8. **Error message** (`renderer.go`) — update format strings in
    `renderComponentElement` and `applyAttrSpread` from `"expected map"` to
    `"expected map or struct"`. Two one-line changes.
 
-9. **`accessStructField`** (`expr/eval.go`) — restructure to use two-pass
-   algorithm matching `collectStructFields`, enabling embedded field promotion
-   in dot-access expressions. ~35 lines (replacing ~20 lines).
-
-10. **Tests** (`renderer_test.go`) — new table-driven and named tests covering:
+9. **Integration tests** (`renderer_test.go`) — table-driven and named tests
+   covering the full render path:
    - plain struct spread on HTML element
    - plain struct spread on component
    - struct with json tags
    - pointer-to-struct spread
    - nil pointer spread (no-op)
-   - embedded struct flattening (Gap 1)
+   - embedded struct flattening
    - embedded struct with explicit json name (not promoted)
    - outer field shadows embedded field
-   - nil `*NestedStruct` field (Gap 6) — with `v-if` guard
-   - chained v-bind spread (Gap 3)
+   - nil `*NestedStruct` field — with `v-if` guard
+   - chained v-bind spread
    - updated error message check ("expected map or struct")
 
 No changes required to `component.go` or the public `Engine` API.
@@ -797,12 +760,13 @@ No changes required to `component.go` or the public `Engine` API.
 No changes. `New`, `RenderPage`, `RenderFragment`, and all other exported methods
 have identical signatures.
 
-### `toStringMap` (private)
+### `toStringMap` → `ToProps` (private)
 
-`toStringMap` is a package-private function. Its signature is unchanged; only its
-behaviour for non-map, non-nil values changes from `(nil, false)` to
-`(structMap, true)`. Callers that previously received an error for struct values
-will now receive the spread map — this is a deliberate fix, not a breaking change.
+`toStringMap` is replaced by `ToProps`. Both are package-private. `ToProps`
+returns a `Props` value rather than a `map[string]any`, but all call sites are
+within the package and are updated together. Callers that previously received an
+error for struct values will now receive a `StructProps` — this is a deliberate
+fix, not a breaking change.
 
 ### Template authors
 
@@ -812,7 +776,8 @@ acceptable: the previous behaviour was a bug, not a feature.
 
 ### Existing `map[string]any` spread
 
-Unchanged. The fast path in `toStringMap` exits before any reflection.
+Unchanged. `ToProps` returns a `MapProps` for `map[string]any` without any
+reflection.
 
 ### `accessStructField` behaviour change
 
@@ -827,25 +792,24 @@ the correct value. No previously-working expressions change behaviour.
 completeness by comparing `Props()` output against explicit `:prop` bindings in
 the parent must also account for `v-bind` spreads. When a parent uses
 `v-bind="structValue"`, the required props are satisfied at runtime by
-`toStringMap`; there is no static way to verify that the struct type has all the
+`ToProps`; there is no static way to verify that the struct type has all the
 required fields. This is a known limitation — see §4.4.
 
 ### Nil pointer nested struct fields
 
-When a struct field is a `*NestedStruct` with a nil value, `structToMap` includes
-`"FieldName": nil` in the map. If a child template accesses sub-fields of a nil
-prop without a `v-if` guard, the expression evaluator will return an error. This
-is consistent with how nil values behave throughout the engine (e.g., a nil map
-value accessed with dot notation already errors). Template authors should guard
+When a struct field is a `*NestedStruct` with a nil value, `StructProps.Get`
+returns `nil, true` for that field. If a child template accesses sub-fields of a
+nil prop without a `v-if` guard, the expression evaluator will return an error.
+This is consistent with how nil values behave throughout the engine (e.g., a nil
+map value accessed with dot notation already errors). Template authors should guard
 nil nested struct props with `v-if` (see §6 Example 7).
 
 ### Pointer-to-struct — no new template syntax
 
 Pointer-to-struct support is a **purely engine-internal change**. No new template
-syntax is introduced: the engine dereferences any number of pointer indirections
-inside `toStringMap` transparently, so template authors use `v-bind="expr"` for
-both plain struct values and pointer-to-struct values. The template surface is
-unchanged.
+syntax is introduced: `NewStructProps` dereferences any number of pointer
+indirections transparently, so template authors use `v-bind="expr"` for both plain
+struct values and pointer-to-struct values. The template surface is unchanged.
 
 ---
 
@@ -892,17 +856,27 @@ and low-risk (see §4.2). Option (a) — fixing `accessStructField` — is imple
 
 ### F. Require all types to implement an interface (pure-interface approach)
 
-All values passed to `v-bind` would be required to implement a `Spreader`-like
-interface; reflection would be eliminated entirely. This is distinct from the
-`Spreader` interface introduced in §4.1, which is an **opt-in performance escape
-hatch** — not a requirement.
+All values passed to `v-bind` would be required to implement a `Props`-like
+interface; reflection would be eliminated entirely.
 
 **Rejected**: requiring every domain type to implement an interface adds boilerplate
 and conflicts with the zero-configuration authoring model. Reflection is the right
-default for types the engine does not control; `Spreader` is available for authors
-who need deterministic, zero-allocation spread on a hot path. The two mechanisms
-are complementary: reflection handles the common case; `Spreader` is the
-performance valve.
+default for types the engine does not control. Types that need custom prop exposure
+can implement `Props` directly (an opt-in, not a requirement). The two mechanisms
+are complementary: reflection handles the common case via `StructProps`; `Props`
+is the escape hatch for authors who need deterministic, zero-allocation spread.
+
+### G. Retain `Spreader` as-is
+
+Keep the `Spreader` interface and `toStringMap` unchanged. `StructProps` /
+`MapProps` are not introduced.
+
+**Rejected**: `Spreader` only addresses the *escape hatch* case (custom
+materialisation) and does not eliminate the dual-path problem (`toStringMap`
+vs. the lazy-wrapper `reflectScope`). The `Props` interface models the problem
+at the right level of abstraction — it encodes exactly what the engine needs
+(key enumeration and value lookup) — and subsumes both mechanisms into one
+coherent type hierarchy.
 
 ---
 
@@ -917,23 +891,23 @@ performance valve.
 
 2. **Unexported struct fields with struct tags**: some codebases tag unexported
    fields with `json:"-"` for documentation. The current `accessStructField`
-   skips all unexported fields. Should `structToMap` do the same?
+   skips all unexported fields. Should `StructProps` do the same?
    *Recommendation*: yes — skip unexported fields. Consistent with `accessStructField`
    and with `encoding/json`. Non-blocking.
 
-3. **`omitempty` json tag suffix**: should `structToMap` respect `omitempty` and
+3. **`omitempty` json tag suffix**: should `StructProps` respect `omitempty` and
    skip zero-value fields?
-   *Tentative recommendation*: no — spread all exported fields unconditionally.
+   *Tentative recommendation*: no — expose all exported fields unconditionally.
    Template authors who want conditional props should use ternary expressions or
    explicit `:prop` bindings. Non-blocking.
 
 4. **Nil pointer nested struct fields**: ~~open~~ **Resolved** (Option A):
-   include `nil` in the map unconditionally. Template authors must guard sub-field
-   access with `v-if="FieldName"`. This is consistent with how nil values behave
-   throughout the engine. See §6 Example 7 and §8.
+   `StructProps.Get` returns `nil, true` for nil pointer fields unconditionally.
+   Template authors must guard sub-field access with `v-if="FieldName"`. This is
+   consistent with how nil values behave throughout the engine. See §6 Example 7
+   and §8.
 
-5. **Eager vs. lazy struct materialisation** (**blocking**): should the struct
-   path materialise a `map[string]any` eagerly via `structToMap`, or use a lazy
-   `reflectScope` that resolves field lookups on demand? A benchmark comparing the
-   two approaches **must inform this decision before the RFC is accepted**. See
-   §4.1 Performance consideration and §7.
+5. **`StructProps` performance validation** (**blocking**): a benchmark
+   demonstrating that `StructProps.Get` avoids the upfront allocation of the old
+   eager materialisation approach **must be produced before the RFC is accepted**,
+   so the lazy-lookup performance claim is validated with data. See §7.
