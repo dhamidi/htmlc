@@ -29,7 +29,7 @@ A server-side Go template engine that uses Vue.js Single File Component (`.vue`)
 
 ---
 
-## 1. Overview
+## Overview
 
 `htmlc` lets you write reusable HTML components in `.vue` files — the same format used by Vue.js — and render them server-side in Go. There is no Node.js dependency and no JavaScript executed at runtime. The `<script>` section of a `.vue` file is parsed and preserved in the output but never executed by the engine.
 
@@ -42,7 +42,7 @@ Key characteristics:
 
 ---
 
-## 2. Template Syntax
+## Template Syntax
 
 ### Supported
 
@@ -93,7 +93,7 @@ The engine ships with no pre-registered built-in functions. Use `expr.RegisterBu
 
 ---
 
-## 3. Directives
+## Directives
 
 ### Supported directives
 
@@ -213,7 +213,7 @@ proposed in [RFC #482](https://github.com/vuejs/rfcs/discussions/482).
 
 ---
 
-## 4. Component System
+## Component System
 
 ### Supported
 
@@ -566,7 +566,7 @@ Use `<component :is="expr">` to render a component whose name is determined at r
 
 ---
 
-## 5. Special Attributes
+## Special Attributes
 
 | Attribute | Behavior |
 |---|---|
@@ -576,7 +576,7 @@ Use `<component :is="expr">` to render a component whose name is determined at r
 
 ---
 
-## 6. Go API Quick Reference
+## Go API Quick Reference
 
 ### Create an engine
 
@@ -908,7 +908,7 @@ if errs := engine.ValidateAll(); len(errs) > 0 {
 
 ---
 
-## 7. Expression Language Reference
+## Expression Language Reference
 
 Expressions are JavaScript-compatible in syntax and truthiness rules but are evaluated entirely in Go.
 
@@ -959,7 +959,7 @@ Everything else is truthy, including empty arrays and empty objects.
 
 ---
 
-## 8. Debug Mode
+## Debug Mode
 
 Debug mode annotates rendered HTML with structured HTML comments that describe component boundaries, expression values, conditional branch outcomes, and slot contents. The annotated output is valid HTML that renders identically in a browser but carries diagnostic information visible in DevTools or via `curl | grep -i debug`.
 
@@ -1028,7 +1028,7 @@ Document
 
 ---
 
-## 9. Structured Logging
+## Structured Logging
 
 The engine can emit one structured log record per component rendered using the standard library's `log/slog` package. Pass a `*slog.Logger` to `Options.Logger` to enable it.
 
@@ -1086,7 +1086,7 @@ Records appear in post-order: leaf components are logged before their parents.
 
 ---
 
-## 10. Component Error Handling
+## Component Error Handling
 
 By default, the first component render failure aborts the entire page render and the response writer receives nothing. Two complementary features make failures observable and recoverable.
 
@@ -1151,7 +1151,7 @@ A nil `ComponentErrorHandler` preserves the existing behaviour: the first compon
 
 ---
 
-## 11. Custom Directives
+## Custom Directives
 
 The engine supports user-defined directives that extend the template language. A custom directive is any Go type that implements the `Directive` interface:
 
@@ -1364,7 +1364,7 @@ echo '{"hook":"created","id":"1","tag":"pre","attrs":{},"text":"fmt.Println(1)",
 
 ---
 
-## 12. Compatibility with Vue.js
+## Compatibility with Vue.js
 
 htmlc uses `.vue` Single File Component syntax and many of the same directive
 names as Vue.js, but it is a **server-side-only renderer** with intentional
@@ -1414,7 +1414,7 @@ passed at render time.
 
 ---
 
-## 13. Testing
+## Testing
 
 The `htmlctest` package provides a lightweight harness for writing unit and
 integration tests for `.vue` components. Tests use an in-memory filesystem —
@@ -1536,7 +1536,7 @@ func TestBadge_Hidden(t *testing.T) {
 
 ---
 
-## 14. html/template Integration
+## html/template Integration
 
 Already using `html/template`? htmlc works alongside your existing templates
 with no changes required. Use `RegisterTemplate` to bring any existing partial

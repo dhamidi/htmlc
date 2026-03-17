@@ -26,3 +26,9 @@ Proposals belong on the main branch.
 - For each new user-facing feature, write a **tutorial**: a short, worked example that shows a reader how to use the feature end-to-end.
 - Keep tutorials focused and concise — one feature, one goal, enough code to run.
 - Use `docs/tutorial-template-integration.md` as the canonical style reference.
+
+## README.md conventions
+
+- Do **not** use numbered prefixes on `##` section headings (e.g., `## 1. Overview` is wrong; `## Overview` is correct).
+- Numbered prefixes break GitHub anchor links: `## 13. Testing` generates the anchor `#13-testing`, but the Table of Contents links to `#testing`.
+- The Table of Contents ordered list (`1.`, `2.`, …) provides visual numbering — headings themselves must remain unnumbered.
