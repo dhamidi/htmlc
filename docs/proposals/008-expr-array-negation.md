@@ -1,6 +1,6 @@
 # RFC 008: Consistent Negation of Array and Slice Values
 
-- **Status**: Draft
+- **Status**: Accepted
 - **Date**: 2026-03-16
 - **Author**: TBD
 
