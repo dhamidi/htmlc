@@ -21,9 +21,11 @@ A server-side Go template engine that uses Vue.js Single File Component (`.vue`)
 7. [Expression Language Reference](#expression-language-reference)
 8. [Debug Mode](#debug-mode)
 9. [Structured Logging](#structured-logging)
-10. [Custom Directives](#custom-directives)
-11. [Compatibility with Vue.js](#compatibility-with-vuejs)
-12. [html/template Integration](#htmltemplate-integration)
+10. [Component Error Handling](#component-error-handling)
+11. [Custom Directives](#custom-directives)
+12. [Compatibility with Vue.js](#compatibility-with-vuejs)
+13. [Testing](#testing)
+14. [html/template Integration](#htmltemplate-integration)
 
 ---
 
@@ -605,6 +607,66 @@ err = engine.RenderFragment(w, "Card", map[string]any{
     "title": "My Card",
 })
 ```
+
+### Pass a struct as component data
+
+Any Go struct (or pointer to a struct) can be used as a value within the data
+map. The engine resolves field access using json struct tags when present and
+falls back to the Go field name (case-insensitive on the first letter):
+
+```go
+type Post struct {
+    Title   string   `json:"title"`
+    Author  string   `json:"author"`
+    Tags    []string `json:"tags"`
+    Draft   bool     `json:"draft"`
+}
+
+post := Post{
+    Title:  "Getting started with htmlc",
+    Author: "Alice",
+    Tags:   []string{"go", "templates"},
+    Draft:  false,
+}
+
+err = engine.RenderPage(w, "PostPage", map[string]any{
+    "post": post,
+})
+```
+
+Inside `PostPage.vue` the struct fields are accessible by their json tag names:
+
+```vue
+<template>
+  <article>
+    <h1>{{ post.title }}</h1>
+    <p class="byline">by {{ post.author }}</p>
+    <ul>
+      <li v-for="tag in post.tags">{{ tag }}</li>
+    </ul>
+    <span v-if="post.draft" class="badge">Draft</span>
+  </article>
+</template>
+```
+
+#### Spread a struct onto a child component with `v-bind`
+
+When a child component expects the same set of fields that a struct exposes,
+you can spread the struct directly instead of mapping each field individually:
+
+```vue
+<!-- PostPage.vue -->
+<template>
+  <Layout>
+    <!-- Spread the post struct: title, author, tags, draft become props of PostCard -->
+    <PostCard v-bind="post" />
+  </Layout>
+</template>
+```
+
+The engine accepts any struct or `map[string]any` as the right-hand side of
+`v-bind`. Embedded struct fields are promoted and resolved just as if they had
+been declared directly on the outer struct.
 
 ### Serve a component as an HTTP handler
 
@@ -1352,7 +1414,129 @@ passed at render time.
 
 ---
 
-## 13. html/template Integration
+## 13. Testing
+
+The `htmlctest` package provides a lightweight harness for writing unit and
+integration tests for `.vue` components. Tests use an in-memory filesystem —
+no temporary directories, no OS setup — and a fluent DOM-query API to assert
+that rendered output contains the expected elements, text, and attributes.
+
+### Import
+
+```go
+import "github.com/dhamidi/htmlc/htmlctest"
+```
+
+### Quick start: `Build` shorthand
+
+`Build` wraps a template snippet in `<template>…</template>`, registers it as a
+component named `Root`, and returns a `*Harness` ready to render:
+
+```go
+func TestGreeting(t *testing.T) {
+    htmlctest.Build(t, `<p class="greeting">Hello {{ name }}!</p>`).
+        Fragment("Root", map[string]any{"name": "World"}).
+        Find(htmlctest.ByTag("p").WithClass("greeting")).
+        AssertText("Hello World!")
+}
+```
+
+### Multiple components: `NewHarness`
+
+When the component under test references child components, use `NewHarness` to
+register all required files in one call:
+
+```go
+func TestCard(t *testing.T) {
+    h := htmlctest.NewHarness(t, map[string]string{
+        "Badge.vue": `<template><span class="badge">{{ label }}</span></template>`,
+        "Card.vue": `<template>
+            <div class="card">
+                <h2>{{ title }}</h2>
+                <Badge :label="status" />
+            </div>
+        </template>`,
+    })
+
+    h.Fragment("Card", map[string]any{
+        "title":  "Order #42",
+        "status": "shipped",
+    }).
+        Find(htmlctest.ByTag("h2")).AssertText("Order #42").
+        Find(htmlctest.ByClass("badge")).AssertText("shipped")
+}
+```
+
+### Assertion methods
+
+| Method | Checks |
+|---|---|
+| `AssertHTML(want)` | Exact HTML string after whitespace normalisation |
+| `Find(query)` | Returns a `Selection` of matched nodes |
+| `AssertExists()` | At least one node matched |
+| `AssertNotExists()` | No nodes matched |
+| `AssertCount(n)` | Exactly `n` nodes matched |
+| `AssertText(text)` | Normalised text content of the first matched node |
+| `AssertAttr(attr, value)` | Named attribute of the first matched node |
+
+All `Assert*` methods call `t.Fatalf` on failure and return the receiver so
+that assertions chain:
+
+```go
+result.Find(htmlctest.ByTag("li")).
+    AssertCount(3).
+    AssertText("First item") // checks text of the first <li>
+```
+
+### Query constructors
+
+| Constructor | Matches |
+|---|---|
+| `ByTag("div")` | Elements by tag name (case-insensitive) |
+| `ByClass("active")` | Elements that have the given CSS class |
+| `ByAttr("data-id", "42")` | Elements where `data-id="42"` |
+
+Queries are immutable values. Use combinators to narrow the match:
+
+```go
+// <li class="active" data-id="1"> inside a <ul>
+htmlctest.ByTag("li").
+    WithClass("active").
+    WithAttr("data-id", "1").
+    Descendant(htmlctest.ByTag("ul"))
+```
+
+### Testing v-for output
+
+```go
+func TestList(t *testing.T) {
+    htmlctest.Build(t, `
+        <ul>
+            <li v-for="item in items">{{ item }}</li>
+        </ul>
+    `).
+        Fragment("Root", map[string]any{
+            "items": []string{"alpha", "beta", "gamma"},
+        }).
+        Find(htmlctest.ByTag("li")).
+        AssertCount(3)
+}
+```
+
+### Testing conditional rendering
+
+```go
+func TestBadge_Hidden(t *testing.T) {
+    htmlctest.Build(t, `<span v-if="show" class="badge">NEW</span>`).
+        Fragment("Root", map[string]any{"show": false}).
+        Find(htmlctest.ByClass("badge")).
+        AssertNotExists()
+}
+```
+
+---
+
+## 14. html/template Integration
 
 Already using `html/template`? htmlc works alongside your existing templates
 with no changes required. Use `RegisterTemplate` to bring any existing partial
