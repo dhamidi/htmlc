@@ -37,7 +37,8 @@ const CROSSHAIR_SVG =
 // --- Styles ---
 const STYLES = `
 :host {
-  position: fixed; bottom: 16px; right: 16px; z-index: 99999;
+  position: fixed; bottom: 16px; right: 16px; z-index: 2147483647;
+  pointer-events: auto;
   font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px;
 }
 .panel {
@@ -265,6 +266,35 @@ class Picking {
 // --- Component ---
 class HtmlcInspector extends HTMLElement {
   connectedCallback() {
+    if (this._initialized) return;
+    this._initialized = true;
+
+    // Create a manual popover portal to enter the browser top layer so the
+    // inspector paints above <dialog> elements opened with showModal().
+    // The Popover API (popover="manual" + showPopover()) promotes the element
+    // to the top layer without focus trapping or a backdrop.
+    const portal = document.createElement('div');
+    portal.setAttribute('popover', 'manual');
+    portal.style.cssText = [
+      'all: unset',
+      'position: fixed',
+      'inset: 0',
+      'width: 0',
+      'height: 0',
+      'overflow: visible',
+      'pointer-events: none',
+    ].join(';');
+    document.body.appendChild(portal);
+    portal.showPopover(); // enters the top layer
+    this._portal = portal;
+
+    // Move this element into the portal so it inherits top-layer membership.
+    // This triggers disconnectedCallback then connectedCallback again;
+    // the _initialized guard above prevents re-entrant setup.
+    this._movingToPortal = true;
+    portal.appendChild(this);
+    this._movingToPortal = false;
+
     this.attachShadow({ mode: 'open' });
     this._state = new Collapsed();
     this._elMap = {};
@@ -281,10 +311,32 @@ class HtmlcInspector extends HTMLElement {
       }
     };
     document.addEventListener('keydown', this._onGlobalKey, true);
+
+    // showModal() makes all non-descendant elements inert at the browser level
+    // (no z-index or top-layer trick can override this). The only way to remain
+    // interactive while a modal dialog is open is to be a descendant of that
+    // dialog. We watch for modal dialogs and reparent the inspector into them.
+    this._activeModal = null;
+    this._dialogObserver = new MutationObserver(() => {
+      if (!this._portal) return;
+      const modal = [...document.querySelectorAll('dialog')].find(d => d.open && d.matches(':modal'));
+      const target = modal || this._portal;
+      if (target === this.parentElement) return; // already in the right place
+      this._activeModal = modal || null;
+      this._movingToPortal = true;
+      target.appendChild(this);
+      this._movingToPortal = false;
+    });
+    this._dialogObserver.observe(document.documentElement, {
+      subtree: true, attributes: true, attributeFilter: ['open'],
+    });
   }
 
   disconnectedCallback() {
+    if (this._movingToPortal) return;
+    if (this._dialogObserver) { this._dialogObserver.disconnect(); this._dialogObserver = null; }
     if (this._overlay) this._overlay.remove();
+    if (this._portal) this._portal.remove();
     if (this._onScroll) window.removeEventListener('scroll', this._onScroll, true);
     if (this._onGlobalKey) document.removeEventListener('keydown', this._onGlobalKey, true);
     this._teardownPicker();
@@ -325,12 +377,12 @@ class HtmlcInspector extends HTMLElement {
       fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap',
     }});
     this._overlay = h('div', { style: {
-      position: 'fixed', pointerEvents: 'none', zIndex: '99998',
+      position: 'fixed', pointerEvents: 'none', zIndex: '2147483646',
       border: '2px solid #00ADD8', borderRadius: '4px',
       background: 'rgba(0, 173, 216, 0.08)', display: 'none',
     }}, label);
     this._overlayLabel = label;
-    document.body.appendChild(this._overlay);
+    this._portal.appendChild(this._overlay);
     this._highlightedEl = null;
     this._onScroll = () => {
       if (this._highlightedEl) this._positionOverlay(this._highlightedEl);
