@@ -26,7 +26,7 @@
     <p>Add the package to your Go module:</p>
     <pre v-syntax-highlight="'bash'"><code v-pre>go get github.com/dhamidi/htmlc</code></pre>
 
-    <p>The CLI is optional but handy for testing components without writing Go code:</p>
+    <p>The CLI is optional but handy for testing components without writing Go code. CLI equivalents are shown alongside each step below.</p>
     <pre v-syntax-highlight="'bash'"><code v-pre>go install github.com/dhamidi/htmlc/cmd/htmlc@latest</code></pre>
 
     <!-- ═══════════════════════════════════════════════ Step 2 -->
@@ -71,16 +71,21 @@ func main() {
     _ = engine
 }</code></pre>
 
+    <Callout>
+      <p><strong>CLI equivalent</strong><br>
+      There is no explicit "create engine" step from the CLI — <code>htmlc render</code> discovers components from a directory automatically. Use it as a quick smoke-test that a component is parseable:</p>
+      <pre v-syntax-highlight="'bash'"><code v-pre>htmlc render -dir ./components Card</code></pre>
+    </Callout>
+
     <!-- ═══════════════════════════════════════════════ Step 4 -->
     <h2 id="step-4">Step 4 — Render with props</h2>
-    <p>Call <code>RenderFragmentString</code> to render a component to a string. Pass props as a <code>map[string]any</code>.</p>
-    <pre v-syntax-highlight="'go'"><code v-pre>html, err := engine.RenderFragmentString("Card", map[string]any{
+    <p>Call <a href="/docs/go-api.html#render-fragment"><code>RenderFragment</code></a> to write a component directly to an <code>io.Writer</code>. Prefer this over <code>RenderFragmentString</code> — it writes directly to an <code>io.Writer</code> and avoids allocating a full string copy. Pass props as a <code>map[string]any</code>.</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>err := engine.RenderFragment(os.Stdout, "Card", map[string]any{
     "title": "Hello, htmlc!",
 })
 if err != nil {
     log.Fatal(err)
-}
-fmt.Println(html)</code></pre>
+}</code></pre>
 
     <p>Expected output (style block prepended by the engine):</p>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;style&gt;
@@ -93,6 +98,11 @@ fmt.Println(html)</code></pre>
 
     <p>The fallback text <em>"No content provided."</em> is rendered because no slot content was passed. Step 5 shows how to supply it.</p>
 
+    <Callout>
+      <p><strong>CLI equivalent</strong></p>
+      <pre v-syntax-highlight="'bash'"><code v-pre>htmlc render -dir ./components Card -props '{"title":"Hello, htmlc!"}'</code></pre>
+    </Callout>
+
     <!-- ═══════════════════════════════════════════════ Step 4b -->
     <h2 id="step-4b">Step 4b — Pass a struct as props</h2>
     <p>Instead of building a <code>map[string]any</code> by hand you can pass any Go struct directly. The engine reads exported fields using their <code>json</code> struct tag (if present) and the Go field name otherwise.</p>
@@ -103,11 +113,10 @@ fmt.Println(html)</code></pre>
 
 data := CardData{Title: "Hello from a struct!"}
 
-html, err := engine.RenderFragmentString("Card", data)
+err := engine.RenderFragment(os.Stdout, "Card", data)
 if err != nil {
     log.Fatal(err)
-}
-fmt.Println(html)</code></pre>
+}</code></pre>
 
     <p>The <code>Card</code> component template accesses <code>{{ "{{" }} title }}</code> exactly as before — nothing changes on the template side. Structs and maps are interchangeable from the template's point of view.</p>
 
@@ -119,6 +128,12 @@ fmt.Println(html)</code></pre>
 &lt;/template&gt;</code></pre>
 
     <p>The engine accepts any struct or <code>map[string]any</code> as the right-hand side of <code>v-bind</code>. Embedded struct fields are promoted and resolved as if they were declared directly on the outer struct.</p>
+
+    <Callout>
+      <p><strong>CLI equivalent</strong><br>
+      Props are always a JSON object from the CLI — the distinction between map and struct is only relevant in Go:</p>
+      <pre v-syntax-highlight="'bash'"><code v-pre>htmlc render -dir ./components Card -props '{"title":"Hello from a struct!"}'</code></pre>
+    </Callout>
 
     <!-- ═══════════════════════════════════════════════ Step 5 -->
     <h2 id="step-5">Step 5 — Layouts with slots</h2>
@@ -158,7 +173,7 @@ fmt.Println(html)</code></pre>
     &lt;p&gt;This is the main content area.&lt;/p&gt;
 
     &lt;template #footer&gt;
-      &lt;p&gt;&amp;copy; 2024 My Site&lt;/p&gt;
+      &lt;p&gt;&amp;copy; &#123;&#123;<!---><!----> year }} My Site&lt;/p&gt;
     &lt;/template&gt;
   &lt;/PageLayout&gt;
 &lt;/template&gt;</code></pre>
@@ -166,12 +181,18 @@ fmt.Println(html)</code></pre>
     <p>The <code>#header</code> shorthand is equivalent to <code>v-slot:header</code>. See the <a href="/docs/components.html#slots">component system reference</a> for full named and scoped slot details.</p>
 
     <h3>Step C — Render from Go</h3>
-    <p>Render <code>HomePage</code> the same way you would any other component:</p>
-    <pre v-syntax-highlight="'go'"><code v-pre>html, err := engine.RenderFragmentString("HomePage", nil)
+    <p>Render <code>HomePage</code> the same way you would any other component. Pass the <code>year</code> prop to show data flowing from Go into the nested layout:</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>err := engine.RenderFragment(os.Stdout, "HomePage", map[string]any{
+    "year": 2024,
+})
 if err != nil {
     log.Fatal(err)
-}
-fmt.Println(html)</code></pre>
+}</code></pre>
+
+    <Callout>
+      <p><strong>CLI equivalent</strong></p>
+      <pre v-syntax-highlight="'bash'"><code v-pre>htmlc render -dir ./components HomePage -props '{"year":2024}'</code></pre>
+    </Callout>
 
     <h3>Step D — Expected output</h3>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;div class="page" data-v-…&gt;
@@ -189,7 +210,7 @@ fmt.Println(html)</code></pre>
 
     <p><code>PageLayout</code> owns the skeleton; <code>HomePage</code> owns the content. Now we can create any number of page components — <code>AboutPage</code>, <code>BlogPage</code>, and so on — all sharing the same layout without duplicating the HTML structure.</p>
 
-    <p><strong>One sharp edge:</strong> slot content is filled at the <code>.vue</code> level through component composition. There is no <code>$slots</code> key in the Go props map. You cannot inject content into a slot via <code>RenderFragmentString</code> — that is by design.</p>
+    <p><strong>One sharp edge:</strong> slots are a template-composition mechanism — they are filled by parent <code>.vue</code> components, not by Go code. You cannot pass slot content through the props map or inject it via <code>RenderFragment</code>; that is by design. (If you are coming from Vue: there is no <code>$slots</code> key in the Go props map.)</p>
 
     <Callout>
       <p><strong>Dynamic slot content from Go</strong><br>
