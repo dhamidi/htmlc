@@ -26,10 +26,10 @@
     ]"
   >
     <h1>Component system</h1>
-    <p class="lead">htmlc components are Vue Single File Components — <code>.vue</code> files with template, optional script, and optional style sections.</p>
+    <p class="lead">htmlc components are Vue Single File Components — <code>.vue</code> files with a required template and an optional style section.</p>
 
     <h2 id="sfc-format">SFC format</h2>
-    <p>A component file has up to three sections:</p>
+    <p>A component file has up to two sections:</p>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/Card.vue --&gt;
 &lt;template&gt;
   &lt;div class="card"&gt;
@@ -37,11 +37,6 @@
     &lt;slot&gt;No content provided.&lt;/slot&gt;
   &lt;/div&gt;
 &lt;/template&gt;
-
-&lt;!-- Optional: preserved verbatim in output, never executed --&gt;
-&lt;script&gt;
-export default { props: ['title'] }
-&lt;/script&gt;
 
 &lt;!-- Optional: global or scoped CSS --&gt;
 &lt;style scoped&gt;
@@ -54,7 +49,7 @@ export default { props: ['title'] }
 
     <ul>
       <li><code v-pre>&lt;template&gt;</code> — required; contains the HTML template with directives</li>
-      <li><code v-pre>&lt;script&gt;</code> — optional; preserved verbatim but never executed by the engine</li>
+      <li><code v-pre>&lt;script&gt;</code> and <code v-pre>&lt;script setup&gt;</code> — <strong>not supported</strong>; using either causes a parse error. htmlc renders components on the server in Go — there is no JavaScript execution context, so script blocks serve no purpose and are rejected to prevent silent misconfiguration. Props are declared via Go types, not <code>export default { props: [...] }</code>. If you are porting a Vue SFC, remove the <code v-pre>&lt;script&gt;</code> block entirely.</li>
       <li><code v-pre>&lt;style&gt;</code> — optional; add <code>scoped</code> attribute to scope styles to this component</li>
     </ul>
 
