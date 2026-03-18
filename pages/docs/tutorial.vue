@@ -5,7 +5,7 @@
     :siteTitle="siteTitle"
     :navItems="[
       {label: 'Steps'},
-      {href: '#step-1', label: '1 — Install'},
+      {href: '#step-1', label: '1 — Install htmlc'},
       {href: '#step-2', label: '2 — Write a component'},
       {href: '#step-3', label: '3 — Create an engine'},
       {href: '#step-4', label: '4 — Render with props'},
