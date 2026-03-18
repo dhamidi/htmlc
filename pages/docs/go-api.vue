@@ -415,12 +415,12 @@ engine.WithMissingPropHandler(htmlc.SubstituteMissingProp)</code></pre>
 
     <h3 id="parse-file">ParseFile</h3>
     <pre v-syntax-highlight="'go'"><code v-pre>func ParseFile(path, src string) (*Component, error)</code></pre>
-    <p>Parses a <code>.vue</code> Single File Component from the string <code>src</code>. <code>path</code> is used only for error messages and the scope attribute hash. Returns a <code>*Component</code> whose <code>Template</code> field is a parsed HTML node tree. Only the top-level <code>&lt;template&gt;</code>, <code>&lt;script&gt;</code>, and <code>&lt;style&gt;</code> sections are extracted; <code>&lt;template&gt;</code> is required.</p>
+    <p>Parses a <code>.vue</code> Single File Component from the string <code>src</code>. <code>path</code> is used only for error messages and the scope attribute hash. Returns a <code>*Component</code> whose <code>Template</code> field is a parsed HTML node tree. Only the top-level <code>&lt;template&gt;</code> and <code>&lt;style&gt;</code> sections are extracted; <code>&lt;template&gt;</code> is required. A <code>&lt;script&gt;</code> or <code>&lt;script setup&gt;</code> block causes <code>ParseFile</code> to return a parse error immediately.</p>
 
     <h3 id="component-type">Component</h3>
     <pre v-syntax-highlight="'go'"><code v-pre>type Component struct {
     Template *html.Node // root of the parsed template node tree
-    Script   string     // raw &lt;script&gt; content (empty if absent)
+    Script   string     // always empty; &lt;script&gt; blocks are rejected by ParseFile
     Style    string     // raw &lt;style&gt; content (empty if absent)
     Scoped   bool       // true when &lt;style scoped&gt; was present
     Path     string     // source file path passed to ParseFile

@@ -35,7 +35,7 @@
       <div class="flow-box"><code v-pre>HTML string</code><span class="flow-label">output bytes</span></div>
     </div>
 
-    <p>When a <code>.vue</code> file is first loaded, htmlc parses it into an HTML abstract syntax tree (AST) using <code>golang.org/x/net/html</code>. The <code>&lt;template&gt;</code>, <code>&lt;style&gt;</code>, and <code>&lt;script&gt;</code> sections are separated and stored on the <code>Component</code> struct. The AST is kept in memory so that repeated renders incur no parsing cost.</p>
+    <p>When a <code>.vue</code> file is first loaded, htmlc parses it into an HTML abstract syntax tree (AST) using <code>golang.org/x/net/html</code>. The <code>&lt;template&gt;</code> and <code>&lt;style&gt;</code> sections are extracted and stored on the <code>Component</code> struct; a <code>&lt;script&gt;</code> or <code>&lt;script setup&gt;</code> block causes an immediate parse error. The AST is kept in memory so that repeated renders incur no parsing cost.</p>
 
     <p>At render time, the <code>Renderer</code> walks the AST node by node. For each node it:</p>
     <ol>

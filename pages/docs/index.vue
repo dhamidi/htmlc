@@ -78,7 +78,7 @@
         <tr><td>Member access</td><td><code v-pre>obj.key  arr[i]  arr.length</code></td></tr>
         <tr><td>Function calls</td><td><code v-pre>fn(args)</code> via <code>engine.RegisterFunc</code></td></tr>
         <tr><td>Array literals</td><td><code v-pre>[a, b, c]</code></td></tr>
-        <tr><td>Object literals</td><td><code v-pre>{{ key: value }</code></td></tr>
+        <tr><td>Object literals</td><td><code v-pre>{ key: value }</code></td></tr>
       </tbody>
     </table>
 
@@ -115,7 +115,7 @@
     <p>Components are <code>.vue</code> Single File Components with up to three sections:</p>
     <ul>
       <li><code v-pre>&lt;template&gt;</code> — required; the HTML template with directives</li>
-      <li><code v-pre>&lt;script&gt;</code> — optional; preserved verbatim in output but never executed</li>
+      <li><code v-pre>&lt;script&gt;</code> and <code v-pre>&lt;script setup&gt;</code> — <strong>not supported</strong>; using either causes a parse error. htmlc renders on the server in Go — script blocks serve no purpose and are rejected to prevent silent misconfiguration.</li>
       <li><code v-pre>&lt;style&gt;</code> — optional; global or scoped CSS</li>
     </ul>
 

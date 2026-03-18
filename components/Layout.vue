@@ -224,6 +224,7 @@
         <div class="nav-links">
           <a href="/docs/index.html">Docs</a>
           <a href="/docs/tutorial.html">Tutorial</a>
+          <a href="/docs/howto.html">Guides</a>
           <a href="/docs/cli.html">CLI</a>
           <a href="/docs/directives.html">Directives</a>
           <a href="/docs/go-api.html">Go API</a>
@@ -234,6 +235,7 @@
           <div class="mobile-menu-links">
             <a href="/docs/index.html">Docs</a>
             <a href="/docs/tutorial.html">Tutorial</a>
+            <a href="/docs/howto.html">Guides</a>
             <a href="/docs/cli.html">CLI</a>
             <a href="/docs/directives.html">Directives</a>
             <a href="/docs/go-api.html">Go API</a>
