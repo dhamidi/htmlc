@@ -10,7 +10,7 @@
       {href: '#step-3', label: '3 — Create an engine'},
       {href: '#step-4', label: '4 — Render with props'},
       {href: '#step-4b', label: '4b — Pass a struct as props'},
-      {href: '#step-5', label: '5 — Use slots'},
+      {href: '#step-5', label: '5 — Layouts with slots'},
       {href: '#step-6', label: '6 — Reuse existing templates'},
       {label: 'See also'},
       {href: '/docs/components.html', label: 'Component system'},
@@ -121,31 +121,75 @@ fmt.Println(html)</code></pre>
     <p>The engine accepts any struct or <code>map[string]any</code> as the right-hand side of <code>v-bind</code>. Embedded struct fields are promoted and resolved as if they were declared directly on the outer struct.</p>
 
     <!-- ═══════════════════════════════════════════════ Step 5 -->
-    <h2 id="step-5">Step 5 — Use slots</h2>
-    <p>Slot content is supplied through <strong>component composition in a <code>.vue</code> template</strong>. There is no <code>$slots</code> key in the Go props map; htmlc does not support injecting raw HTML into slots via the data map.</p>
+    <h2 id="step-5">Step 5 — Layouts with slots</h2>
+    <p>Slots let a component own its <em>structure</em> while the caller supplies the <em>content</em>. The classic use case is a layout component: one component that provides the HTML skeleton (header, main, footer wrappers), reused across every page.</p>
 
-    <p>Create a wrapper component that uses <code>Card</code> with slot content:</p>
-    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/WelcomeCard.vue --&gt;
+    <p>We'll build a <code>PageLayout</code> component with three slots, then use it in a <code>HomePage</code> component.</p>
+
+    <h3>Step A — Define the layout component</h3>
+    <p>Create <code>components/PageLayout.vue</code>. It declares a named <code>header</code> slot, the default (unnamed) slot for main content, and a named <code>footer</code> slot:</p>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/PageLayout.vue --&gt;
 &lt;template&gt;
-  &lt;Card title="Welcome"&gt;
-    &lt;p&gt;This paragraph is rendered inside the Card's slot.&lt;/p&gt;
-  &lt;/Card&gt;
+  &lt;div class="page"&gt;
+    &lt;header&gt;
+      &lt;slot name="header"&gt;&lt;/slot&gt;
+    &lt;/header&gt;
+    &lt;main&gt;
+      &lt;slot&gt;&lt;/slot&gt;
+    &lt;/main&gt;
+    &lt;footer&gt;
+      &lt;slot name="footer"&gt;&lt;/slot&gt;
+    &lt;/footer&gt;
+  &lt;/div&gt;
 &lt;/template&gt;</code></pre>
 
-    <p>Then render the wrapper from Go:</p>
-    <pre v-syntax-highlight="'go'"><code v-pre>html, err := engine.RenderFragmentString("WelcomeCard", nil)
+    <p>Named slots use <code>&lt;slot name="…"&gt;</code>. The unnamed <code>&lt;slot&gt;</code> is the default slot — it receives any content not assigned to a named slot. You can place fallback content between the <code>&lt;slot&gt;</code> tags; it renders when the caller provides nothing for that slot.</p>
+
+    <h3>Step B — Fill the slots from a page component</h3>
+    <p>Create <code>components/HomePage.vue</code>. Use <code>&lt;template #name&gt;</code> to target each named slot; content outside any <code>&lt;template #…&gt;</code> goes to the default slot:</p>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/HomePage.vue --&gt;
+&lt;template&gt;
+  &lt;PageLayout&gt;
+    &lt;template #header&gt;
+      &lt;nav&gt;&lt;a href="/"&gt;Home&lt;/a&gt; · &lt;a href="/about"&gt;About&lt;/a&gt;&lt;/nav&gt;
+    &lt;/template&gt;
+
+    &lt;h1&gt;Welcome&lt;/h1&gt;
+    &lt;p&gt;This is the main content area.&lt;/p&gt;
+
+    &lt;template #footer&gt;
+      &lt;p&gt;&amp;copy; 2024 My Site&lt;/p&gt;
+    &lt;/template&gt;
+  &lt;/PageLayout&gt;
+&lt;/template&gt;</code></pre>
+
+    <p>The <code>#header</code> shorthand is equivalent to <code>v-slot:header</code>. See the <a href="/docs/components.html#slots">component system reference</a> for full named and scoped slot details.</p>
+
+    <h3>Step C — Render from Go</h3>
+    <p>Render <code>HomePage</code> the same way you would any other component:</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>html, err := engine.RenderFragmentString("HomePage", nil)
 if err != nil {
     log.Fatal(err)
 }
 fmt.Println(html)</code></pre>
 
-    <p>Expected output:</p>
-    <pre v-syntax-highlight="'html'"><code v-pre>&lt;div class="card" data-v-…&gt;
-  &lt;h2&gt;Welcome&lt;/h2&gt;
-  &lt;p&gt;This paragraph is rendered inside the Card's slot.&lt;/p&gt;
+    <h3>Step D — Expected output</h3>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;div class="page" data-v-…&gt;
+  &lt;header&gt;
+    &lt;nav&gt;&lt;a href="/"&gt;Home&lt;/a&gt; · &lt;a href="/about"&gt;About&lt;/a&gt;&lt;/nav&gt;
+  &lt;/header&gt;
+  &lt;main&gt;
+    &lt;h1&gt;Welcome&lt;/h1&gt;
+    &lt;p&gt;This is the main content area.&lt;/p&gt;
+  &lt;/main&gt;
+  &lt;footer&gt;
+    &lt;p&gt;&amp;copy; 2024 My Site&lt;/p&gt;
+  &lt;/footer&gt;
 &lt;/div&gt;</code></pre>
 
-    <p>The same pattern applies to named and scoped slots — the parent component uses <code>&lt;template #name&gt;</code> syntax in the <code>.vue</code> file to target specific slots. See the <a href="/docs/components.html#slots">component system reference</a> for named and scoped slot examples.</p>
+    <p><code>PageLayout</code> owns the skeleton; <code>HomePage</code> owns the content. Now we can create any number of page components — <code>AboutPage</code>, <code>BlogPage</code>, and so on — all sharing the same layout without duplicating the HTML structure.</p>
+
+    <p><strong>One sharp edge:</strong> slot content is filled at the <code>.vue</code> level through component composition. There is no <code>$slots</code> key in the Go props map. You cannot inject content into a slot via <code>RenderFragmentString</code> — that is by design.</p>
 
     <Callout>
       <p><strong>Dynamic slot content from Go</strong><br>
