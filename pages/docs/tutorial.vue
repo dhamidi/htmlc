@@ -11,7 +11,7 @@
       {href: '#step-4', label: '4 — Render with props'},
       {href: '#step-4b', label: '4b — Props from a struct'},
       {href: '#step-5', label: '5 — Use slots'},
-      {href: '#step-6', label: '6 — Export to html/template'},
+      {href: '#step-6', label: '6 — Reuse existing templates'},
       {label: 'See also'},
       {href: '/docs/components.html', label: 'Component system'},
       {href: '/docs/go-api.html', label: 'Go API reference'},
@@ -162,47 +162,38 @@ fmt.Println(html)</code></pre>
     </Callout>
 
     <!-- ═══════════════════════════════════════════════ Step 6 -->
-    <h2 id="step-6">Step 6 — Export to html/template</h2>
-    <p>If your application already uses Go's standard <code>html/template</code> package, you can compile any <code>.vue</code> component into a <code>*html/template.Template</code> and drop it straight into your existing template set. No rewrite required.</p>
+    <h2 id="step-6">Step 6 — Reuse existing templates</h2>
+    <p>If you have existing <code>html/template</code> partials — headers, footers, shared snippets — <code>RegisterTemplate</code> lets you use them as component tags in <code>.vue</code> files without rewriting anything.</p>
 
-    <p>Call <code>CompileToTemplate</code> right after creating the engine:</p>
-    <pre v-syntax-highlight="'go'"><code v-pre>engine, err := htmlc.New(htmlc.Options{ComponentDir: "./components"})
+    <p>Register an existing template with the engine after creating it:</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>// Existing html/template code — no changes needed.
+headerTmpl := html.template.Must(
+    html.template.New("site-header").Parse(
+        `&lt;header&gt;&lt;h1&gt;&#123;&#123;.title}}&lt;/h1&gt;&lt;/header&gt;`,
+    ),
+)
+
+engine, err := htmlc.New(htmlc.Options{ComponentDir: "./components"})
 if err != nil {
     log.Fatal(err)
 }
 
-// Compile Card.vue → *html/template.Template.
-// The template name is the lowercased component name: "card".
-cardTmpl, err := engine.CompileToTemplate("Card")
-if err != nil {
+if err := engine.RegisterTemplate("site-header", headerTmpl); err != nil {
     log.Fatal(err)
 }</code></pre>
 
-    <p>The compiled template can be executed directly or merged into a larger template set. To call it from an existing page template, add its parse tree and invoke it with <code>{{ "{{" }}template "card" .}}</code>:</p>
-    <pre v-syntax-highlight="'go'"><code v-pre>// pageTmpl is your existing *html/template.Template.
-if _, err := pageTmpl.AddParseTree("card", cardTmpl.Tree); err != nil {
-    log.Fatal(err)
-}
+    <p>After registration, the template is available as a component tag in any <code>.vue</code> file — no <code>.vue</code> file is needed for the old template itself:</p>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- pages/home.vue --&gt;
+&lt;template&gt;
+  &lt;site-header :title="pageTitle"&gt;&lt;/site-header&gt;
+  &lt;main&gt;…&lt;/main&gt;
+&lt;/template&gt;</code></pre>
 
-// Now page.html can use: &#123;&#123;<!---><!--->"card" .}}</code></pre>
-
-    <p>The <code>.vue</code> expression syntax maps directly to Go template syntax. A component that uses <code>{{ "{{" }} title }}</code> or <code>{{ "{{" }} user.name }}</code> compiles to <code>{{ "{{" }}.title}}</code> and <code>{{ "{{" }}.user.name}}</code> respectively, so you pass data the same way you would for any other Go template:</p>
-    <pre v-syntax-highlight="'go'"><code v-pre>var buf strings.Builder
-err = cardTmpl.Execute(&buf, map[string]any{
-    "title": "Hello, html/template!",
-})
-fmt.Println(buf.String())</code></pre>
-
-    <p>Expected output (no scoped style prefix — <code>html/template</code> knows nothing about htmlc's style scoping):</p>
-    <pre v-syntax-highlight="'html'"><code v-pre>&lt;div class="card"&gt;
-  &lt;h2&gt;Hello, html/template!&lt;/h2&gt;
-&lt;/div&gt;</code></pre>
+    <p>If your template file contains <code>{{ "{{" }}define}}</code> blocks, each block is automatically registered as its own component under its block name. A multi-partial template file just works — you don't need to register each block separately.</p>
 
     <Callout>
-      <p><strong>Supported expressions</strong><br>
-      <code>CompileToTemplate</code> only supports simple identifiers (<code>{{ "{{" }} title }}</code>)
-      and dot-path expressions (<code>{{ "{{" }} user.name }}</code>). Complex expressions such as
-      function calls, arithmetic, or index access are not converted and will return an error.
+      <p><strong>Conversion limits</strong><br>
+      <code>RegisterTemplate</code> converts common Go template constructs to their <code>.vue</code> equivalents, but <code>{{ "{{" }}with}}</code>, variable assignments (<code>$x :=</code>), and multi-command pipelines are not supported and will return an error. Nothing is registered if any conversion fails.
       See the <a href="/docs/go-api.html">Go API reference</a> for the full list of supported constructs.</p>
     </Callout>
 
