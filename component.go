@@ -299,6 +299,12 @@ func walkForProps(n *html.Node, locals map[string]bool, props map[string]*PropIn
 		}
 		return
 	case html.ElementNode:
+		// v-pre: skip all prop collection for this element and its descendants.
+		for _, attr := range n.Attr {
+			if attr.Key == "v-pre" {
+				return
+			}
+		}
 		childLocals := cloneLocals(locals)
 
 		for _, attr := range n.Attr {
