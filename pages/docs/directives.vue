@@ -150,7 +150,7 @@
     <h2 id="v-pre">v-pre</h2>
     <p>
       Skips all interpolation and directive processing for the element and all
-      its descendants. Mustache syntax (<code>{{ "{{" }} }}</code>) is emitted literally.
+      its descendants. Mustache syntax (<code v-pre>{{ }}</code>) is emitted literally.
       The <code>v-pre</code> attribute itself is stripped from the output.
     </p>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- This renders literally: &#123;&#123;<!---><!----> raw }} --&gt;

@@ -40,7 +40,7 @@
     <p>At render time, the <code>Renderer</code> walks the AST node by node. For each node it:</p>
     <ol>
       <li>Evaluates any directive attributes (<code>v-if</code>, <code>v-for</code>, <code>v-bind</code>, etc.) against the current scope.</li>
-      <li>Interpolates <code>{{ "{{" }} expr }}</code> text nodes by evaluating the embedded expression.</li>
+      <li>Interpolates <code v-pre>{{ expr }}</code> text nodes by evaluating the embedded expression.</li>
       <li>Recursively descends into child nodes, potentially with a modified scope (e.g., inside a <code>v-for</code> loop).</li>
       <li>Writes the resulting bytes to the output <code>io.Writer</code>.</li>
     </ol>
@@ -69,7 +69,7 @@
     <!-- ═══════════════════════════════════════════════ Expression Language -->
     <h2 id="expression-language">Expression Language</h2>
 
-    <p>The <code>{{ "{{" }} expr }}</code> interpolation syntax and directive value expressions (e.g., <code>v-if="user.isAdmin"</code>, <code>:class="active ? 'on' : 'off'"</code>) are all evaluated by a custom Go library: the <code>htmlc/expr</code> package. It is not JavaScript — it is a declarative, side-effect-free subset of JavaScript expression syntax evaluated against a Go <code>map[string]any</code> scope.</p>
+    <p>The <code v-pre>{{ expr }}</code> interpolation syntax and directive value expressions (e.g., <code>v-if="user.isAdmin"</code>, <code>:class="active ? 'on' : 'off'"</code>) are all evaluated by a custom Go library: the <code>htmlc/expr</code> package. It is not JavaScript — it is a declarative, side-effect-free subset of JavaScript expression syntax evaluated against a Go <code>map[string]any</code> scope.</p>
 
     <h3>What the expression language supports</h3>
 

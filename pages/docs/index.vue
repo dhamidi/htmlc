@@ -58,7 +58,7 @@
 
     <h2 id="interpolation">Text interpolation</h2>
 
-    <p><code>{{ "{{" }} expr }}</code> evaluates the expression against the current render scope and HTML-escapes the result.</p>
+    <p><code v-pre>{{ expr }}</code> evaluates the expression against the current render scope and HTML-escapes the result.</p>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;p&gt;Hello, &#123;&#123;<!---><!----> name }}!&lt;/p&gt;
 &lt;p&gt;&#123;&#123;<!---><!----> a }} + &#123;&#123;<!---> b }} = &#123;&#123;<!---> a + b }}&lt;/p&gt;</code></pre>
 

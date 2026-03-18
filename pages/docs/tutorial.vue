@@ -48,7 +48,7 @@
 }
 &lt;/style&gt;</code></pre>
 
-    <p>The <code>{{ "{{" }} title }}</code> interpolation reads the <code>title</code> prop. The <code>&lt;slot&gt;</code> element is a placeholder for content supplied by a parent component; its children are the fallback rendered when no content is provided.</p>
+    <p>The <code v-pre>{{ title }}</code> interpolation reads the <code>title</code> prop. The <code>&lt;slot&gt;</code> element is a placeholder for content supplied by a parent component; its children are the fallback rendered when no content is provided.</p>
 
     <!-- ═══════════════════════════════════════════════ Step 3 -->
     <h2 id="step-3">Step 3 — Create an engine</h2>
@@ -118,7 +118,7 @@ if err != nil {
     log.Fatal(err)
 }</code></pre>
 
-    <p>The <code>Card</code> component template accesses <code>{{ "{{" }} title }}</code> exactly as before — nothing changes on the template side. Structs and maps are interchangeable from the template's point of view.</p>
+    <p>The <code>Card</code> component template accesses <code v-pre>{{ title }}</code> exactly as before — nothing changes on the template side. Structs and maps are interchangeable from the template's point of view.</p>
 
     <p>You can also spread a struct onto a child component using <code>v-bind</code> in a parent template:</p>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/PostPage.vue --&gt;
@@ -254,11 +254,11 @@ if err := engine.RegisterTemplate("site-header", headerTmpl); err != nil {
   &lt;main&gt;…&lt;/main&gt;
 &lt;/template&gt;</code></pre>
 
-    <p>If your template file contains <code>{{ "{{" }}define}}</code> blocks, each block is automatically registered as its own component under its block name. A multi-partial template file just works — you don't need to register each block separately.</p>
+    <p>If your template file contains <code v-pre>{{define}}</code> blocks, each block is automatically registered as its own component under its block name. A multi-partial template file just works — you don't need to register each block separately.</p>
 
     <Callout>
       <p><strong>Conversion limits</strong><br>
-      <code>RegisterTemplate</code> converts common Go template constructs to their <code>.vue</code> equivalents, but <code>{{ "{{" }}with}}</code>, variable assignments (<code>$x :=</code>), and multi-command pipelines are not supported and will return an error. Nothing is registered if any conversion fails.
+      <code>RegisterTemplate</code> converts common Go template constructs to their <code>.vue</code> equivalents, but <code v-pre>{{with}}</code>, variable assignments (<code>$x :=</code>), and multi-command pipelines are not supported and will return an error. Nothing is registered if any conversion fails.
       See the <a href="/docs/go-api.html">Go API reference</a> for the full list of supported constructs.</p>
     </Callout>
 

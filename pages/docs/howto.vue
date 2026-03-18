@@ -477,7 +477,7 @@ func main() {
   -out   ./dist \
   -layout Layout</code></pre>
 
-    <p>Each page component receives a <code>slot</code> prop containing the rendered inner page HTML. The layout component must render <code>{{ "{{" }} slot }}</code> (or use <code>v-html="slot"</code>) where the page content should appear. See the <a href="/docs/cli.html">CLI reference</a> for all flags.</p>
+    <p>Each page component receives a <code>slot</code> prop containing the rendered inner page HTML. The layout component must render <code v-pre>{{ slot }}</code> (or use <code>v-html="slot"</code>) where the page content should appear. See the <a href="/docs/cli.html">CLI reference</a> for all flags.</p>
 
     <h3>Using the Go API</h3>
     <p>Call <code>RenderFragment</code> for the inner page, then pass the result as data to <code>RenderPage</code> on the layout:</p>
