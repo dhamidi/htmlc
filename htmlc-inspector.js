@@ -330,11 +330,31 @@ class HtmlcInspector extends HTMLElement {
     this._dialogObserver.observe(document.documentElement, {
       subtree: true, attributes: true, attributeFilter: ['open'],
     });
+
+    // Re-promote the portal to the top of the top layer whenever a page popover
+    // opens. The top layer renders elements in promotion order; if a page popover
+    // is promoted after our portal, it paints above us. By hiding and re-showing
+    // the portal we move it to the end of the top layer stack.
+    this._onToggle = (e) => {
+      if (!this._portal) return;
+      if (e.target === this._portal) return; // ignore our own portal toggle
+      if (e.newState === 'open') {
+        try {
+          this._portal.hidePopover();
+          this._portal.showPopover();
+        } catch (_) {}
+      }
+    };
+    document.addEventListener('toggle', this._onToggle, true);
   }
 
   disconnectedCallback() {
     if (this._movingToPortal) return;
     if (this._dialogObserver) { this._dialogObserver.disconnect(); this._dialogObserver = null; }
+    if (this._onToggle) {
+      document.removeEventListener('toggle', this._onToggle, true);
+      this._onToggle = null;
+    }
     if (this._overlay) this._overlay.remove();
     if (this._portal) this._portal.remove();
     if (this._onScroll) window.removeEventListener('scroll', this._onScroll, true);
