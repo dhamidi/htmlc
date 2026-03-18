@@ -9,7 +9,7 @@
       {href: '#step-2', label: '2 — Write a component'},
       {href: '#step-3', label: '3 — Create an engine'},
       {href: '#step-4', label: '4 — Render with props'},
-      {href: '#step-4b', label: '4b — Props from a struct'},
+      {href: '#step-4b', label: '4b — Pass a struct as props'},
       {href: '#step-5', label: '5 — Use slots'},
       {href: '#step-6', label: '6 — Reuse existing templates'},
       {label: 'See also'},
