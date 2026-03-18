@@ -35,7 +35,7 @@
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/Card.vue --&gt;
 &lt;template&gt;
   &lt;div class="card"&gt;
-    &lt;h2&gt;&#123;&#123;<!---><!----> title }}&lt;/h2&gt;
+    &lt;h2&gt;{{ title }}&lt;/h2&gt;
     &lt;slot&gt;No content provided.&lt;/slot&gt;
   &lt;/div&gt;
 &lt;/template&gt;
@@ -173,7 +173,7 @@ if err != nil {
     &lt;p&gt;This is the main content area.&lt;/p&gt;
 
     &lt;template #footer&gt;
-      &lt;p&gt;&amp;copy; &#123;&#123;<!---><!----> year }} My Site&lt;/p&gt;
+      &lt;p&gt;&amp;copy; {{ year }} My Site&lt;/p&gt;
     &lt;/template&gt;
   &lt;/PageLayout&gt;
 &lt;/template&gt;</code></pre>
@@ -217,7 +217,7 @@ if err != nil {
       If you need to inject a dynamic HTML string into a component from Go, use a regular prop with <code>v-html</code> instead of a slot:</p>
       <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/Card.vue --&gt;
 &lt;div class="card"&gt;
-  &lt;h2&gt;&#123;&#123;<!---><!----> title }}&lt;/h2&gt;
+  &lt;h2&gt;{{ title }}&lt;/h2&gt;
   &lt;div v-html="body"&gt;&lt;/div&gt;
 &lt;/div&gt;</code></pre>
       <pre v-syntax-highlight="'go'"><code v-pre>html, err := engine.RenderFragmentString("Card", map[string]any{

@@ -34,7 +34,7 @@
     <p>Works on <code>&lt;template&gt;</code> elements too (renders children only, no wrapper element):</p>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;template v-if="items.length &gt; 0"&gt;
   &lt;ul&gt;
-    &lt;li v-for="item in items"&gt;&#123;&#123;<!---><!----> item }}&lt;/li&gt;
+    &lt;li v-for="item in items"&gt;{{ item }}&lt;/li&gt;
   &lt;/ul&gt;
 &lt;/template&gt;
 &lt;template v-else&gt;
@@ -56,16 +56,16 @@
     <h2 id="v-for">v-for</h2>
     <p>Repeats the element for each item in the iterable. Supports arrays, maps, and objects.</p>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- Array --&gt;
-&lt;li v-for="item in items"&gt;&#123;&#123;<!---><!----> item }}&lt;/li&gt;
+&lt;li v-for="item in items"&gt;{{ item }}&lt;/li&gt;
 
 &lt;!-- With index --&gt;
-&lt;li v-for="(item, index) in items"&gt;&#123;&#123;<!---><!----> index }}: &#123;&#123;<!---> item }}&lt;/li&gt;
+&lt;li v-for="(item, index) in items"&gt;{{ index }}: {{ item }}&lt;/li&gt;
 
 &lt;!-- Object/map --&gt;
-&lt;li v-for="(value, key) in obj"&gt;&#123;&#123;<!---><!----> key }}: &#123;&#123;<!---> value }}&lt;/li&gt;
+&lt;li v-for="(value, key) in obj"&gt;{{ key }}: {{ value }}&lt;/li&gt;
 
 &lt;!-- Range (integer) --&gt;
-&lt;li v-for="i in 5"&gt;&#123;&#123;<!---><!----> i }}&lt;/li&gt;</code></pre>
+&lt;li v-for="i in 5"&gt;{{ i }}&lt;/li&gt;</code></pre>
 
     <Callout>
       <p><strong>Note:</strong> Map iteration order follows Go's <code>reflect.MapKeys()</code> — not insertion order. Sort your maps before passing them if order matters.</p>
@@ -145,7 +145,7 @@
     <p>Sets the element's text content to the expression value. HTML-escaped. Replaces all child nodes.</p>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;span v-text="message"&gt;&lt;/span&gt;
 &lt;!-- equivalent to --&gt;
-&lt;span&gt;&#123;&#123;<!---><!----> message }}&lt;/span&gt;</code></pre>
+&lt;span&gt;{{ message }}&lt;/span&gt;</code></pre>
 
     <h2 id="v-pre">v-pre</h2>
     <p>
@@ -153,8 +153,8 @@
       its descendants. Mustache syntax (<code v-pre>{{ }}</code>) is emitted literally.
       The <code>v-pre</code> attribute itself is stripped from the output.
     </p>
-    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- This renders literally: &#123;&#123;<!---><!----> raw }} --&gt;
-&lt;code v-pre&gt;&#123;&#123;<!---><!----> raw }}&lt;/code&gt;</code></pre>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- This renders literally: {{ raw }} --&gt;
+&lt;code v-pre&gt;{{ raw }}&lt;/code&gt;</code></pre>
 
     <p>
       Use <code>v-pre</code> to show template syntax as documentation or source
@@ -179,14 +179,14 @@
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- In List.vue --&gt;
 &lt;ul&gt;
   &lt;li v-for="item in items"&gt;
-    &lt;slot :item="item"&gt;&#123;&#123;<!---><!----> item }}&lt;/slot&gt;
+    &lt;slot :item="item"&gt;{{ item }}&lt;/slot&gt;
   &lt;/li&gt;
 &lt;/ul&gt;
 
 &lt;!-- Usage --&gt;
 &lt;List :items="posts"&gt;
   &lt;template #default="{ item }"&gt;
-    &lt;a :href="item.url"&gt;&#123;&#123;<!---><!----> item.title }}&lt;/a&gt;
+    &lt;a :href="item.url"&gt;{{ item.title }}&lt;/a&gt;
   &lt;/template&gt;
 &lt;/List&gt;</code></pre>
 

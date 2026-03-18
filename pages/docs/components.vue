@@ -33,7 +33,7 @@
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/Card.vue --&gt;
 &lt;template&gt;
   &lt;div class="card"&gt;
-    &lt;h2&gt;&#123;&#123;<!---><!----> title }}&lt;/h2&gt;
+    &lt;h2&gt;{{ title }}&lt;/h2&gt;
     &lt;slot&gt;No content provided.&lt;/slot&gt;
   &lt;/div&gt;
 &lt;/template&gt;
@@ -71,7 +71,7 @@ engine.Register("MyCard", "/path/to/MyCard.vue")</code></pre>
     <p>In templates, component names follow PascalCase:</p>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- Card.vue in the component dir --&gt;
 &lt;Card :title="post.title"&gt;
-  &lt;p&gt;&#123;&#123;<!---><!----> post.body }}&lt;/p&gt;
+  &lt;p&gt;{{ post.body }}&lt;/p&gt;
 &lt;/Card&gt;</code></pre>
 
     <h2 id="composition">Component composition</h2>
@@ -80,7 +80,7 @@ engine.Register("MyCard", "/path/to/MyCard.vue")</code></pre>
 &lt;template&gt;
   &lt;Layout :title="title"&gt;
     &lt;Card :title="post.title"&gt;
-      &lt;p&gt;&#123;&#123;<!---><!----> post.body }}&lt;/p&gt;
+      &lt;p&gt;{{ post.body }}&lt;/p&gt;
     &lt;/Card&gt;
     &lt;Card v-for="related in relatedPosts" :title="related.title" /&gt;
   &lt;/Layout&gt;
@@ -135,14 +135,14 @@ body</code></pre>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- In List.vue --&gt;
 &lt;ul&gt;
   &lt;li v-for="item in items"&gt;
-    &lt;slot :item="item"&gt;&#123;&#123;<!---><!----> item }}&lt;/slot&gt;
+    &lt;slot :item="item"&gt;{{ item }}&lt;/slot&gt;
   &lt;/li&gt;
 &lt;/ul&gt;
 
 &lt;!-- Usage: destructure slot props --&gt;
 &lt;List :items="posts"&gt;
   &lt;template #default="{ item }"&gt;
-    &lt;a :href="item.url"&gt;&#123;&#123;<!---><!----> item.title }}&lt;/a&gt;
+    &lt;a :href="item.url"&gt;{{ item.title }}&lt;/a&gt;
   &lt;/template&gt;
 &lt;/List&gt;</code></pre>
 
@@ -294,7 +294,7 @@ engine.RegisterFunc("url", func(args ...any) (any, error) {
 })</code></pre>
 
     <p>Use them directly in templates:</p>
-    <pre v-syntax-highlight="'html'"><code v-pre>&lt;span&gt;&#123;&#123;<!---><!----> formatDate(post.CreatedAt) }}&lt;/span&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;span&gt;{{ formatDate(post.CreatedAt) }}&lt;/span&gt;
 &lt;a :href="url('home')"&gt;Home&lt;/a&gt;</code></pre>
 
     <h2 id="advanced-options">Advanced options</h2>
@@ -377,7 +377,7 @@ if errors.As(err, &re) {
     <p>When location is available, <code>err.Error()</code> produces a compiler-style message:</p>
     <pre v-syntax-highlight="'text'"><code v-pre>Card.vue:14:5: render Card.vue: expr "post.Title": cannot access property "Title" of null
   13 |   &lt;div class="card"&gt;
-&gt; 14 |     &#123;&#123;<!---><!----> post.Title }}
+&gt; 14 |     {{ post.Title }}
   15 |   &lt;/div&gt;</code></pre>
 
     <h2 id="scope-rules">Scope propagation rules</h2>

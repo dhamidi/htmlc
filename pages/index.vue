@@ -58,7 +58,7 @@
         <QuickStartStep label="2. Write a component">
           <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- templates/Greeting.vue --&gt;
 &lt;template&gt;
-  &lt;p&gt;Hello, &#123;&#123;<!---><!----> name &#125;&#125;!&lt;/p&gt;
+  &lt;p&gt;Hello, {{ name &#125;&#125;!&lt;/p&gt;
 &lt;/template&gt;</code></pre>
         </QuickStartStep>
 
