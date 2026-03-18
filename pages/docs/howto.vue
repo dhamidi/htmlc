@@ -482,7 +482,7 @@ func main() {
     <h3>Using the Go API</h3>
     <p>Call <code>RenderFragment</code> for the inner page, then pass the result as data to <code>RenderPage</code> on the layout:</p>
 
-    <pre v-syntax-highlight="'go'"><code v-pre>// Render the inner page as a fragment (no full &lt;html&gt; document).
+    <pre v-syntax-highlight="'go'"><code>// Render the inner page as a fragment (no full &lt;html&gt; document).
 inner, err := engine.RenderFragmentString(&#34;BlogPost&#34;, map[string]any{
     &#34;title&#34;:   post.Title,
     &#34;content&#34;: post.Body,
