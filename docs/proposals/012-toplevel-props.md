@@ -1,8 +1,48 @@
 # RFC 012: Struct Values as Top-Level Render Data
 
-- **Status**: Draft
+- **Status**: Rejected
 - **Date**: 2026-03-19
 - **Author**: TBD
+
+---
+
+## Rejection Rationale
+
+This RFC was rejected after further consideration of two points that undermine
+its motivation:
+
+### Data middleware requires the map structure
+
+The engine supports data middleware — functions that intercept and augment the
+top-level render scope before a page or fragment is rendered. Middleware operates
+on `map[string]any` because it must be able to add, remove, or inspect arbitrary
+keys without prior knowledge of the caller's concrete data type. If the public
+API accepted `any` at the entry point and materialised a `map[string]any`
+internally via `propsToScope`, callers who use middleware would still be forced
+to pass a `map[string]any` (or a type whose keys middleware can predict) in
+practice. The proposed ergonomic benefit applies only to callers who use no
+middleware — a narrower audience than the RFC assumed. Supporting struct inputs
+properly would require threading struct-awareness all the way through the
+middleware chain, which is the large internal refactor this RFC explicitly deferred
+(§9, Alternative C). The materialisation-at-the-boundary approach conceals this
+impedance mismatch rather than solving it.
+
+### Maps are well understood; top-level usage is actually fine
+
+The motivation frames `map[string]any{"User": d.User, "Product": d.Product}` as
+burdensome boilerplate. In practice, the map literal is a straightforward, explicit
+declaration of what the template's top-level scope contains. It is readable,
+grep-able, and requires no knowledge of `toProps()`, `StructProps`, json-tag
+resolution rules, or any other RFC 007 machinery. The failure mode described in
+§1 — a field omitted from the manual conversion producing a `[missing: FieldName]`
+placeholder — is caught immediately at development time during any template
+preview or test run. It is not a silent, hard-to-detect failure. The cognitive
+overhead of the map literal is low and the explicitness is a genuine virtue at
+the HTTP handler boundary, where it is useful to see exactly what data enters the
+template. Widening the parameter to `any` trades that explicitness for marginal
+convenience while introducing a class of runtime errors that the compiler
+previously prevented (e.g., `eng.RenderPage(w, "Page", 42)`). The bargain is
+unfavourable.
 
 ---
 
