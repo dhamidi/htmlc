@@ -12,7 +12,6 @@ import (
 
 	"github.com/dhamidi/htmlc"
 	"github.com/dhamidi/htmlc/htmlctest"
-	"github.com/dhamidi/htmlc/internal/testhelpers"
 )
 
 // parseExpvarMap unmarshals the String() output of an expvar.Var into a map.
@@ -150,12 +149,12 @@ func TestSetReload_reflected(t *testing.T) {
 // TestSetComponentDir_swaps verifies that SetComponentDir replaces the
 // component registry and updates the componentDir expvar.
 func TestSetComponentDir_swaps(t *testing.T) {
-	dir1 := t.TempDir()
-	dir2 := t.TempDir()
-	testhelpers.WriteVue(t, dir1, "Alpha.vue", `<template><p>alpha</p></template>`)
-	testhelpers.WriteVue(t, dir2, "Beta.vue", `<template><p>beta</p></template>`)
+	memFS := fstest.MapFS{
+		"dir1/Alpha.vue": &fstest.MapFile{Data: []byte(`<template><p>alpha</p></template>`)},
+		"dir2/Beta.vue":  &fstest.MapFile{Data: []byte(`<template><p>beta</p></template>`)},
+	}
 
-	e, err := htmlc.New(htmlc.Options{ComponentDir: dir1})
+	e, err := htmlc.New(htmlc.Options{FS: memFS, ComponentDir: "dir1"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -168,7 +167,7 @@ func TestSetComponentDir_swaps(t *testing.T) {
 		t.Error("Beta should not be registered before swap")
 	}
 
-	if err := e.SetComponentDir(dir2); err != nil {
+	if err := e.SetComponentDir("dir2"); err != nil {
 		t.Fatalf("SetComponentDir: %v", err)
 	}
 
@@ -182,8 +181,8 @@ func TestSetComponentDir_swaps(t *testing.T) {
 	// Verify expvar reflects the new directory.
 	v := expvar.Get("htmlc_test_a5")
 	m := parseExpvarMap(t, v)
-	if cd, ok := m["componentDir"].(string); !ok || cd != dir2 {
-		t.Errorf("componentDir = %v, want %q", m["componentDir"], dir2)
+	if cd, ok := m["componentDir"].(string); !ok || cd != "dir2" {
+		t.Errorf("componentDir = %v, want %q", m["componentDir"], "dir2")
 	}
 }
 
