@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dhamidi/htmlc/internal/testhelpers"
 )
 
 // TestIntegration_FullPipeline exercises the complete rendering pipeline through
@@ -16,7 +18,7 @@ import (
 func TestIntegration_FullPipeline(t *testing.T) {
 	dir := t.TempDir()
 	compPath := filepath.Join(dir, "Featured.vue")
-	writeVue(t, compPath, `<template><div :class="{ active: isActive, disabled: isDisabled }">
+	testhelpers.WriteVue(t, dir, "Featured.vue", `<template><div :class="{ active: isActive, disabled: isDisabled }">
   <h1>{{ title }}</h1>
   <p v-if="show">Visible content</p>
   <p v-else>Hidden content</p>
@@ -88,9 +90,9 @@ func TestIntegration_FullPipeline(t *testing.T) {
 // exercising the Engine's registry, the component renderer, and slot injection.
 func TestIntegration_NestedComponentsWithSlots(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Card.vue"),
+	testhelpers.WriteVue(t, dir, "Card.vue",
 		`<template><div class="card"><slot></slot></div></template>`)
-	writeVue(t, filepath.Join(dir, "Page.vue"),
+	testhelpers.WriteVue(t, dir, "Page.vue",
 		`<template><Card><span>Slot content</span></Card></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -125,7 +127,7 @@ func TestIntegration_NestedComponentsWithSlots(t *testing.T) {
 // rendered output, verifying that the data func is wired through correctly.
 func TestIntegration_ServeComponentHTTP(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Greeting.vue"),
+	testhelpers.WriteVue(t, dir, "Greeting.vue",
 		`<template><section class="greeting"><h1>Hello, {{ name }}!</h1></section></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -162,7 +164,7 @@ func TestIntegration_ServeComponentHTTP(t *testing.T) {
 // the element when the slice is non-empty and hides it when the slice is empty.
 func TestIntegration_VIfWithLength(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Posts.vue"),
+	testhelpers.WriteVue(t, dir, "Posts.vue",
 		`<template><div><p v-if="posts.length > 0">Has posts</p><p v-else>No posts</p></div></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -204,9 +206,9 @@ func TestIntegration_VIfWithLength(t *testing.T) {
 // component that injects dynamic content into each slot.
 func TestIntegration_LayoutPattern(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Layout.vue"),
+	testhelpers.WriteVue(t, dir, "Layout.vue",
 		`<template><div class="layout"><header><slot name="header"></slot></header><main><slot></slot></main><footer><slot name="footer"></slot></footer></div></template>`)
-	writeVue(t, filepath.Join(dir, "Page.vue"),
+	testhelpers.WriteVue(t, dir, "Page.vue",
 		`<template><Layout><template #header><h1>{{ title }}</h1></template><p>{{ body }}</p><template #footer><small>{{ copy }}</small></template></Layout></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -242,9 +244,9 @@ func TestIntegration_LayoutPattern(t *testing.T) {
 // each item and its index through a named scoped slot.
 func TestIntegration_RenderlessListPattern(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "UserList.vue"),
+	testhelpers.WriteVue(t, dir, "UserList.vue",
 		`<template><ul><li v-for="(user, index) in users"><slot name="item" :user="user" :index="index"></slot></li></ul></template>`)
-	writeVue(t, filepath.Join(dir, "Page.vue"),
+	testhelpers.WriteVue(t, dir, "Page.vue",
 		`<template><UserList :users="users"><template #item="{ user, index }"><span>{{ index }}: {{ user.name }}</span></template></UserList></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -278,11 +280,11 @@ func TestIntegration_RenderlessListPattern(t *testing.T) {
 // a named slot, and Child provides content to Grandchild via a named slot.
 func TestIntegration_NestedParentChildGrandchild(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Grandchild.vue"),
+	testhelpers.WriteVue(t, dir, "Grandchild.vue",
 		`<template><span class="gc"><slot name="data"></slot></span></template>`)
-	writeVue(t, filepath.Join(dir, "Child.vue"),
+	testhelpers.WriteVue(t, dir, "Child.vue",
 		`<template><div class="child"><slot name="main"></slot><Grandchild><template #data><em>gc-content</em></template></Grandchild></div></template>`)
-	writeVue(t, filepath.Join(dir, "Parent.vue"),
+	testhelpers.WriteVue(t, dir, "Parent.vue",
 		`<template><article><Child><template #main><strong>parent-content</strong></template></Child></article></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -317,8 +319,7 @@ func TestIntegration_NestedParentChildGrandchild(t *testing.T) {
 // exercising the full path from file-system change through to rendered output.
 func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, "Live.vue")
-	writeVue(t, p, `<template><p>version one</p></template>`)
+	testhelpers.WriteVue(t, dir, "Live.vue", `<template><p>version one</p></template>`)
 
 	e, err := New(Options{ComponentDir: dir, Reload: true})
 	if err != nil {
@@ -335,7 +336,7 @@ func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
 
 	// Ensure the mtime advances before overwriting the file.
 	time.Sleep(10 * time.Millisecond)
-	writeVue(t, p, `<template><p>version two</p></template>`)
+	testhelpers.WriteVue(t, dir, "Live.vue", `<template><p>version two</p></template>`)
 
 	out, err = e.RenderFragmentString("Live", nil)
 	if err != nil {
@@ -355,11 +356,11 @@ func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
 // engine must recover the original casing when injecting into the child scope.
 func TestIntegration_CamelCasePropViaSlot(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Layout.vue"),
+	testhelpers.WriteVue(t, dir, "Layout.vue",
 		`<template><div class="layout"><slot></slot></div></template>`)
-	writeVue(t, filepath.Join(dir, "Inner.vue"),
+	testhelpers.WriteVue(t, dir, "Inner.vue",
 		`<template><span>{{ myProp }}</span></template>`)
-	writeVue(t, filepath.Join(dir, "Page.vue"),
+	testhelpers.WriteVue(t, dir, "Page.vue",
 		`<template><Layout><Inner :myProp="myProp" /></Layout></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -381,9 +382,9 @@ func TestIntegration_CamelCasePropViaSlot(t *testing.T) {
 
 func TestIntegration_DynamicComponent_BasicResolution(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Banner.vue"),
+	testhelpers.WriteVue(t, dir, "Banner.vue",
 		`<template><section class="banner"><slot></slot></section></template>`)
-	writeVue(t, filepath.Join(dir, "Page.vue"),
+	testhelpers.WriteVue(t, dir, "Page.vue",
 		`<template><component :is="widgetType">hello</component></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -408,13 +409,13 @@ func TestIntegration_DynamicComponent_BasicResolution(t *testing.T) {
 // open/close form (<PostImage ...></PostImage>).
 func TestIntegration_SelfClosingComponentTag(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "PostImage.vue"),
+	testhelpers.WriteVue(t, dir, "PostImage.vue",
 		`<template><img :src="src" :alt="alt" /></template>`)
 	// Caller using self-closing form.
-	writeVue(t, filepath.Join(dir, "PageSelfClose.vue"),
+	testhelpers.WriteVue(t, dir, "PageSelfClose.vue",
 		`<template><PostImage src="/hero.jpg" alt="Hero" /><p>Caption here</p></template>`)
 	// Caller using explicit open/close form.
-	writeVue(t, filepath.Join(dir, "PageExplicit.vue"),
+	testhelpers.WriteVue(t, dir, "PageExplicit.vue",
 		`<template><PostImage src="/hero.jpg" alt="Hero"></PostImage><p>Caption here</p></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -446,9 +447,9 @@ func TestIntegration_SelfClosingComponentTag(t *testing.T) {
 // ValidateAll surfaces those warnings as ValidationError entries.
 func TestIntegration_SelfClosingComponentWarning(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Icon.vue"),
+	testhelpers.WriteVue(t, dir, "Icon.vue",
 		`<template><span class="icon"></span></template>`)
-	writeVue(t, filepath.Join(dir, "Page.vue"),
+	testhelpers.WriteVue(t, dir, "Page.vue",
 		`<template><Icon /></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -472,9 +473,9 @@ func TestIntegration_SelfClosingComponentWarning(t *testing.T) {
 
 func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Widget.vue"),
+	testhelpers.WriteVue(t, dir, "Widget.vue",
 		`<template><p>version one</p></template>`)
-	writeVue(t, filepath.Join(dir, "Page.vue"),
+	testhelpers.WriteVue(t, dir, "Page.vue",
 		`<template><component :is="'Widget'"></component></template>`)
 
 	e, err := New(Options{ComponentDir: dir, Reload: true})
@@ -491,7 +492,7 @@ func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	writeVue(t, filepath.Join(dir, "Widget.vue"),
+	testhelpers.WriteVue(t, dir, "Widget.vue",
 		`<template><p>version two</p></template>`)
 
 	out, err = e.RenderFragmentString("Page", nil)
@@ -508,7 +509,7 @@ func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
 // byte-for-byte in the rendered output, with no HTML-escaping or quote removal.
 func TestIntegration_FontFaceQuotesPreserved(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Fonts.vue"),
+	testhelpers.WriteVue(t, dir, "Fonts.vue",
 		`<template><p>hello</p></template>
 <style>
 @font-face {
@@ -540,7 +541,7 @@ p { font-family: "My Font"; }
 // passed through without selector rewriting, so the output must be identical.
 func TestIntegration_ScopedFontFaceQuotesPreserved(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "ScopedFonts.vue"),
+	testhelpers.WriteVue(t, dir, "ScopedFonts.vue",
 		`<template><p>hello</p></template>
 <style scoped>
 @font-face {
@@ -572,7 +573,7 @@ p { font-family: "My Font"; }
 // without HTML-entity encoding or other modification.
 func TestIntegration_CSSContentSpecialCharsPreserved(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Icons.vue"),
+	testhelpers.WriteVue(t, dir, "Icons.vue",
 		`<template><span class="arrow"></span></template>
 <style>
 .arrow::before { content: "a > b & c < d"; }
@@ -606,11 +607,11 @@ func TestIntegration_CSSContentSpecialCharsPreserved(t *testing.T) {
 // Expected output: <div><div><a href="/">Home</a></div></div>
 func TestIntegration_NestedSlotChain_NoInfiniteRecursion(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Inner.vue"),
+	testhelpers.WriteVue(t, dir, "Inner.vue",
 		`<template><div><slot /></div></template>`)
-	writeVue(t, filepath.Join(dir, "Middle.vue"),
+	testhelpers.WriteVue(t, dir, "Middle.vue",
 		`<template><Inner><div><slot /></div></Inner></template>`)
-	writeVue(t, filepath.Join(dir, "Outer.vue"),
+	testhelpers.WriteVue(t, dir, "Outer.vue",
 		`<template><Middle><a href="/">Home</a></Middle></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -637,11 +638,11 @@ func TestIntegration_NestedSlotChain_NoInfiniteRecursion(t *testing.T) {
 // when named slots are used in the chain.
 func TestIntegration_NestedSlotChain_NamedSlot(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "InnerNamed.vue"),
+	testhelpers.WriteVue(t, dir, "InnerNamed.vue",
 		`<template><section><slot name="body" /></section></template>`)
-	writeVue(t, filepath.Join(dir, "MiddleNamed.vue"),
+	testhelpers.WriteVue(t, dir, "MiddleNamed.vue",
 		`<template><InnerNamed><template #body><p><slot name="content" /></p></template></InnerNamed></template>`)
-	writeVue(t, filepath.Join(dir, "OuterNamed.vue"),
+	testhelpers.WriteVue(t, dir, "OuterNamed.vue",
 		`<template><MiddleNamed><template #content>hello</template></MiddleNamed></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -669,13 +670,13 @@ func TestIntegration_NestedSlotChain_NamedSlot(t *testing.T) {
 func TestIntegration_NestedSlotChain_SlotProps(t *testing.T) {
 	dir := t.TempDir()
 	// InnerProps emits a static slot prop msg="hello".
-	writeVue(t, filepath.Join(dir, "InnerProps.vue"),
+	testhelpers.WriteVue(t, dir, "InnerProps.vue",
 		`<template><slot msg="hello" /></template>`)
 	// MiddleProps consumes InnerProps' msg and re-emits it as label via slot props.
-	writeVue(t, filepath.Join(dir, "MiddleProps.vue"),
+	testhelpers.WriteVue(t, dir, "MiddleProps.vue",
 		`<template><InnerProps v-slot="{ msg }"><slot :label="msg" /></InnerProps></template>`)
 	// OuterProps consumes MiddleProps' label and renders it in a span.
-	writeVue(t, filepath.Join(dir, "OuterProps.vue"),
+	testhelpers.WriteVue(t, dir, "OuterProps.vue",
 		`<template><MiddleProps v-slot="{ label }"><span>{{ label }}</span></MiddleProps></template>`)
 
 	e, err := New(Options{ComponentDir: dir})

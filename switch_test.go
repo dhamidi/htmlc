@@ -1,9 +1,10 @@
 package htmlc
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dhamidi/htmlc/internal/testhelpers"
 )
 
 // switchEngine creates an Engine with the given components for switch directive testing.
@@ -11,7 +12,7 @@ func switchEngine(t *testing.T, components map[string]string) *Engine {
 	t.Helper()
 	dir := t.TempDir()
 	for name, tmpl := range components {
-		writeVue(t, filepath.Join(dir, name+".vue"), "<template>"+tmpl+"</template>")
+		testhelpers.WriteVue(t, dir, name+".vue", "<template>"+tmpl+"</template>")
 	}
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {

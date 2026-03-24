@@ -5,29 +5,20 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/dhamidi/htmlc/internal/testhelpers"
 )
 
-// writeVue writes a minimal .vue file at path.
-func writeVue(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-}
 
 func TestEngine_DiscoverRegistersVueFiles(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Card.vue"), `<template><div>{{ title }}</div></template>`)
-	writeVue(t, filepath.Join(dir, "ui", "Alert.vue"), `<template><span>{{ msg }}</span></template>`)
+	testhelpers.WriteVue(t, dir, "Card.vue", `<template><div>{{ title }}</div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("ui", "Alert.vue"), `<template><span>{{ msg }}</span></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -56,8 +47,8 @@ func TestEngine_DiscoverRegistersVueFiles(t *testing.T) {
 func TestEngine_DuplicateNameLastWins(t *testing.T) {
 	// Two files with the same base name: lexically later path wins.
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "a", "Card.vue"), `<template><p>first</p></template>`)
-	writeVue(t, filepath.Join(dir, "b", "Card.vue"), `<template><p>second</p></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("a", "Card.vue"), `<template><p>first</p></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("b", "Card.vue"), `<template><p>second</p></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -77,7 +68,7 @@ func TestEngine_DuplicateNameLastWins(t *testing.T) {
 func TestEngine_RegisterManual(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "Widget.vue")
-	writeVue(t, p, `<template><aside>{{ val }}</aside></template>`)
+	testhelpers.WriteVue(t, dir, "Widget.vue", `<template><aside>{{ val }}</aside></template>`)
 
 	e, err := New(Options{})
 	if err != nil {
@@ -110,7 +101,7 @@ func TestEngine_UnknownComponentReturnsError(t *testing.T) {
 func TestEngine_RenderPageInjectsStyleBeforeHead(t *testing.T) {
 	dir := t.TempDir()
 	// Use v-html so the raw HTML string (with </head>) passes through verbatim.
-	writeVue(t, filepath.Join(dir, "Page.vue"),
+	testhelpers.WriteVue(t, dir, "Page.vue",
 		`<template><div v-html="content"></div></template>`+
 			`<style>body{margin:0}</style>`)
 
@@ -140,7 +131,7 @@ func TestEngine_RenderPageInjectsStyleBeforeHead(t *testing.T) {
 
 func TestEngine_RenderPageNoHeadPrependsStyle(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Frag.vue"),
+	testhelpers.WriteVue(t, dir, "Frag.vue",
 		`<template><section>content</section></template><style>.x{color:red}</style>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -159,7 +150,7 @@ func TestEngine_RenderPageNoHeadPrependsStyle(t *testing.T) {
 
 func TestEngine_RenderFragmentPrependsStyle(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Badge.vue"),
+	testhelpers.WriteVue(t, dir, "Badge.vue",
 		`<template><span>hi</span></template><style>.badge{display:inline}</style>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -181,7 +172,7 @@ func TestEngine_RenderFragmentPrependsStyle(t *testing.T) {
 
 func TestEngine_ServeComponentWritesContentType(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Hello.vue"), `<template><p>hello</p></template>`)
+	testhelpers.WriteVue(t, dir, "Hello.vue", `<template><p>hello</p></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -207,7 +198,7 @@ func TestEngine_ServeComponentWritesContentType(t *testing.T) {
 
 func TestEngine_ServeComponent_DataFuncCalledPerRequest(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Greeting.vue"), `<template><h1>{{ title }}</h1></template>`)
+	testhelpers.WriteVue(t, dir, "Greeting.vue", `<template><h1>{{ title }}</h1></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -252,7 +243,7 @@ func TestEngine_RenderPage_LayoutStyleBeforeHead(t *testing.T) {
 	// document.  RenderPage must inject the collected <style> block immediately
 	// before </head> — not prepend it to the top of the output.
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Layout.vue"),
+	testhelpers.WriteVue(t, dir, "Layout.vue",
 		`<template><html>
 <head><title>Layout Test</title></head>
 <body><p>page body</p></body>
@@ -295,7 +286,7 @@ func TestEngine_RenderPage_LayoutStyleBeforeHead(t *testing.T) {
 
 func TestEngine_MissingProp_NoHandler_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Greeter.vue"), `<template><p>{{ greeting }}</p></template>`)
+	testhelpers.WriteVue(t, dir, "Greeter.vue", `<template><p>{{ greeting }}</p></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -313,7 +304,7 @@ func TestEngine_MissingProp_NoHandler_ReturnsError(t *testing.T) {
 
 func TestEngine_MissingProp_DefaultPlaceholder(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Greeter.vue"), `<template><p>{{ greeting }}</p></template>`)
+	testhelpers.WriteVue(t, dir, "Greeter.vue", `<template><p>{{ greeting }}</p></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -331,7 +322,7 @@ func TestEngine_MissingProp_DefaultPlaceholder(t *testing.T) {
 
 func TestEngine_MissingProp_ErrorOnMissingPropHandler(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Greeter.vue"), `<template><p>{{ greeting }}</p></template>`)
+	testhelpers.WriteVue(t, dir, "Greeter.vue", `<template><p>{{ greeting }}</p></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -350,7 +341,7 @@ func TestEngine_MissingProp_ErrorOnMissingPropHandler(t *testing.T) {
 
 func TestEngine_MissingProp_SubstituteHandler_ProducesPlaceholder(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Greeter.vue"), `<template><p>{{ greeting }}</p></template>`)
+	testhelpers.WriteVue(t, dir, "Greeter.vue", `<template><p>{{ greeting }}</p></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -369,8 +360,8 @@ func TestEngine_MissingProp_SubstituteHandler_ProducesPlaceholder(t *testing.T) 
 
 func TestEngine_MissingProp_CustomHandler_InvokedForAllComponents(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Child.vue"), `<template><span>{{ childProp }}</span></template>`)
-	writeVue(t, filepath.Join(dir, "Parent.vue"),
+	testhelpers.WriteVue(t, dir, "Child.vue", `<template><span>{{ childProp }}</span></template>`)
+	testhelpers.WriteVue(t, dir, "Parent.vue",
 		`<template><div>{{ parentProp }}<Child /></div></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -414,7 +405,7 @@ func TestEngine_MissingProp_CustomHandler_InvokedForAllComponents(t *testing.T) 
 
 func TestEngine_AllPropsProvided_NoHandler_Succeeds(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Nameplate.vue"), `<template><span>{{ text }}</span></template>`)
+	testhelpers.WriteVue(t, dir, "Nameplate.vue", `<template><span>{{ text }}</span></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -524,8 +515,7 @@ func TestEngine_Register_WithFS(t *testing.T) {
 
 func TestEngine_ReloadDetectsChangedFile(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, "Live.vue")
-	writeVue(t, p, `<template><p>original</p></template>`)
+	testhelpers.WriteVue(t, dir, "Live.vue", `<template><p>original</p></template>`)
 
 	e, err := New(Options{ComponentDir: dir, Reload: true})
 	if err != nil {
@@ -542,7 +532,7 @@ func TestEngine_ReloadDetectsChangedFile(t *testing.T) {
 
 	// Overwrite the file and bump the mtime.
 	time.Sleep(10 * time.Millisecond)
-	writeVue(t, p, `<template><p>updated</p></template>`)
+	testhelpers.WriteVue(t, dir, "Live.vue", `<template><p>updated</p></template>`)
 
 	out, err = e.RenderFragmentString("Live", nil)
 	if err != nil {
@@ -659,8 +649,8 @@ func TestEngine_Proximity_FlatProject_BackwardCompat(t *testing.T) {
 	// Flat project: existing behaviour preserved (proximity walk hits root on
 	// first step, result identical to today).
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Widget.vue"), `<template><span class="widget">{{ label }}</span></template>`)
-	writeVue(t, filepath.Join(dir, "Page.vue"), `<template><div><Widget :label="'click'" /></div></template>`)
+	testhelpers.WriteVue(t, dir, "Widget.vue", `<template><span class="widget">{{ label }}</span></template>`)
+	testhelpers.WriteVue(t, dir, "Page.vue", `<template><div><Widget :label="'click'" /></div></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -680,10 +670,10 @@ func TestEngine_Proximity_SameNameDifferentDirs(t *testing.T) {
 	// Two same-named components in different directories: caller in blog/ gets
 	// blog/Card.vue; caller in admin/ gets admin/Card.vue.
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="blog-card">{{ title }}</div></template>`)
-	writeVue(t, filepath.Join(dir, "admin", "Card.vue"), `<template><div class="admin-card">{{ title }}</div></template>`)
-	writeVue(t, filepath.Join(dir, "blog", "Post.vue"), `<template><section><Card :title="'Blog'" /></section></template>`)
-	writeVue(t, filepath.Join(dir, "admin", "Dashboard.vue"), `<template><section><Card :title="'Admin'" /></section></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Card.vue"), `<template><div class="blog-card">{{ title }}</div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("admin", "Card.vue"), `<template><div class="admin-card">{{ title }}</div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Post.vue"), `<template><section><Card :title="'Blog'" /></section></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("admin", "Dashboard.vue"), `<template><section><Card :title="'Admin'" /></section></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -711,8 +701,8 @@ func TestEngine_Proximity_WalkUpFallback(t *testing.T) {
 	// Walk-up fallback: component defined only at root is found from a deeply
 	// nested caller.
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "SharedWidget.vue"), `<template><span>root-widget</span></template>`)
-	writeVue(t, filepath.Join(dir, "blog", "deep", "Thread.vue"),
+	testhelpers.WriteVue(t, dir, "SharedWidget.vue", `<template><span>root-widget</span></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "deep", "Thread.vue"),
 		`<template><article><SharedWidget /></article></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -732,9 +722,9 @@ func TestEngine_Proximity_WalkUpFallback(t *testing.T) {
 func TestEngine_Proximity_ExplicitPathIs(t *testing.T) {
 	// Explicit <component is="blog/Card">: resolves exactly, ignores caller location.
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Card.vue"), `<template><div class="root-card">root</div></template>`)
-	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="blog-card">blog</div></template>`)
-	writeVue(t, filepath.Join(dir, "Page.vue"),
+	testhelpers.WriteVue(t, dir, "Card.vue", `<template><div class="root-card">root</div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Card.vue"), `<template><div class="blog-card">blog</div></template>`)
+	testhelpers.WriteVue(t, dir, "Page.vue",
 		`<template><div><component is="blog/Card" /></div></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -757,9 +747,9 @@ func TestEngine_Proximity_ExplicitPathIs(t *testing.T) {
 func TestEngine_Proximity_RootRelativeIs(t *testing.T) {
 	// Root-relative <component is="/Card">: always resolves to root Card.vue.
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Card.vue"), `<template><div class="root-card">root</div></template>`)
-	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="blog-card">blog</div></template>`)
-	writeVue(t, filepath.Join(dir, "blog", "Post.vue"),
+	testhelpers.WriteVue(t, dir, "Card.vue", `<template><div class="root-card">root</div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Card.vue"), `<template><div class="blog-card">blog</div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Post.vue"),
 		`<template><article><component is="/Card" /></article></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -782,8 +772,8 @@ func TestEngine_Proximity_RootRelativeIs(t *testing.T) {
 func TestEngine_Proximity_ValidateAll_NoFalsePositives(t *testing.T) {
 	// ValidateAll must not report false positives for proximity-resolved refs.
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div>{{ title }}</div></template>`)
-	writeVue(t, filepath.Join(dir, "blog", "Post.vue"), `<template><section><Card :title="'t'" /></section></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Card.vue"), `<template><div>{{ title }}</div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Post.vue"), `<template><section><Card :title="'t'" /></section></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -802,8 +792,8 @@ func TestEngine_Proximity_HotReload_FullRebuild(t *testing.T) {
 	// Hot reload: after modifying a component file, the full registry is rebuilt
 	// and subsequent renders use the updated component.
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="v1">original</div></template>`)
-	writeVue(t, filepath.Join(dir, "blog", "Post.vue"), `<template><section><Card /></section></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Card.vue"), `<template><div class="v1">original</div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Post.vue"), `<template><section><Card /></section></template>`)
 
 	e, err := New(Options{ComponentDir: dir, Reload: true})
 	if err != nil {
@@ -819,7 +809,7 @@ func TestEngine_Proximity_HotReload_FullRebuild(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="v2">updated</div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Card.vue"), `<template><div class="v2">updated</div></template>`)
 
 	out, err = e.RenderFragmentString("Post", nil)
 	if err != nil {
@@ -835,14 +825,14 @@ func TestEngine_Proximity_SlotAuthoringProximity(t *testing.T) {
 	// Card resolves to blog/Card.vue even when rendered from a root Layout.vue
 	// that also defines a Card.vue.
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Card.vue"), `<template><div class="root-card"><slot /></div></template>`)
-	writeVue(t, filepath.Join(dir, "blog", "Card.vue"), `<template><div class="blog-card"><slot /></div></template>`)
+	testhelpers.WriteVue(t, dir, "Card.vue", `<template><div class="root-card"><slot /></div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Card.vue"), `<template><div class="blog-card"><slot /></div></template>`)
 	// Layout provides a named slot "content" that callers fill.
-	writeVue(t, filepath.Join(dir, "Layout.vue"),
+	testhelpers.WriteVue(t, dir, "Layout.vue",
 		`<template><main><slot name="content" /></main></template>`)
 	// Post fills the Layout's "content" slot with a Card reference.
 	// The Card reference should resolve using Post's directory (blog/), not Layout's.
-	writeVue(t, filepath.Join(dir, "blog", "Post.vue"),
+	testhelpers.WriteVue(t, dir, filepath.Join("blog", "Post.vue"),
 		`<template><Layout><template #content><Card /></template></Layout></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
@@ -866,8 +856,8 @@ func TestEngine_Proximity_ForwardSlashKeysOnAllPlatforms(t *testing.T) {
 	// nsEntries keys must use forward slashes regardless of OS path separator.
 	// Verify by using a deep path and confirming resolution works correctly.
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "a", "b", "Leaf.vue"), `<template><span>deep-leaf</span></template>`)
-	writeVue(t, filepath.Join(dir, "a", "b", "Page.vue"), `<template><div><Leaf /></div></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("a", "b", "Leaf.vue"), `<template><span>deep-leaf</span></template>`)
+	testhelpers.WriteVue(t, dir, filepath.Join("a", "b", "Page.vue"), `<template><div><Leaf /></div></template>`)
 
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {

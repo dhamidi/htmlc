@@ -5,12 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/dhamidi/htmlc"
+	"github.com/dhamidi/htmlc/htmlctest"
 )
 
 // newTestLogger returns a *slog.Logger that writes JSON records to buf.
@@ -18,18 +17,6 @@ func newTestLogger(buf *bytes.Buffer) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
-}
-
-// writeVueFile is a helper to write a .vue file in dir.
-func writeVueFile(t *testing.T, dir, name, content string) {
-	t.Helper()
-	p := filepath.Join(dir, name)
-	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
-		t.Fatalf("WriteFile %s: %v", name, err)
-	}
 }
 
 // parseRecords decodes JSON log lines from buf into a slice of maps.
@@ -47,22 +34,14 @@ func parseRecords(t *testing.T, buf *bytes.Buffer) []map[string]any {
 	return records
 }
 
-// setupTwoLevel creates a directory with Page.vue that includes Child.vue.
-// Returns the engine and the temp dir.
+// setupTwoLevel creates an engine with Page.vue that includes Child.vue.
+// Returns the engine.
 func setupTwoLevel(t *testing.T, buf *bytes.Buffer) *htmlc.Engine {
 	t.Helper()
-	dir := t.TempDir()
-	writeVueFile(t, dir, "Child.vue", `<template><span>child</span></template>`)
-	writeVueFile(t, dir, "Page.vue", `<template><div><Child /></div></template>`)
-
-	e, err := htmlc.New(htmlc.Options{
-		ComponentDir: dir,
-		Logger:       newTestLogger(buf),
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	return e
+	return htmlctest.NewHarness(t, map[string]string{
+		"Child.vue": `<template><span>child</span></template>`,
+		"Page.vue":  `<template><div><Child /></div></template>`,
+	}, htmlc.Options{Logger: newTestLogger(buf)}).Engine()
 }
 
 // TestLoggerEmitsRecordPerComponent checks that one debug record per component
@@ -160,20 +139,13 @@ func TestLoggerRecordsDuration(t *testing.T) {
 // TestLoggerErrorRecord checks that a failed render emits an ERROR-level record
 // with the error attribute set.
 func TestLoggerErrorRecord(t *testing.T) {
-	dir := t.TempDir()
-	// BadChild uses an invalid v-for expression to trigger a render error.
-	writeVueFile(t, dir, "BadChild.vue", `<template><div v-for="x in "></div></template>`)
-	// Parent includes BadChild so the child render failure propagates.
-	writeVueFile(t, dir, "ParentWithBad.vue", `<template><div><BadChild /></div></template>`)
-
 	var buf bytes.Buffer
-	e, err := htmlc.New(htmlc.Options{
-		ComponentDir: dir,
-		Logger:       newTestLogger(&buf),
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	e := htmlctest.NewHarness(t, map[string]string{
+		// BadChild uses an invalid v-for expression to trigger a render error.
+		"BadChild.vue": `<template><div v-for="x in "></div></template>`,
+		// Parent includes BadChild so the child render failure propagates.
+		"ParentWithBad.vue": `<template><div><BadChild /></div></template>`,
+	}, htmlc.Options{Logger: newTestLogger(&buf)}).Engine()
 
 	_, renderErr := e.RenderFragmentString("ParentWithBad", nil)
 	if renderErr == nil {
@@ -206,17 +178,11 @@ func TestLoggerErrorRecord(t *testing.T) {
 // TestLoggerNil checks that a nil Logger causes no panic and output matches
 // non-logger output.
 func TestLoggerNil(t *testing.T) {
-	dir := t.TempDir()
-	writeVueFile(t, dir, "Card.vue", `<template><p>hello</p></template>`)
-
-	eWithoutLogger, err := htmlc.New(htmlc.Options{ComponentDir: dir})
-	if err != nil {
-		t.Fatalf("New (no logger): %v", err)
+	files := map[string]string{
+		"Card.vue": `<template><p>hello</p></template>`,
 	}
-	eWithNilLogger, err := htmlc.New(htmlc.Options{ComponentDir: dir, Logger: nil})
-	if err != nil {
-		t.Fatalf("New (nil logger): %v", err)
-	}
+	eWithoutLogger := htmlctest.NewHarness(t, files).Engine()
+	eWithNilLogger := htmlctest.NewHarness(t, files, htmlc.Options{Logger: nil}).Engine()
 
 	out1, err := eWithoutLogger.RenderFragmentString("Card", nil)
 	if err != nil {
@@ -260,21 +226,14 @@ func (h *contextCapturingHandler) WithGroup(name string) slog.Handler {
 // TestLoggerContextPropagation checks that the context passed to RenderPageContext
 // is the same context received by the slog handler.
 func TestLoggerContextPropagation(t *testing.T) {
-	dir := t.TempDir()
-	writeVueFile(t, dir, "Simple.vue", `<template><p>ok</p></template>`)
-
 	var buf bytes.Buffer
 	inner := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
 	handler := &contextCapturingHandler{inner: inner}
 	logger := slog.New(handler)
 
-	e, err := htmlc.New(htmlc.Options{
-		ComponentDir: dir,
-		Logger:       logger,
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	e := htmlctest.NewHarness(t, map[string]string{
+		"Simple.vue": `<template><p>ok</p></template>`,
+	}, htmlc.Options{Logger: logger}).Engine()
 
 	type ctxKey struct{}
 	ctx := context.WithValue(context.Background(), ctxKey{}, "sentinel")
@@ -330,20 +289,16 @@ func TestLoggerPostOrder(t *testing.T) {
 // TestLoggerMessageConstants checks that emitted records use the exported
 // message constants.
 func TestLoggerMessageConstants(t *testing.T) {
-	dir := t.TempDir()
-	writeVueFile(t, dir, "Leaf.vue", `<template><em>leaf</em></template>`)
-	writeVueFile(t, dir, "Root.vue", `<template><div><Leaf /></div></template>`)
-	// BadLeaf uses an invalid expression to trigger a render error.
-	writeVueFile(t, dir, "BadLeaf.vue", `<template><div v-if=""></div></template>`)
-	writeVueFile(t, dir, "Failing.vue", `<template><div><BadLeaf /></div></template>`)
+	files := map[string]string{
+		"Leaf.vue":    `<template><em>leaf</em></template>`,
+		"Root.vue":    `<template><div><Leaf /></div></template>`,
+		"BadLeaf.vue": `<template><div v-if=""></div></template>`,
+		"Failing.vue": `<template><div><BadLeaf /></div></template>`,
+	}
 
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf)
-
-	eOk, err := htmlc.New(htmlc.Options{ComponentDir: dir, Logger: logger})
-	if err != nil {
-		t.Fatalf("New (ok): %v", err)
-	}
+	eOk := htmlctest.NewHarness(t, files, htmlc.Options{Logger: logger}).Engine()
 
 	if _, err := eOk.RenderFragmentString("Root", nil); err != nil {
 		t.Fatalf("RenderFragmentString Root: %v", err)
@@ -351,10 +306,7 @@ func TestLoggerMessageConstants(t *testing.T) {
 
 	var bufFail bytes.Buffer
 	loggerFail := newTestLogger(&bufFail)
-	eFail, err := htmlc.New(htmlc.Options{ComponentDir: dir, Logger: loggerFail})
-	if err != nil {
-		t.Fatalf("New (fail): %v", err)
-	}
+	eFail := htmlctest.NewHarness(t, files, htmlc.Options{Logger: loggerFail}).Engine()
 	_, _ = eFail.RenderFragmentString("Failing", nil)
 
 	// Successful records.

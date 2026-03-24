@@ -1,15 +1,16 @@
 package htmlc
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dhamidi/htmlc/internal/testhelpers"
 )
 
 func highlightEngine(t *testing.T, tmpl string) *Engine {
 	t.Helper()
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Host.vue"), "<template>"+tmpl+"</template>")
+	testhelpers.WriteVue(t, dir, "Host.vue", "<template>"+tmpl+"</template>")
 	e, err := New(Options{
 		ComponentDir: dir,
 		Directives:   DirectiveRegistry{"highlight": &VHighlight{}},
@@ -79,7 +80,7 @@ func TestVHighlight_EmptyValueNoOp(t *testing.T) {
 // Engine.RegisterDirective.
 func TestVHighlight_NotRegisteredByDefault(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Host.vue"),
+	testhelpers.WriteVue(t, dir, "Host.vue",
 		"<template><p v-highlight=\"'yellow'\">text</p></template>")
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {

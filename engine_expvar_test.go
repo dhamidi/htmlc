@@ -6,25 +6,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/dhamidi/htmlc"
+	"github.com/dhamidi/htmlc/htmlctest"
+	"github.com/dhamidi/htmlc/internal/testhelpers"
 )
-
-// writeVueExpvar writes a minimal .vue file at path for expvar tests.
-func writeVueExpvar(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-}
 
 // parseExpvarMap unmarshals the String() output of an expvar.Var into a map.
 func parseExpvarMap(t *testing.T, v expvar.Var) map[string]any {
@@ -39,13 +28,9 @@ func parseExpvarMap(t *testing.T, v expvar.Var) map[string]any {
 // TestPublishExpvars_registers verifies that PublishExpvars adds a map entry
 // to the global expvar registry and that its String() output is valid JSON.
 func TestPublishExpvars_registers(t *testing.T) {
-	dir := t.TempDir()
-	writeVueExpvar(t, filepath.Join(dir, "Hello.vue"), `<template><p>hello</p></template>`)
-
-	e, err := htmlc.New(htmlc.Options{ComponentDir: dir})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	e := htmlctest.NewHarness(t, map[string]string{
+		"Hello.vue": `<template><p>hello</p></template>`,
+	}).Engine()
 	e.PublishExpvars("htmlc_test_a1")
 
 	v := expvar.Get("htmlc_test_a1")
@@ -61,13 +46,9 @@ func TestPublishExpvars_registers(t *testing.T) {
 // TestPublishExpvars_counters verifies that the renders and renderErrors
 // counters reflect the actual number of render calls.
 func TestPublishExpvars_counters(t *testing.T) {
-	dir := t.TempDir()
-	writeVueExpvar(t, filepath.Join(dir, "Counter.vue"), `<template><span>{{ n }}</span></template>`)
-
-	e, err := htmlc.New(htmlc.Options{ComponentDir: dir})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	e := htmlctest.NewHarness(t, map[string]string{
+		"Counter.vue": `<template><span>{{ n }}</span></template>`,
+	}).Engine()
 	e.PublishExpvars("htmlc_test_a2")
 
 	const N = 10
@@ -91,14 +72,10 @@ func TestPublishExpvars_counters(t *testing.T) {
 // TestSetDebug_toggles verifies that SetDebug correctly enables and disables
 // attribute-based debug annotations and updates the expvar counter.
 func TestSetDebug_toggles(t *testing.T) {
-	dir := t.TempDir()
-	writeVueExpvar(t, filepath.Join(dir, "DbgChild.vue"), `<template><span>child</span></template>`)
-	writeVueExpvar(t, filepath.Join(dir, "DbgParent.vue"), `<template><div><DbgChild /></div></template>`)
-
-	e, err := htmlc.New(htmlc.Options{ComponentDir: dir, Debug: false})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	e := htmlctest.NewHarness(t, map[string]string{
+		"DbgChild.vue":  `<template><span>child</span></template>`,
+		"DbgParent.vue": `<template><div><DbgChild /></div></template>`,
+	}, htmlc.Options{Debug: false}).Engine()
 	e.PublishExpvars("htmlc_test_a3")
 
 	// Render with debug off — no data-htmlc-* attributes expected.
@@ -146,13 +123,9 @@ func TestSetDebug_toggles(t *testing.T) {
 
 // TestSetReload_reflected verifies that SetReload is mirrored in the expvar map.
 func TestSetReload_reflected(t *testing.T) {
-	dir := t.TempDir()
-	writeVueExpvar(t, filepath.Join(dir, "ReloadComp.vue"), `<template><p>reload</p></template>`)
-
-	e, err := htmlc.New(htmlc.Options{ComponentDir: dir, Reload: false})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	e := htmlctest.NewHarness(t, map[string]string{
+		"ReloadComp.vue": `<template><p>reload</p></template>`,
+	}, htmlc.Options{Reload: false}).Engine()
 	e.PublishExpvars("htmlc_test_a4")
 
 	v := expvar.Get("htmlc_test_a4")
@@ -179,8 +152,8 @@ func TestSetReload_reflected(t *testing.T) {
 func TestSetComponentDir_swaps(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
-	writeVueExpvar(t, filepath.Join(dir1, "Alpha.vue"), `<template><p>alpha</p></template>`)
-	writeVueExpvar(t, filepath.Join(dir2, "Beta.vue"), `<template><p>beta</p></template>`)
+	testhelpers.WriteVue(t, dir1, "Alpha.vue", `<template><p>alpha</p></template>`)
+	testhelpers.WriteVue(t, dir2, "Beta.vue", `<template><p>beta</p></template>`)
 
 	e, err := htmlc.New(htmlc.Options{ComponentDir: dir1})
 	if err != nil {
@@ -250,13 +223,9 @@ func TestSetFS_updatesVar(t *testing.T) {
 // TestPublishExpvars_duplicatePanics verifies that calling PublishExpvars with
 // the same prefix twice causes a panic.
 func TestPublishExpvars_duplicatePanics(t *testing.T) {
-	dir := t.TempDir()
-	writeVueExpvar(t, filepath.Join(dir, "Dup.vue"), `<template><p>dup</p></template>`)
-
-	e, err := htmlc.New(htmlc.Options{ComponentDir: dir})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	e := htmlctest.NewHarness(t, map[string]string{
+		"Dup.vue": `<template><p>dup</p></template>`,
+	}).Engine()
 	e.PublishExpvars("htmlc_test_a7")
 
 	defer func() {
@@ -270,13 +239,9 @@ func TestPublishExpvars_duplicatePanics(t *testing.T) {
 // TestNoPublishExpvars_noSideEffect verifies that an engine without
 // PublishExpvars does not register anything in the global expvar registry.
 func TestNoPublishExpvars_noSideEffect(t *testing.T) {
-	dir := t.TempDir()
-	writeVueExpvar(t, filepath.Join(dir, "Nopub.vue"), `<template><p>nopub</p></template>`)
-
-	e, err := htmlc.New(htmlc.Options{ComponentDir: dir})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	e := htmlctest.NewHarness(t, map[string]string{
+		"Nopub.vue": `<template><p>nopub</p></template>`,
+	}).Engine()
 
 	for i := 0; i < 5; i++ {
 		if _, err := e.RenderFragmentString("Nopub", nil); err != nil {
@@ -292,13 +257,9 @@ func TestNoPublishExpvars_noSideEffect(t *testing.T) {
 // TestRenderErrors_counter verifies that rendering an unknown component
 // increments the renderErrors counter.
 func TestRenderErrors_counter(t *testing.T) {
-	dir := t.TempDir()
-	writeVueExpvar(t, filepath.Join(dir, "Existing.vue"), `<template><p>exists</p></template>`)
-
-	e, err := htmlc.New(htmlc.Options{ComponentDir: dir})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	e := htmlctest.NewHarness(t, map[string]string{
+		"Existing.vue": `<template><p>exists</p></template>`,
+	}).Engine()
 	e.PublishExpvars("htmlc_test_a9")
 
 	_, renderErr := e.RenderPageString("NonExistentComponent", nil)
@@ -316,13 +277,9 @@ func TestRenderErrors_counter(t *testing.T) {
 // TestExpvarHTTPEndpoint starts a real in-process HTTP server via
 // httptest.NewServer and verifies that /debug/vars exposes the engine metrics.
 func TestExpvarHTTPEndpoint(t *testing.T) {
-	dir := t.TempDir()
-	writeVueExpvar(t, filepath.Join(dir, "Page.vue"), `<template><p>page</p></template>`)
-
-	e, err := htmlc.New(htmlc.Options{ComponentDir: dir})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	e := htmlctest.NewHarness(t, map[string]string{
+		"Page.vue": `<template><p>page</p></template>`,
+	}).Engine()
 
 	// The blank import of net/http/expvar registers /debug/vars on DefaultServeMux.
 	srv := httptest.NewServer(http.DefaultServeMux)

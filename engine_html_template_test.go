@@ -3,16 +3,17 @@ package htmlc
 import (
 	"errors"
 	htmltmpl "html/template"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/dhamidi/htmlc/internal/testhelpers"
 )
 
 // ---- CompileToTemplate tests ------------------------------------------------
 
 func TestEngine_CompileToTemplate_SimpleInterpolation(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Greet.vue"), `<template><p>{{ message }}</p></template>`)
+	testhelpers.WriteVue(t, dir, "Greet.vue", `<template><p>{{ message }}</p></template>`)
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -35,8 +36,8 @@ func TestEngine_CompileToTemplate_SimpleInterpolation(t *testing.T) {
 func TestEngine_CompileToTemplate_SubComponent(t *testing.T) {
 	dir := t.TempDir()
 	// Use kebab-case so the HTML parser emits a non-standard (DataAtom==0) element.
-	writeVue(t, filepath.Join(dir, "foot-note.vue"), `<template><span>footer</span></template>`)
-	writeVue(t, filepath.Join(dir, "Article.vue"), `<template><div><foot-note></foot-note></div></template>`)
+	testhelpers.WriteVue(t, dir, "foot-note.vue", `<template><span>footer</span></template>`)
+	testhelpers.WriteVue(t, dir, "Article.vue", `<template><div><foot-note></foot-note></div></template>`)
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -64,7 +65,7 @@ func TestEngine_CompileToTemplate_SubComponent(t *testing.T) {
 
 func TestEngine_CompileToTemplate_VIf(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Cond.vue"), `<template><div v-if="show"><p>visible</p></div></template>`)
+	testhelpers.WriteVue(t, dir, "Cond.vue", `<template><div v-if="show"><p>visible</p></div></template>`)
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -94,7 +95,7 @@ func TestEngine_CompileToTemplate_VIf(t *testing.T) {
 
 func TestEngine_CompileToTemplate_ScopedStyleStripped(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "Styled.vue"),
+	testhelpers.WriteVue(t, dir, "Styled.vue",
 		`<template><p>content</p></template><style scoped>p { color: red; }</style>`)
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
@@ -118,7 +119,7 @@ func TestEngine_CompileToTemplate_ScopedStyleStripped(t *testing.T) {
 func TestEngine_CompileToTemplate_UnsupportedConstruct(t *testing.T) {
 	dir := t.TempDir()
 	// Complex expression not supported by html/template conversion.
-	writeVue(t, filepath.Join(dir, "Bad.vue"), `<template><p>{{ items[0] }}</p></template>`)
+	testhelpers.WriteVue(t, dir, "Bad.vue", `<template><p>{{ items[0] }}</p></template>`)
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -154,7 +155,7 @@ func TestEngine_CompileToTemplate_NotFound(t *testing.T) {
 
 func TestEngine_CompileToTemplate_NamesAreLowercased(t *testing.T) {
 	dir := t.TempDir()
-	writeVue(t, filepath.Join(dir, "MyCard.vue"), `<template><div>card</div></template>`)
+	testhelpers.WriteVue(t, dir, "MyCard.vue", `<template><div>card</div></template>`)
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -179,7 +180,7 @@ func TestEngine_CompileToTemplate_NamesAreLowercased(t *testing.T) {
 func TestEngine_RegisterTemplate_SimpleStdlib(t *testing.T) {
 	dir := t.TempDir()
 	// Parent Vue component uses <foot-note> (kebab-case → non-standard HTML element).
-	writeVue(t, filepath.Join(dir, "Page.vue"), `<template><div><foot-note></foot-note></div></template>`)
+	testhelpers.WriteVue(t, dir, "Page.vue", `<template><div><foot-note></foot-note></div></template>`)
 	e, err := New(Options{ComponentDir: dir})
 	if err != nil {
 		t.Fatalf("New: %v", err)
