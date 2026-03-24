@@ -146,28 +146,10 @@ func TestExternalDirective_InvalidJSONResponse(t *testing.T) {
 
 // TestExternalDirective_InnerHTMLSentInRequest verifies that the Created hook
 // sends the ctx.RenderedChildHTML value as the "inner_html" request field.
-// The test uses a temporary Node.js script that echoes the request's inner_html
+// The test uses a Go-based v-dump directive that echoes the request's inner_html
 // back as the response inner_html, so we can observe what was sent.
 func TestExternalDirective_InnerHTMLSentInRequest(t *testing.T) {
-	dir := t.TempDir()
-	script := filepath.Join(dir, "v-dump")
-	scriptContent := []byte("#!/usr/bin/env node\n" +
-		"const readline = require('readline');\n" +
-		"const rl = readline.createInterface({ input: process.stdin, terminal: false });\n" +
-		"rl.on('line', (line) => {\n" +
-		"    const req = JSON.parse(line);\n" +
-		"    process.stdout.write(JSON.stringify({id: req.id, inner_html: req.inner_html || ''}) + '\\n');\n" +
-		"});\n")
-	if err := os.WriteFile(script, scriptContent, 0755); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	var stderrBuf bytes.Buffer
-	ed := &externalDirective{name: "dump", path: script, stderr: &stderrBuf}
-	if err := ed.start(); err != nil {
-		t.Skipf("start directive (node not available?): %v", err)
-	}
-	defer ed.stop()
+	ed := newTestDirective(t, "dump", testdataPath(t, "v-dump"))
 
 	node := makeNode("pre")
 	binding := htmlc.DirectiveBinding{Value: "go"}

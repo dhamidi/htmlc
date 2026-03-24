@@ -1,24 +1,2 @@
-#!/usr/bin/env node
-// v-echo: test directive that echoes back a response for each request.
-// For "created": returns attrs with data-echo="true", and inner_html if
-// the binding value is the string "inner_html:<content>".
-// For "mounted": returns html="<!--mounted-->".
-const readline = require('readline');
-const rl = readline.createInterface({ input: process.stdin, terminal: false });
-rl.on('line', (line) => {
-    const req = JSON.parse(line);
-    let resp;
-    if (req.hook === 'created') {
-        resp = { id: req.id, attrs: { 'data-echo': 'true' } };
-        // If binding.value is a string starting with "inner_html:", set inner_html.
-        const val = req.binding && req.binding.value;
-        if (typeof val === 'string' && val.startsWith('inner_html:')) {
-            resp.inner_html = val.slice('inner_html:'.length);
-        }
-    } else if (req.hook === 'mounted') {
-        resp = { id: req.id, html: '<!--mounted-->' };
-    } else {
-        resp = { id: req.id };
-    }
-    process.stdout.write(JSON.stringify(resp) + '\n');
-});
+#!/bin/sh
+exec go run "$(dirname "$0")/v-echo-main/main.go"

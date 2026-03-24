@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -602,21 +603,10 @@ func TestBuildExternalDirective(t *testing.T) {
 		}
 	}
 
-	// Write a v-upper directive script that uppercases the text content.
-	// Uses node since it's reliably available.
+	// Write a v-upper directive shell wrapper that calls the Go implementation.
 	upperScript := filepath.Join(components, "v-upper")
-	upperScriptContent := `#!/usr/bin/env node
-const readline = require('readline');
-const rl = readline.createInterface({ input: process.stdin, terminal: false });
-rl.on('line', (line) => {
-    const req = JSON.parse(line);
-    if (req.hook === 'created') {
-        process.stdout.write(JSON.stringify({id: req.id, inner_html: req.text.toUpperCase()}) + '\n');
-    } else {
-        process.stdout.write(JSON.stringify({id: req.id, html: ''}) + '\n');
-    }
-});
-`
+	abs, _ := filepath.Abs(filepath.Join("testdata", "v-upper-main", "main.go"))
+	upperScriptContent := fmt.Sprintf("#!/bin/sh\nexec go run %q\n", abs)
 	if err := os.WriteFile(upperScript, []byte(upperScriptContent), 0755); err != nil {
 		t.Fatalf("WriteFile v-upper: %v", err)
 	}
