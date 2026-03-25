@@ -3,12 +3,10 @@ package htmlc
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
-
-	"github.com/dhamidi/htmlc/internal/testhelpers"
 )
 
 // TestIntegration_FullPipeline exercises the complete rendering pipeline through
@@ -16,9 +14,8 @@ import (
 // component that uses v-if/v-else, v-for, :class, mustache interpolation, and
 // scoped styles, then asserts the resulting HTML output covers every subsystem.
 func TestIntegration_FullPipeline(t *testing.T) {
-	dir := t.TempDir()
-	compPath := filepath.Join(dir, "Featured.vue")
-	testhelpers.WriteVue(t, dir, "Featured.vue", `<template><div :class="{ active: isActive, disabled: isDisabled }">
+	memFS := fstest.MapFS{
+		"Featured.vue": &fstest.MapFile{Data: []byte(`<template><div :class="{ active: isActive, disabled: isDisabled }">
   <h1>{{ title }}</h1>
   <p v-if="show">Visible content</p>
   <p v-else>Hidden content</p>
@@ -29,9 +26,10 @@ func TestIntegration_FullPipeline(t *testing.T) {
 <style scoped>
 .active { color: green; }
 .disabled { color: grey; }
-</style>`)
+</style>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -73,7 +71,7 @@ func TestIntegration_FullPipeline(t *testing.T) {
 	}
 
 	// scoped styles: prepended <style> block rewrites selectors with the scope attribute
-	scopeAttr := ScopeID(compPath)
+	scopeAttr := ScopeID("Featured.vue")
 	scopeSelector := "[" + scopeAttr + "]"
 	if !strings.Contains(out, scopeSelector) {
 		t.Errorf("scoped style: want CSS scope selector %q in output:\n%s", scopeSelector, out)
@@ -89,13 +87,12 @@ func TestIntegration_FullPipeline(t *testing.T) {
 // can compose a child component and inject content through the default slot,
 // exercising the Engine's registry, the component renderer, and slot injection.
 func TestIntegration_NestedComponentsWithSlots(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Card.vue",
-		`<template><div class="card"><slot></slot></div></template>`)
-	testhelpers.WriteVue(t, dir, "Page.vue",
-		`<template><Card><span>Slot content</span></Card></template>`)
+	memFS := fstest.MapFS{
+		"Card.vue": &fstest.MapFile{Data: []byte(`<template><div class="card"><slot></slot></div></template>`)},
+		"Page.vue": &fstest.MapFile{Data: []byte(`<template><Card><span>Slot content</span></Card></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -126,11 +123,11 @@ func TestIntegration_NestedComponentsWithSlots(t *testing.T) {
 // The data function injects a dynamic greeting name that must appear in the
 // rendered output, verifying that the data func is wired through correctly.
 func TestIntegration_ServeComponentHTTP(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Greeting.vue",
-		`<template><section class="greeting"><h1>Hello, {{ name }}!</h1></section></template>`)
+	memFS := fstest.MapFS{
+		"Greeting.vue": &fstest.MapFile{Data: []byte(`<template><section class="greeting"><h1>Hello, {{ name }}!</h1></section></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -163,11 +160,11 @@ func TestIntegration_ServeComponentHTTP(t *testing.T) {
 // TestIntegration_VIfWithLength verifies that v-if="posts.length > 0" renders
 // the element when the slice is non-empty and hides it when the slice is empty.
 func TestIntegration_VIfWithLength(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Posts.vue",
-		`<template><div><p v-if="posts.length > 0">Has posts</p><p v-else>No posts</p></div></template>`)
+	memFS := fstest.MapFS{
+		"Posts.vue": &fstest.MapFile{Data: []byte(`<template><div><p v-if="posts.length > 0">Has posts</p><p v-else>No posts</p></div></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -205,13 +202,12 @@ func TestIntegration_VIfWithLength(t *testing.T) {
 // a Layout component with named header/main/footer slots is used by a Page
 // component that injects dynamic content into each slot.
 func TestIntegration_LayoutPattern(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Layout.vue",
-		`<template><div class="layout"><header><slot name="header"></slot></header><main><slot></slot></main><footer><slot name="footer"></slot></footer></div></template>`)
-	testhelpers.WriteVue(t, dir, "Page.vue",
-		`<template><Layout><template #header><h1>{{ title }}</h1></template><p>{{ body }}</p><template #footer><small>{{ copy }}</small></template></Layout></template>`)
+	memFS := fstest.MapFS{
+		"Layout.vue": &fstest.MapFile{Data: []byte(`<template><div class="layout"><header><slot name="header"></slot></header><main><slot></slot></main><footer><slot name="footer"></slot></footer></div></template>`)},
+		"Page.vue":   &fstest.MapFile{Data: []byte(`<template><Layout><template #header><h1>{{ title }}</h1></template><p>{{ body }}</p><template #footer><small>{{ copy }}</small></template></Layout></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -243,13 +239,12 @@ func TestIntegration_LayoutPattern(t *testing.T) {
 // pattern: a UserList component iterates its items internally and exposes
 // each item and its index through a named scoped slot.
 func TestIntegration_RenderlessListPattern(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "UserList.vue",
-		`<template><ul><li v-for="(user, index) in users"><slot name="item" :user="user" :index="index"></slot></li></ul></template>`)
-	testhelpers.WriteVue(t, dir, "Page.vue",
-		`<template><UserList :users="users"><template #item="{ user, index }"><span>{{ index }}: {{ user.name }}</span></template></UserList></template>`)
+	memFS := fstest.MapFS{
+		"UserList.vue": &fstest.MapFile{Data: []byte(`<template><ul><li v-for="(user, index) in users"><slot name="item" :user="user" :index="index"></slot></li></ul></template>`)},
+		"Page.vue":     &fstest.MapFile{Data: []byte(`<template><UserList :users="users"><template #item="{ user, index }"><span>{{ index }}: {{ user.name }}</span></template></UserList></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -279,15 +274,13 @@ func TestIntegration_RenderlessListPattern(t *testing.T) {
 // hierarchy where each level uses slots: Parent provides content to Child via
 // a named slot, and Child provides content to Grandchild via a named slot.
 func TestIntegration_NestedParentChildGrandchild(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Grandchild.vue",
-		`<template><span class="gc"><slot name="data"></slot></span></template>`)
-	testhelpers.WriteVue(t, dir, "Child.vue",
-		`<template><div class="child"><slot name="main"></slot><Grandchild><template #data><em>gc-content</em></template></Grandchild></div></template>`)
-	testhelpers.WriteVue(t, dir, "Parent.vue",
-		`<template><article><Child><template #main><strong>parent-content</strong></template></Child></article></template>`)
+	memFS := fstest.MapFS{
+		"Grandchild.vue": &fstest.MapFile{Data: []byte(`<template><span class="gc"><slot name="data"></slot></span></template>`)},
+		"Child.vue":      &fstest.MapFile{Data: []byte(`<template><div class="child"><slot name="main"></slot><Grandchild><template #data><em>gc-content</em></template></Grandchild></div></template>`)},
+		"Parent.vue":     &fstest.MapFile{Data: []byte(`<template><article><Child><template #main><strong>parent-content</strong></template></Child></article></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -318,10 +311,11 @@ func TestIntegration_NestedParentChildGrandchild(t *testing.T) {
 // Engine to re-parse a component file when its modification time advances,
 // exercising the full path from file-system change through to rendered output.
 func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Live.vue", `<template><p>version one</p></template>`)
+	memFS := fstest.MapFS{
+		"Live.vue": &fstest.MapFile{Data: []byte(`<template><p>version one</p></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir, Reload: true})
+	e, err := New(Options{FS: memFS, ComponentDir: ".", Reload: true})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -334,9 +328,12 @@ func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
 		t.Errorf("before reload: want 'version one' in output:\n%s", out)
 	}
 
-	// Ensure the mtime advances before overwriting the file.
-	time.Sleep(10 * time.Millisecond)
-	testhelpers.WriteVue(t, dir, "Live.vue", `<template><p>version two</p></template>`)
+	// Simulate file modification by updating the MapFile with new content and a
+	// future ModTime so the reload check sees it as changed.
+	memFS["Live.vue"] = &fstest.MapFile{
+		Data:    []byte(`<template><p>version two</p></template>`),
+		ModTime: time.Now().Add(time.Second),
+	}
 
 	out, err = e.RenderFragmentString("Live", nil)
 	if err != nil {
@@ -355,15 +352,13 @@ func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
 // parser lowercases attribute names (e.g. :submitLabel → :submitlabel), so the
 // engine must recover the original casing when injecting into the child scope.
 func TestIntegration_CamelCasePropViaSlot(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Layout.vue",
-		`<template><div class="layout"><slot></slot></div></template>`)
-	testhelpers.WriteVue(t, dir, "Inner.vue",
-		`<template><span>{{ myProp }}</span></template>`)
-	testhelpers.WriteVue(t, dir, "Page.vue",
-		`<template><Layout><Inner :myProp="myProp" /></Layout></template>`)
+	memFS := fstest.MapFS{
+		"Layout.vue": &fstest.MapFile{Data: []byte(`<template><div class="layout"><slot></slot></div></template>`)},
+		"Inner.vue":  &fstest.MapFile{Data: []byte(`<template><span>{{ myProp }}</span></template>`)},
+		"Page.vue":   &fstest.MapFile{Data: []byte(`<template><Layout><Inner :myProp="myProp" /></Layout></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -381,13 +376,12 @@ func TestIntegration_CamelCasePropViaSlot(t *testing.T) {
 }
 
 func TestIntegration_DynamicComponent_BasicResolution(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Banner.vue",
-		`<template><section class="banner"><slot></slot></section></template>`)
-	testhelpers.WriteVue(t, dir, "Page.vue",
-		`<template><component :is="widgetType">hello</component></template>`)
+	memFS := fstest.MapFS{
+		"Banner.vue": &fstest.MapFile{Data: []byte(`<template><section class="banner"><slot></slot></section></template>`)},
+		"Page.vue":   &fstest.MapFile{Data: []byte(`<template><component :is="widgetType">hello</component></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -408,17 +402,13 @@ func TestIntegration_DynamicComponent_BasicResolution(t *testing.T) {
 // component tag (<PostImage ... />) renders identically to the explicit
 // open/close form (<PostImage ...></PostImage>).
 func TestIntegration_SelfClosingComponentTag(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "PostImage.vue",
-		`<template><img :src="src" :alt="alt" /></template>`)
-	// Caller using self-closing form.
-	testhelpers.WriteVue(t, dir, "PageSelfClose.vue",
-		`<template><PostImage src="/hero.jpg" alt="Hero" /><p>Caption here</p></template>`)
-	// Caller using explicit open/close form.
-	testhelpers.WriteVue(t, dir, "PageExplicit.vue",
-		`<template><PostImage src="/hero.jpg" alt="Hero"></PostImage><p>Caption here</p></template>`)
+	memFS := fstest.MapFS{
+		"PostImage.vue":    &fstest.MapFile{Data: []byte(`<template><img :src="src" :alt="alt" /></template>`)},
+		"PageSelfClose.vue": &fstest.MapFile{Data: []byte(`<template><PostImage src="/hero.jpg" alt="Hero" /><p>Caption here</p></template>`)},
+		"PageExplicit.vue": &fstest.MapFile{Data: []byte(`<template><PostImage src="/hero.jpg" alt="Hero"></PostImage><p>Caption here</p></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -446,13 +436,12 @@ func TestIntegration_SelfClosingComponentTag(t *testing.T) {
 // with a self-closing custom component tag sets Component.Warnings, and that
 // ValidateAll surfaces those warnings as ValidationError entries.
 func TestIntegration_SelfClosingComponentWarning(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Icon.vue",
-		`<template><span class="icon"></span></template>`)
-	testhelpers.WriteVue(t, dir, "Page.vue",
-		`<template><Icon /></template>`)
+	memFS := fstest.MapFS{
+		"Icon.vue": &fstest.MapFile{Data: []byte(`<template><span class="icon"></span></template>`)},
+		"Page.vue": &fstest.MapFile{Data: []byte(`<template><Icon /></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -472,13 +461,12 @@ func TestIntegration_SelfClosingComponentWarning(t *testing.T) {
 }
 
 func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Widget.vue",
-		`<template><p>version one</p></template>`)
-	testhelpers.WriteVue(t, dir, "Page.vue",
-		`<template><component :is="'Widget'"></component></template>`)
+	memFS := fstest.MapFS{
+		"Widget.vue": &fstest.MapFile{Data: []byte(`<template><p>version one</p></template>`)},
+		"Page.vue":   &fstest.MapFile{Data: []byte(`<template><component :is="'Widget'"></component></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir, Reload: true})
+	e, err := New(Options{FS: memFS, ComponentDir: ".", Reload: true})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -491,9 +479,12 @@ func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
 		t.Errorf("reload: want 'version one' in initial output:\n%s", out)
 	}
 
-	time.Sleep(10 * time.Millisecond)
-	testhelpers.WriteVue(t, dir, "Widget.vue",
-		`<template><p>version two</p></template>`)
+	// Simulate file modification by updating the MapFile with new content and a
+	// future ModTime so the reload check sees it as changed.
+	memFS["Widget.vue"] = &fstest.MapFile{
+		Data:    []byte(`<template><p>version two</p></template>`),
+		ModTime: time.Now().Add(time.Second),
+	}
 
 	out, err = e.RenderFragmentString("Page", nil)
 	if err != nil {
@@ -508,18 +499,18 @@ func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
 // global <style> block containing an @font-face rule emits quoted string values
 // byte-for-byte in the rendered output, with no HTML-escaping or quote removal.
 func TestIntegration_FontFaceQuotesPreserved(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Fonts.vue",
-		`<template><p>hello</p></template>
+	memFS := fstest.MapFS{
+		"Fonts.vue": &fstest.MapFile{Data: []byte(`<template><p>hello</p></template>
 <style>
 @font-face {
   font-family: "My Font";
   src: url("font.woff2") format("woff2");
 }
 p { font-family: "My Font"; }
-</style>`)
+</style>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -540,18 +531,18 @@ p { font-family: "My Font"; }
 // <style> block with @font-face emits quoted values verbatim. @-rules are
 // passed through without selector rewriting, so the output must be identical.
 func TestIntegration_ScopedFontFaceQuotesPreserved(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "ScopedFonts.vue",
-		`<template><p>hello</p></template>
+	memFS := fstest.MapFS{
+		"ScopedFonts.vue": &fstest.MapFile{Data: []byte(`<template><p>hello</p></template>
 <style scoped>
 @font-face {
   font-family: "My Font";
   src: url("font.woff2") format("woff2");
 }
 p { font-family: "My Font"; }
-</style>`)
+</style>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -572,14 +563,14 @@ p { font-family: "My Font"; }
 // characters inside CSS content property values pass through the pipeline
 // without HTML-entity encoding or other modification.
 func TestIntegration_CSSContentSpecialCharsPreserved(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Icons.vue",
-		`<template><span class="arrow"></span></template>
+	memFS := fstest.MapFS{
+		"Icons.vue": &fstest.MapFile{Data: []byte(`<template><span class="arrow"></span></template>
 <style>
 .arrow::before { content: "a > b & c < d"; }
-</style>`)
+</style>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -606,15 +597,13 @@ func TestIntegration_CSSContentSpecialCharsPreserved(t *testing.T) {
 //
 // Expected output: <div><div><a href="/">Home</a></div></div>
 func TestIntegration_NestedSlotChain_NoInfiniteRecursion(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Inner.vue",
-		`<template><div><slot /></div></template>`)
-	testhelpers.WriteVue(t, dir, "Middle.vue",
-		`<template><Inner><div><slot /></div></Inner></template>`)
-	testhelpers.WriteVue(t, dir, "Outer.vue",
-		`<template><Middle><a href="/">Home</a></Middle></template>`)
+	memFS := fstest.MapFS{
+		"Inner.vue":  &fstest.MapFile{Data: []byte(`<template><div><slot /></div></template>`)},
+		"Middle.vue": &fstest.MapFile{Data: []byte(`<template><Inner><div><slot /></div></Inner></template>`)},
+		"Outer.vue":  &fstest.MapFile{Data: []byte(`<template><Middle><a href="/">Home</a></Middle></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -637,15 +626,13 @@ func TestIntegration_NestedSlotChain_NoInfiniteRecursion(t *testing.T) {
 // TestIntegration_NestedSlotChain_NamedSlot verifies that the fix also works
 // when named slots are used in the chain.
 func TestIntegration_NestedSlotChain_NamedSlot(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "InnerNamed.vue",
-		`<template><section><slot name="body" /></section></template>`)
-	testhelpers.WriteVue(t, dir, "MiddleNamed.vue",
-		`<template><InnerNamed><template #body><p><slot name="content" /></p></template></InnerNamed></template>`)
-	testhelpers.WriteVue(t, dir, "OuterNamed.vue",
-		`<template><MiddleNamed><template #content>hello</template></MiddleNamed></template>`)
+	memFS := fstest.MapFS{
+		"InnerNamed.vue":  &fstest.MapFile{Data: []byte(`<template><section><slot name="body" /></section></template>`)},
+		"MiddleNamed.vue": &fstest.MapFile{Data: []byte(`<template><InnerNamed><template #body><p><slot name="content" /></p></template></InnerNamed></template>`)},
+		"OuterNamed.vue":  &fstest.MapFile{Data: []byte(`<template><MiddleNamed><template #content>hello</template></MiddleNamed></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -668,18 +655,16 @@ func TestIntegration_NestedSlotChain_NamedSlot(t *testing.T) {
 // TestIntegration_NestedSlotChain_SlotProps verifies that slot props thread
 // correctly through a three-component chain.
 func TestIntegration_NestedSlotChain_SlotProps(t *testing.T) {
-	dir := t.TempDir()
-	// InnerProps emits a static slot prop msg="hello".
-	testhelpers.WriteVue(t, dir, "InnerProps.vue",
-		`<template><slot msg="hello" /></template>`)
-	// MiddleProps consumes InnerProps' msg and re-emits it as label via slot props.
-	testhelpers.WriteVue(t, dir, "MiddleProps.vue",
-		`<template><InnerProps v-slot="{ msg }"><slot :label="msg" /></InnerProps></template>`)
-	// OuterProps consumes MiddleProps' label and renders it in a span.
-	testhelpers.WriteVue(t, dir, "OuterProps.vue",
-		`<template><MiddleProps v-slot="{ label }"><span>{{ label }}</span></MiddleProps></template>`)
+	memFS := fstest.MapFS{
+		// InnerProps emits a static slot prop msg="hello".
+		"InnerProps.vue": &fstest.MapFile{Data: []byte(`<template><slot msg="hello" /></template>`)},
+		// MiddleProps consumes InnerProps' msg and re-emits it as label via slot props.
+		"MiddleProps.vue": &fstest.MapFile{Data: []byte(`<template><InnerProps v-slot="{ msg }"><slot :label="msg" /></InnerProps></template>`)},
+		// OuterProps consumes MiddleProps' label and renders it in a span.
+		"OuterProps.vue": &fstest.MapFile{Data: []byte(`<template><MiddleProps v-slot="{ label }"><span>{{ label }}</span></MiddleProps></template>`)},
+	}
 
-	e, err := New(Options{ComponentDir: dir})
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
