@@ -376,6 +376,22 @@ func (r *Renderer) Render(w io.Writer, scope map[string]any) error {
 		r.styleCollector.Add(StyleContribution{ScopeID: sid, CSS: css})
 	}
 
+	// For custom elements, render into a buffer first then wrap.
+	if r.component.CustomElementTag != "" {
+		var buf bytes.Buffer
+		if err := r.renderNode(&buf, r.component.Template, scope); err != nil {
+			return err
+		}
+		tag := r.component.CustomElementTag
+		if r.component.ShadowDOMMode != "" {
+			fmt.Fprintf(w, "<%s><template shadowrootmode=%q>%s</template></%s>",
+				tag, r.component.ShadowDOMMode, buf.String(), tag)
+		} else {
+			fmt.Fprintf(w, "<%s>%s</%s>", tag, buf.String(), tag)
+		}
+		return nil
+	}
+
 	return r.renderNode(w, r.component.Template, scope)
 }
 
