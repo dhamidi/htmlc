@@ -28,6 +28,15 @@ type Component struct {
 	// Warnings holds non-fatal issues found during parsing, such as self-closing
 	// custom component tags that were automatically rewritten.
 	Warnings []string
+	// CustomElementScript holds the raw JS/TS source from a <script customelement> block,
+	// or "" when the component is not a custom element.
+	CustomElementScript string
+	// CustomElementTag is the kebab-case tag name derived from the component's file path,
+	// e.g. "ui-date-picker" for "ui/DatePicker.vue".
+	// Empty when CustomElementScript == "".
+	CustomElementTag string
+	// ShadowDOMMode is "open", "closed", or "" (light DOM / no shadow root).
+	ShadowDOMMode string
 }
 
 // lineCol returns the 1-based line and column for byteOffset within src.
@@ -112,12 +121,23 @@ func ParseFile(path, src string) (*Component, error) {
 	}
 
 	c := &Component{
-		Template: templateRoot,
-		Script:   sections["script"],
-		Style:    sections["style"],
-		Scoped:   sections["style:scoped"] == "true",
-		Path:     path,
-		Source:   src,
+		Template:            templateRoot,
+		Script:              sections["script"],
+		Style:               sections["style"],
+		Scoped:              sections["style:scoped"] == "true",
+		Path:                path,
+		Source:              src,
+		CustomElementScript: sections["script:customelement"],
+		ShadowDOMMode:       sections["script:customelement:shadowdom"],
+	}
+	if c.CustomElementScript != "" {
+		tag := deriveCustomElementTag(path)
+		c.CustomElementTag = tag
+		if !strings.Contains(tag, "-") {
+			c.Warnings = append(c.Warnings, fmt.Sprintf(
+				"%s: custom element tag %q has no hyphen; "+
+					"the browser CE registry requires at least one hyphen", path, tag))
+		}
 	}
 	if count > 0 {
 		c.Warnings = append(c.Warnings, fmt.Sprintf(
@@ -196,12 +216,39 @@ func extractSections(src string) (map[string]string, error) {
 				case "template", "script", "style":
 					sectionKey := tagName
 					scoped := false
+					isCustomElement := false
+					shadowDOM := ""
 					for _, attr := range tok.Attr {
 						if attr.Key == "scoped" {
 							scoped = true
 						}
-						if tagName == "script" && attr.Key == "setup" {
-							sectionKey = "script:setup"
+						if tagName == "script" {
+							switch attr.Key {
+							case "setup":
+								sectionKey = "script:setup"
+							case "customelement":
+								isCustomElement = true
+								sectionKey = "script:customelement"
+							case "shadowdom":
+								if attr.Val == "closed" {
+									shadowDOM = "closed"
+								} else {
+									shadowDOM = "open"
+								}
+							}
+						}
+					}
+					// Conflict: <script customelement> cannot coexist with <script> or <script setup>.
+					if isCustomElement {
+						if _, ok := result["script"]; ok {
+							return nil, fmt.Errorf("<script customelement> cannot be combined with <script>")
+						}
+						if _, ok := result["script:setup"]; ok {
+							return nil, fmt.Errorf("<script customelement> cannot be combined with <script setup>")
+						}
+					} else if tagName == "script" {
+						if _, ok := result["script:customelement"]; ok {
+							return nil, fmt.Errorf("<script> cannot be combined with <script customelement>")
 						}
 					}
 					if _, dup := result[sectionKey]; dup {
@@ -215,6 +262,9 @@ func extractSections(src string) (map[string]string, error) {
 						}
 					} else {
 						current = &sectionInfo{tag: tagName, key: sectionKey, depth: 1, scoped: scoped}
+					}
+					if isCustomElement && shadowDOM != "" {
+						result["script:customelement:shadowdom"] = shadowDOM
 					}
 				}
 			} else {
@@ -394,6 +444,28 @@ func parseVForVars(s string) []string {
 		return result
 	}
 	return []string{s}
+}
+
+// camelToKebabRe matches a lowercase letter (or digit) immediately followed by
+// an uppercase letter, for PascalCase/camelCase to kebab-case conversion.
+var camelToKebabRe = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+// deriveCustomElementTag converts a .vue file path into the kebab-case custom
+// element tag name that the component should be registered under.
+//
+// Algorithm:
+//  1. Split on "/" to get path segments.
+//  2. Drop the ".vue" extension from the last segment.
+//  3. Convert each segment from PascalCase/camelCase to kebab-case.
+//  4. Join segments with "-".
+func deriveCustomElementTag(filePath string) string {
+	base := strings.TrimSuffix(filePath, ".vue")
+	segments := strings.Split(base, "/")
+	for i, seg := range segments {
+		seg = camelToKebabRe.ReplaceAllString(seg, "$1-$2")
+		segments[i] = strings.ToLower(seg)
+	}
+	return strings.Join(segments, "-")
 }
 
 // selfClosingComponentRe matches self-closing tags whose name starts with an
