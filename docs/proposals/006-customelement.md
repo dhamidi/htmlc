@@ -262,7 +262,7 @@ customElements.define('widgets-shape-canvas', WidgetsShapeCanvas)
 Usage:
 
 ```html
-<widgets.ShapeCanvas src="/api/shapes/stream" :width="800" :height="600" />
+<widgets-shape-canvas src="/api/shapes/stream" :width="800" :height="600"></widgets-shape-canvas>
 ```
 
 Server emits:
@@ -381,7 +381,7 @@ customElements.define('ui-date-picker', UiDatePicker)
 Usage:
 
 ```html
-<ui.DatePicker name="start_date" :value="startDate" placeholder="Pick a date" />
+<ui-date-picker name="start_date" :value="startDate" placeholder="Pick a date"></ui-date-picker>
 ```
 
 Server emits:
