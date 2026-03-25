@@ -2623,3 +2623,48 @@ func TestRenderer_NS_WithoutNSComponents_FlatOnly(t *testing.T) {
 		t.Errorf("expected 'hello', got: %q", out)
 	}
 }
+
+func TestRender_WhitespaceOnlyNodesDroppedInNonDebugMode(t *testing.T) {
+	// Whitespace-only text nodes between elements should not appear in non-debug output.
+	out := renderTemplate(t, "<div>\n  <span>hi</span>\n</div>", nil)
+	if strings.Contains(out, "\n") || strings.Contains(out, "  ") {
+		t.Errorf("non-debug output should not contain whitespace-only text nodes, got: %q", out)
+	}
+	if !strings.Contains(out, "<span>hi</span>") {
+		t.Errorf("expected <span>hi</span> in output, got: %q", out)
+	}
+}
+
+func TestRender_WhitespaceOnlyNodesPreservedInDebugMode(t *testing.T) {
+	// Whitespace-only text nodes should be preserved when debug mode is on.
+	out := renderTemplateDebug(t, "<div>\n  <span>hi</span>\n</div>", nil)
+	if !strings.Contains(out, "\n") {
+		t.Errorf("debug output should preserve whitespace-only text nodes, got: %q", out)
+	}
+}
+
+func TestRender_WhitespaceInStylePreserved(t *testing.T) {
+	// Whitespace inside <style> blocks must be preserved in both modes.
+	tmpl := "<style>\nbody { color: red; }\n</style>"
+	out := renderTemplate(t, tmpl, nil)
+	if !strings.Contains(out, "\nbody { color: red; }\n") {
+		t.Errorf("whitespace inside <style> should be preserved in non-debug mode, got: %q", out)
+	}
+	outDebug := renderTemplateDebug(t, tmpl, nil)
+	if !strings.Contains(outDebug, "\nbody { color: red; }\n") {
+		t.Errorf("whitespace inside <style> should be preserved in debug mode, got: %q", outDebug)
+	}
+}
+
+func TestRender_WhitespaceInScriptPreserved(t *testing.T) {
+	// Whitespace inside <script> blocks must be preserved in both modes.
+	tmpl := "<script>\nvar x = 1;\n</script>"
+	out := renderTemplate(t, tmpl, nil)
+	if !strings.Contains(out, "\nvar x = 1;\n") {
+		t.Errorf("whitespace inside <script> should be preserved in non-debug mode, got: %q", out)
+	}
+	outDebug := renderTemplateDebug(t, tmpl, nil)
+	if !strings.Contains(outDebug, "\nvar x = 1;\n") {
+		t.Errorf("whitespace inside <script> should be preserved in debug mode, got: %q", outDebug)
+	}
+}

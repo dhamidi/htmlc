@@ -424,6 +424,10 @@ func (r *Renderer) renderNode(w io.Writer, n *html.Node, scope map[string]any) e
 			io.WriteString(w, n.Data)
 			return nil
 		}
+		// In non-debug mode, drop whitespace-only text nodes to keep output clean.
+		if !r.debug && strings.TrimSpace(n.Data) == "" {
+			return nil
+		}
 		if err := r.interpolate(w, n.Data, scope); err != nil {
 			return err
 		}
