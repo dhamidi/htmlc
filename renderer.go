@@ -151,6 +151,7 @@ func ErrorOnMissingProp(name string) (any, error) {
 type Renderer struct {
 	component          *Component
 	styleCollector     *StyleCollector
+	ceCollector        *CustomElementCollector
 	registry           Registry
 	nsRegistry         map[string]map[string]*Component // nil = NS resolution disabled
 	componentDir       string                           // ComponentDir for NS relative-path computation
@@ -181,6 +182,14 @@ func NewRenderer(c *Component) *Renderer {
 // chaining.
 func (r *Renderer) WithStyles(sc *StyleCollector) *Renderer {
 	r.styleCollector = sc
+	return r
+}
+
+// WithCollector attaches a CustomElementCollector that will receive script
+// contributions from every custom element component encountered during Render.
+// Pass nil to disable collection. Returns the Renderer for chaining.
+func (r *Renderer) WithCollector(c *CustomElementCollector) *Renderer {
+	r.ceCollector = c
 	return r
 }
 
@@ -374,6 +383,11 @@ func (r *Renderer) Render(w io.Writer, scope map[string]any) error {
 			sid = ""
 		}
 		r.styleCollector.Add(StyleContribution{ScopeID: sid, CSS: css})
+	}
+
+	// Collect custom element script when a collector is attached.
+	if r.ceCollector != nil && r.component.CustomElementScript != "" {
+		r.ceCollector.Add(r.component.CustomElementTag, r.component.CustomElementScript)
 	}
 
 	// For custom elements, render into a buffer first then wrap.
@@ -1717,10 +1731,11 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 	}
 	childAncestors[r.component] = true
 
-	// Build a child renderer that shares the registry and style collector.
+	// Build a child renderer that shares the registry, style collector, and CE collector.
 	childRenderer := &Renderer{
 		component:             comp,
 		styleCollector:        r.styleCollector,
+		ceCollector:           r.ceCollector,
 		registry:              r.registry,
 		nsRegistry:            r.nsRegistry,        // propagate NS registry to child renderers
 		componentDir:          r.componentDir,       // propagate componentDir to child renderers

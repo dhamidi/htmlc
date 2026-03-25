@@ -710,13 +710,22 @@ func (e *Engine) applyDataMiddleware(r *http.Request, data map[string]any) map[s
 // renderComponent renders the named component with the given data scope,
 // writing HTML to w and returning the collected styles.
 func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, data map[string]any) (*StyleCollector, error) {
+	sc, _, err := e.renderComponentWithCollector(ctx, w, name, data, nil)
+	return sc, err
+}
+
+// renderComponentWithCollector renders the named component with the given data
+// scope, writing HTML to w. It returns the collected styles and passes
+// collector (may be nil) into every renderer so custom element scripts are
+// accumulated.
+func (e *Engine) renderComponentWithCollector(ctx context.Context, w io.Writer, name string, data map[string]any, collector *CustomElementCollector) (*StyleCollector, *CustomElementCollector, error) {
 	e.counterRenders.Add(1)
 	start := time.Now()
 	defer func() { e.counterRenderNanos.Add(time.Since(start).Nanoseconds()) }()
 
 	if err := e.maybeReload(); err != nil {
 		e.counterRenderErrors.Add(1)
-		return nil, err
+		return nil, nil, err
 	}
 
 	e.mu.RLock()
@@ -733,12 +742,13 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 
 	if !ok {
 		e.counterRenderErrors.Add(1)
-		return nil, fmt.Errorf("engine: unknown component %q: %w", name, ErrComponentNotFound)
+		return nil, nil, fmt.Errorf("engine: unknown component %q: %w", name, ErrComponentNotFound)
 	}
 
 	sc := &StyleCollector{}
 	renderer := NewRenderer(entry.comp).
 		WithStyles(sc).
+		WithCollector(collector).
 		WithComponents(reg).
 		WithDirectives(e.directives).
 		WithFuncs(e.funcs).
@@ -766,9 +776,21 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 	}
 	if err := e.loggedRender(ctx, name, w, renderFn); err != nil {
 		e.counterRenderErrors.Add(1)
-		return nil, err
+		return nil, nil, err
 	}
-	return sc, nil
+	return sc, collector, nil
+}
+
+// RenderWithCollector renders the named component and records any custom
+// element scripts in collector (may be nil for no collection).
+// It returns the rendered HTML as a string.
+func (e *Engine) RenderWithCollector(ctx context.Context, name string, props map[string]any, collector *CustomElementCollector) (string, error) {
+	var buf strings.Builder
+	_, _, err := e.renderComponentWithCollector(ctx, &buf, name, props, collector)
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // loggedRender wraps a root render call with slog instrumentation when
