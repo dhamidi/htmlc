@@ -5,8 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
+	"testing/fstest"
 
 	"github.com/dhamidi/htmlc"
 )
@@ -14,19 +13,13 @@ import (
 // Example demonstrates end-to-end use of the htmlc engine: create an Engine
 // from a directory of .vue files, then render a component as an HTML fragment.
 func Example() {
-	dir, err := os.MkdirTemp("", "htmlc-example-*")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
 	// Write a simple component with no scoped styles so the output is stable.
 	vue := `<template><p>Hello, {{ name }}!</p></template>`
-	if err := os.WriteFile(filepath.Join(dir, "Greeting.vue"), []byte(vue), 0644); err != nil {
-		log.Fatal(err)
+	memFS := fstest.MapFS{
+		"Greeting.vue": &fstest.MapFile{Data: []byte(vue)},
 	}
 
-	engine, err := htmlc.New(htmlc.Options{ComponentDir: dir})
+	engine, err := htmlc.New(htmlc.Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -331,18 +324,12 @@ func ExampleRenderer_WithMissingPropHandler() {
 // ExampleEngine_RenderPage demonstrates full-page rendering: collected
 // <style> blocks are injected immediately before </head>.
 func ExampleEngine_RenderPage() {
-	dir, err := os.MkdirTemp("", "htmlc-example-*")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
 	const vue = `<template><html><head><title>Demo</title></head><body><p>Hello</p></body></html></template><style>body{margin:0}</style>`
-	if err := os.WriteFile(filepath.Join(dir, "Page.vue"), []byte(vue), 0644); err != nil {
-		log.Fatal(err)
+	memFS := fstest.MapFS{
+		"Page.vue": &fstest.MapFile{Data: []byte(vue)},
 	}
 
-	engine, err := htmlc.New(htmlc.Options{ComponentDir: dir})
+	engine, err := htmlc.New(htmlc.Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -359,17 +346,11 @@ func ExampleEngine_RenderPage() {
 // ExampleEngine_ServeComponent shows how ServeComponent wraps a component as
 // an http.HandlerFunc, demonstrated with an httptest round-trip.
 func ExampleEngine_ServeComponent() {
-	dir, err := os.MkdirTemp("", "htmlc-example-*")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	if err := os.WriteFile(filepath.Join(dir, "Hello.vue"), []byte(`<template><p>hello</p></template>`), 0644); err != nil {
-		log.Fatal(err)
+	memFS := fstest.MapFS{
+		"Hello.vue": &fstest.MapFile{Data: []byte(`<template><p>hello</p></template>`)},
 	}
 
-	engine, err := htmlc.New(htmlc.Options{ComponentDir: dir})
+	engine, err := htmlc.New(htmlc.Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		log.Fatal(err)
 	}

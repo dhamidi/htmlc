@@ -5,16 +5,16 @@ import (
 	htmltmpl "html/template"
 	"strings"
 	"testing"
-
-	"github.com/dhamidi/htmlc/internal/testhelpers"
+	"testing/fstest"
 )
 
 // ---- CompileToTemplate tests ------------------------------------------------
 
 func TestEngine_CompileToTemplate_SimpleInterpolation(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Greet.vue", `<template><p>{{ message }}</p></template>`)
-	e, err := New(Options{ComponentDir: dir})
+	memFS := fstest.MapFS{
+		"Greet.vue": &fstest.MapFile{Data: []byte(`<template><p>{{ message }}</p></template>`)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -34,11 +34,12 @@ func TestEngine_CompileToTemplate_SimpleInterpolation(t *testing.T) {
 }
 
 func TestEngine_CompileToTemplate_SubComponent(t *testing.T) {
-	dir := t.TempDir()
-	// Use kebab-case so the HTML parser emits a non-standard (DataAtom==0) element.
-	testhelpers.WriteVue(t, dir, "foot-note.vue", `<template><span>footer</span></template>`)
-	testhelpers.WriteVue(t, dir, "Article.vue", `<template><div><foot-note></foot-note></div></template>`)
-	e, err := New(Options{ComponentDir: dir})
+	memFS := fstest.MapFS{
+		// Use kebab-case so the HTML parser emits a non-standard (DataAtom==0) element.
+		"foot-note.vue": &fstest.MapFile{Data: []byte(`<template><span>footer</span></template>`)},
+		"Article.vue":   &fstest.MapFile{Data: []byte(`<template><div><foot-note></foot-note></div></template>`)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -64,9 +65,10 @@ func TestEngine_CompileToTemplate_SubComponent(t *testing.T) {
 }
 
 func TestEngine_CompileToTemplate_VIf(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Cond.vue", `<template><div v-if="show"><p>visible</p></div></template>`)
-	e, err := New(Options{ComponentDir: dir})
+	memFS := fstest.MapFS{
+		"Cond.vue": &fstest.MapFile{Data: []byte(`<template><div v-if="show"><p>visible</p></div></template>`)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -94,10 +96,10 @@ func TestEngine_CompileToTemplate_VIf(t *testing.T) {
 }
 
 func TestEngine_CompileToTemplate_ScopedStyleStripped(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "Styled.vue",
-		`<template><p>content</p></template><style scoped>p { color: red; }</style>`)
-	e, err := New(Options{ComponentDir: dir})
+	memFS := fstest.MapFS{
+		"Styled.vue": &fstest.MapFile{Data: []byte(`<template><p>content</p></template><style scoped>p { color: red; }</style>`)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -117,10 +119,11 @@ func TestEngine_CompileToTemplate_ScopedStyleStripped(t *testing.T) {
 }
 
 func TestEngine_CompileToTemplate_UnsupportedConstruct(t *testing.T) {
-	dir := t.TempDir()
 	// Complex expression not supported by html/template conversion.
-	testhelpers.WriteVue(t, dir, "Bad.vue", `<template><p>{{ items[0] }}</p></template>`)
-	e, err := New(Options{ComponentDir: dir})
+	memFS := fstest.MapFS{
+		"Bad.vue": &fstest.MapFile{Data: []byte(`<template><p>{{ items[0] }}</p></template>`)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -154,9 +157,10 @@ func TestEngine_CompileToTemplate_NotFound(t *testing.T) {
 }
 
 func TestEngine_CompileToTemplate_NamesAreLowercased(t *testing.T) {
-	dir := t.TempDir()
-	testhelpers.WriteVue(t, dir, "MyCard.vue", `<template><div>card</div></template>`)
-	e, err := New(Options{ComponentDir: dir})
+	memFS := fstest.MapFS{
+		"MyCard.vue": &fstest.MapFile{Data: []byte(`<template><div>card</div></template>`)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -178,10 +182,11 @@ func TestEngine_CompileToTemplate_NamesAreLowercased(t *testing.T) {
 // ---- RegisterTemplate tests -------------------------------------------------
 
 func TestEngine_RegisterTemplate_SimpleStdlib(t *testing.T) {
-	dir := t.TempDir()
 	// Parent Vue component uses <foot-note> (kebab-case → non-standard HTML element).
-	testhelpers.WriteVue(t, dir, "Page.vue", `<template><div><foot-note></foot-note></div></template>`)
-	e, err := New(Options{ComponentDir: dir})
+	memFS := fstest.MapFS{
+		"Page.vue": &fstest.MapFile{Data: []byte(`<template><div><foot-note></foot-note></div></template>`)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
