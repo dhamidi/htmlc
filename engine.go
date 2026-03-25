@@ -926,6 +926,56 @@ func (e *Engine) RenderFragmentContext(ctx context.Context, w io.Writer, name st
 	return err
 }
 
+// RenderPageWithCollector renders name as a full HTML page like RenderPage,
+// but also passes collector through every component in the tree so that
+// custom element scripts are accumulated. collector may be nil.
+func (e *Engine) RenderPageWithCollector(ctx context.Context, w io.Writer, name string, data map[string]any, collector *CustomElementCollector) error {
+	var buf strings.Builder
+	sc, _, err := e.renderComponentWithCollector(ctx, &buf, name, data, collector)
+	if err != nil {
+		return err
+	}
+	out := buf.String()
+
+	style := styleBlock(sc)
+	if style != "" {
+		if idx := strings.Index(out, "</head>"); idx >= 0 {
+			out = out[:idx] + style + out[idx:]
+		} else {
+			out = style + out
+		}
+	}
+
+	if e.varDebug.Value() != 0 {
+		script := "\n<script>\n" + InspectorScript + "\n</script>\n"
+		if idx := strings.Index(out, "</body>"); idx >= 0 {
+			out = out[:idx] + script + out[idx:]
+		} else {
+			out = out + script
+		}
+	}
+
+	_, err = io.WriteString(w, out)
+	return err
+}
+
+// RenderFragmentStringWithCollector renders name as an HTML fragment and
+// returns the result as a string like RenderFragmentString, but also passes
+// collector through every component in the tree. collector may be nil.
+func (e *Engine) RenderFragmentStringWithCollector(ctx context.Context, name string, data map[string]any, collector *CustomElementCollector) (string, error) {
+	var buf strings.Builder
+	sc, _, err := e.renderComponentWithCollector(ctx, &buf, name, data, collector)
+	if err != nil {
+		return "", err
+	}
+	var result strings.Builder
+	if style := styleBlock(sc); style != "" {
+		result.WriteString(style)
+	}
+	result.WriteString(buf.String())
+	return result.String(), nil
+}
+
 // RenderPageString renders name as a full HTML page and returns the result as
 // a string. It is a convenience wrapper around RenderPage for callers that
 // need a string rather than writing to an io.Writer.

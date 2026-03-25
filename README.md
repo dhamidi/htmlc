@@ -1347,6 +1347,85 @@ echo '{"hook":"created","id":"1","tag":"pre","attrs":{},"text":"fmt.Println(1)",
 
 ---
 
+## Custom Elements
+
+A `.vue` component can opt in to **Web Component (Custom Element)** compilation by
+including a `<script customelement>` block. The engine wraps the rendered template
+in the component's derived tag name and writes the JavaScript to a `scripts/`
+directory alongside the HTML.
+
+### Declaring a custom element component
+
+```html
+<!-- components/ui/DatePicker.vue -->
+<template>
+  <div class="date-picker">
+    <input type="date" />
+  </div>
+</template>
+
+<script customelement>
+class DatePickerElement extends HTMLElement {
+  connectedCallback() {
+    this.attachShadow({ mode: 'open' }).innerHTML = this.innerHTML;
+  }
+}
+customElements.define('ui-date-picker', DatePickerElement);
+</script>
+```
+
+The **tag name** is derived automatically from the component's file path using
+kebab-case: `ui/DatePicker.vue` → `ui-date-picker`.
+
+For **Declarative Shadow DOM** (streaming SSR), use the `shadowdom` attribute:
+
+```html
+<script customelement shadowdom>…</script>          <!-- mode: open  -->
+<script customelement shadowdom="closed">…</script>  <!-- mode: closed -->
+```
+
+### Output structure
+
+`htmlc build` writes collected scripts to `<out>/scripts/` alongside the HTML:
+
+```
+out/
+  index.html
+  about.html
+  scripts/
+    a1b2c3d4e5f6a7b8.js   ← ui-date-picker
+    ff00112233445566.js   ← widgets-shape-canvas
+```
+
+Scripts are **deduplicated by content hash**: the same script used across
+multiple pages produces exactly one file in `scripts/`. File names are the
+first 16 hex characters of the SHA-256 hash of the script content.
+
+The `scripts/` directory is only created when at least one custom element
+component is rendered. Projects with no `<script customelement>` blocks
+produce no `scripts/` directory.
+
+### Dev server
+
+`htmlc build -dev :8080` serves scripts from memory at `/scripts/`, rebuilding
+automatically when source files change.
+
+### Go API
+
+```go
+collector := htmlc.NewCustomElementCollector()
+html, err := engine.RenderWithCollector(ctx, "MyPage", data, collector)
+
+// Serve scripts over HTTP
+http.Handle("/scripts/", http.StripPrefix("/scripts/",
+    htmlc.NewScriptFSServer(collector)))
+
+// Or generate an import map for <script type="importmap">
+importMap := collector.ImportMapJSON("/scripts/")
+```
+
+---
+
 ## Compatibility with Vue.js
 
 htmlc uses `.vue` Single File Component syntax and many of the same directive
