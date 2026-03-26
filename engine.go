@@ -715,14 +715,20 @@ func resolveInRegistry(reg Registry, name string) *Component {
 // scope. Engine functions have lower priority than user-provided data: keys
 // already present in scope are not overwritten.
 func (e *Engine) applyEngineScope(data map[string]any) map[string]any {
-	if len(e.funcs) == 0 {
+	return e.applyScope(data, e.funcs)
+}
+
+// applyScope merges funcs into data, with data taking precedence over funcs.
+// Returns data unchanged when funcs is empty.
+func (e *Engine) applyScope(data map[string]any, funcs map[string]any) map[string]any {
+	if len(funcs) == 0 {
 		return data
 	}
-	merged := make(map[string]any, len(data)+len(e.funcs))
-	for k, v := range e.funcs {
+	merged := make(map[string]any, len(data)+len(funcs))
+	for k, v := range funcs {
 		merged[k] = v
 	}
-	// data overrides engine funcs
+	// data overrides funcs
 	for k, v := range data {
 		merged[k] = v
 	}
@@ -748,7 +754,10 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 // renderComponentWithCollector renders the named component with the given data
 // scope, writing HTML to w. It returns the collected styles and passes
 // collector (may be nil) into every renderer so custom element scripts are
-// accumulated.
+// accumulated. An importMap template function is injected into the render
+// scope for every call; it closes over collector and returns the same value
+// as collector.ImportMapJSON(urlPrefix). When collector is nil, importMap
+// returns "". The function is propagated to all child components automatically.
 func (e *Engine) renderComponentWithCollector(ctx context.Context, w io.Writer, name string, data map[string]any, collector *CustomElementCollector) (*StyleCollector, *CustomElementCollector, error) {
 	e.counterRenders.Add(1)
 	start := time.Now()
@@ -776,19 +785,38 @@ func (e *Engine) renderComponentWithCollector(ctx context.Context, w io.Writer, 
 		return nil, nil, fmt.Errorf("engine: unknown component %q: %w", name, ErrComponentNotFound)
 	}
 
+	// Build per-render funcs: engine-level funcs + importMap (depends on the per-call collector).
+	renderFuncs := make(map[string]any, len(e.funcs)+1)
+	for k, v := range e.funcs {
+		renderFuncs[k] = v
+	}
+	renderFuncs["importMap"] = func(args ...any) (any, error) {
+		if len(args) != 1 {
+			return "", fmt.Errorf("importMap: expected 1 argument, got %d", len(args))
+		}
+		urlPrefix, ok := args[0].(string)
+		if !ok {
+			return "", fmt.Errorf("importMap: argument must be a string, got %T", args[0])
+		}
+		if collector == nil {
+			return "", nil
+		}
+		return collector.ImportMapJSON(urlPrefix), nil
+	}
+
 	sc := &StyleCollector{}
 	renderer := NewRenderer(entry.comp).
 		WithStyles(sc).
 		WithCollector(collector).
 		WithComponents(reg).
 		WithDirectives(e.directives).
-		WithFuncs(e.funcs).
+		WithFuncs(renderFuncs).
 		WithContext(ctx)
 	if nsReg != nil {
 		renderer = renderer.WithNSComponents(nsReg, e.opts.ComponentDir)
 	}
 
-	scope := e.applyEngineScope(data)
+	scope := e.applyScope(data, renderFuncs)
 	if e.missingPropHandler != nil {
 		renderer = renderer.WithMissingPropHandler(e.missingPropHandler)
 	}

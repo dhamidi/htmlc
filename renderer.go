@@ -451,6 +451,15 @@ func (r *Renderer) renderNode(w io.Writer, n *html.Node, scope map[string]any) e
 		// <style> and <script> are raw text elements — browsers never
 		// HTML-decode their content, so we must not HTML-escape it.
 		if n.Parent != nil && isRawTextElement(n.Parent.Data) {
+			// Exception: <script type="importmap"> contains JSON data, not
+			// executable script, so template interpolation is allowed.
+			// Output is written without HTML-escaping (raw) since JSON quotes
+			// must not be entity-encoded for the browser's import-map parser.
+			if n.Parent.Data == "script" {
+				if typ, ok := attrValue(n.Parent, "type"); ok && typ == "importmap" {
+					return r.interpolateRaw(w, n.Data, scope)
+				}
+			}
 			io.WriteString(w, n.Data)
 			return nil
 		}
@@ -519,6 +528,38 @@ func (r *Renderer) interpolate(w io.Writer, text string, scope map[string]any) e
 	}
 	// Write remaining literal text.
 	io.WriteString(w, stdhtml.EscapeString(text[lastEnd:]))
+	return nil
+}
+
+// interpolateRaw processes mustache expressions within text and writes the
+// result to w without HTML-escaping either the literal segments or the
+// evaluated expression values. It is used for contexts where the output must
+// be written verbatim — for example, the content of a
+// <script type="importmap"> element, which the browser parses as JSON and
+// must not have its quotes entity-encoded.
+func (r *Renderer) interpolateRaw(w io.Writer, text string, scope map[string]any) error {
+	lastEnd := 0
+
+	for _, loc := range mustacheRe.FindAllStringSubmatchIndex(text, -1) {
+		// Write literal text before this match without escaping.
+		io.WriteString(w, text[lastEnd:loc[0]])
+
+		exprSrc := strings.TrimSpace(text[loc[2]:loc[3]])
+		val, err := expr.Eval(exprSrc, scope)
+		if err != nil {
+			return &RenderError{
+				Component: r.component.Path,
+				Expr:      exprSrc,
+				Wrapped:   err,
+				Location:  r.locateExpr(exprSrc),
+			}
+		}
+		// Write expression value without HTML-escaping.
+		io.WriteString(w, valueToString(val))
+		lastEnd = loc[1]
+	}
+	// Write remaining literal text without escaping.
+	io.WriteString(w, text[lastEnd:])
 	return nil
 }
 

@@ -1424,6 +1424,22 @@ http.Handle("/scripts/", http.StripPrefix("/scripts/",
 importMap := collector.ImportMapJSON("/scripts/")
 ```
 
+### importMap template function
+
+When rendering with a collector, an `importMap` template function is
+automatically available in page templates and all child components:
+
+```html
+<head>
+  <script type="importmap">{{ importMap("/scripts/") }}</script>
+</head>
+```
+
+`importMap(urlPrefix)` returns the same JSON as `collector.ImportMapJSON(urlPrefix)`.
+If no collector is attached (or the collector is empty), it returns a valid empty
+import map. The function is only available when the render was initiated via
+`RenderPageWithCollector`, `RenderWithCollector`, or `RenderFragmentStringWithCollector`.
+
 ---
 
 ## Compatibility with Vue.js
