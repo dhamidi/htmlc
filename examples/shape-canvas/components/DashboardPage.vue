@@ -142,7 +142,7 @@
           text-decoration: underline;
         }
       </style>
-    <script type="importmap">{{ importMap "/scripts/" }}</script>
+    <script type="importmap">{{ importMap("/scripts/") }}</script>
     <script type="module" src="/scripts/index.js"></script>
   </head>
     <body>
