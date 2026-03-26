@@ -303,6 +303,20 @@ func (e *Engine) discoverInto(dir string, entries map[string]*engineEntry, nsEnt
 		if err != nil {
 			return err
 		}
+		// Re-derive the custom element tag using the path relative to
+		// ComponentDir so the directory name is not included in the tag.
+		if e.opts.ComponentDir != "" && comp.CustomElementTag != "" {
+			compSlash := filepath.ToSlash(path)
+			dirSlash := filepath.ToSlash(e.opts.ComponentDir)
+			relPath := compSlash
+			if dirSlash != "" && dirSlash != "." {
+				prefix := dirSlash + "/"
+				if strings.HasPrefix(compSlash, prefix) {
+					relPath = compSlash[len(prefix):]
+				}
+			}
+			comp.CustomElementTag = deriveCustomElementTag(relPath)
+		}
 		var modTime time.Time
 		if e.opts.FS != nil {
 			if statFS, ok := e.opts.FS.(fs.StatFS); ok {
@@ -383,6 +397,22 @@ func (e *Engine) registerPathLocked(name, path string) error {
 	comp, err := ParseFile(path, string(data))
 	if err != nil {
 		return err
+	}
+	// If a component directory is set and the component is a custom element,
+	// re-derive the tag using only the path relative to ComponentDir so that
+	// the directory name is not included in the tag (e.g. "templates/Button.vue"
+	// with ComponentDir="templates" yields "button", not "templates-button").
+	if e.opts.ComponentDir != "" && comp.CustomElementTag != "" {
+		compSlash := filepath.ToSlash(path)
+		dirSlash := filepath.ToSlash(e.opts.ComponentDir)
+		relPath := compSlash
+		if dirSlash != "" && dirSlash != "." {
+			prefix := dirSlash + "/"
+			if strings.HasPrefix(compSlash, prefix) {
+				relPath = compSlash[len(prefix):]
+			}
+		}
+		comp.CustomElementTag = deriveCustomElementTag(relPath)
 	}
 	var modTime time.Time
 	if e.opts.FS != nil {

@@ -167,11 +167,20 @@ func TestBuildCEScriptContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadDir scripts/: %v", err)
 	}
-	if len(entries) == 0 {
-		t.Fatal("expected at least one file in scripts/")
+
+	// Find the hashed script file (not index.js), which holds the raw script.
+	var scriptName string
+	for _, e := range entries {
+		if e.Name() != "index.js" && strings.HasSuffix(e.Name(), ".js") {
+			scriptName = e.Name()
+			break
+		}
+	}
+	if scriptName == "" {
+		t.Fatal("expected a non-index .js file in scripts/")
 	}
 
-	jsPath := filepath.Join(outDir, "scripts", entries[0].Name())
+	jsPath := filepath.Join(outDir, "scripts", scriptName)
 	content, err := os.ReadFile(jsPath)
 	if err != nil {
 		t.Fatalf("ReadFile %s: %v", jsPath, err)

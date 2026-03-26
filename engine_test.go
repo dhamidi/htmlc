@@ -481,6 +481,36 @@ func TestNew_WithFS_ComponentDir(t *testing.T) {
 	}
 }
 
+func TestNew_ComponentDir_CustomElementTagStripsPrefix(t *testing.T) {
+	// Regression test: when ComponentDir is set, the tag name must not include
+	// the directory prefix (bug 002). "templates/RaindropCanvas.vue" with
+	// ComponentDir="templates" should yield "raindrop-canvas", not
+	// "templates-raindrop-canvas".
+	memFS := fstest.MapFS{
+		"templates/RaindropCanvas.vue": &fstest.MapFile{Data: []byte(`<template><canvas></canvas></template>
+<script customelement>
+export default {}
+</script>
+`)},
+	}
+
+	e, err := New(Options{FS: memFS, ComponentDir: "templates"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	e.mu.RLock()
+	entry := e.entries["RaindropCanvas"]
+	e.mu.RUnlock()
+
+	if entry == nil {
+		t.Fatal("entry for RaindropCanvas not found")
+	}
+	if got, want := entry.comp.CustomElementTag, "raindrop-canvas"; got != want {
+		t.Errorf("CustomElementTag = %q, want %q", got, want)
+	}
+}
+
 func TestNew_WithFS_NoReload(t *testing.T) {
 	// Wrap MapFS in a type that only exposes fs.FS (no StatFS), so that
 	// hot-reload is silently skipped without panicking or erroring.
