@@ -18,15 +18,15 @@ import (
 // Key methods:
 //
 //   - ScriptsFS() – returns an in-memory fs.FS of content-hashed .js files,
-//     one file per unique script collected (file name: "<hash>.js").
+//     one file per unique script collected (file name: "<tag>.<hash>.js").
 //
 //   - IndexJS() – returns a side-effecting ES-module entry point that imports
-//     all collected scripts using relative paths ("./hash.js"). Returns an
-//     empty string when no scripts have been collected.
+//     all collected scripts using relative paths ("./<tag>.<hash>.js"). Returns
+//     an empty string when no scripts have been collected.
 //
 //   - ImportMapJSON(urlPrefix) – returns the JSON value suitable for embedding
 //     in a <script type="importmap"> tag. Each entry maps the tag name to
-//     urlPrefix + "<hash>.js".
+//     urlPrefix + "<tag>.<hash>.js".
 //
 // It is safe for use by a single goroutine only.
 type CustomElementCollector struct {
@@ -80,12 +80,34 @@ func (c *CustomElementCollector) Len() int {
 	return len(c.scripts)
 }
 
-// ScriptsFS returns an fs.FS where each file is named "<hash>.js" and
-// contains the corresponding script source.
+// scriptFilename returns the filename for a script given its tag and hash.
+// The format is "<tag>.<hash>.js".
+func scriptFilename(tag, hash string) string {
+	return tag + "." + hash + ".js"
+}
+
+// hashToFirstTag builds a map from content hash to the first tag name
+// encountered for that hash, based on the encounter order.
+func (c *CustomElementCollector) hashToFirstTag() map[string]string {
+	m := make(map[string]string, len(c.scripts))
+	for _, e := range c.order {
+		if _, exists := m[e.Hash]; !exists {
+			m[e.Hash] = e.Tag
+		}
+	}
+	return m
+}
+
+// ScriptsFS returns an fs.FS where each file is named "<tag>.<hash>.js" and
+// contains the corresponding script source. When the same content is
+// registered under multiple tags, the first tag encountered is used in the
+// filename.
 func (c *CustomElementCollector) ScriptsFS() fs.FS {
+	hashToTag := c.hashToFirstTag()
 	mapFS := make(fstest.MapFS, len(c.scripts))
 	for hash, src := range c.scripts {
-		mapFS[hash+".js"] = &fstest.MapFile{
+		name := scriptFilename(hashToTag[hash], hash)
+		mapFS[name] = &fstest.MapFile{
 			Data: []byte(src),
 		}
 	}
@@ -94,12 +116,15 @@ func (c *CustomElementCollector) ScriptsFS() fs.FS {
 
 // ImportMapJSON returns a JSON string suitable for embedding in
 // <script type="importmap">…</script>.
-// Each entry maps the tag name to the script URL: urlPrefix + "<hash>.js".
+// Each entry maps the tag name to the script URL: urlPrefix + "<tag>.<hash>.js".
+// When the same content is registered under multiple tags, the first tag
+// encountered determines the filename prefix.
 // The urlPrefix should end with "/" (e.g. "/scripts/").
 func (c *CustomElementCollector) ImportMapJSON(urlPrefix string) string {
+	hashToTag := c.hashToFirstTag()
 	imports := make(map[string]string, len(c.order))
 	for _, e := range c.order {
-		imports[e.Tag] = urlPrefix + e.Hash + ".js"
+		imports[e.Tag] = urlPrefix + scriptFilename(hashToTag[e.Hash], e.Hash)
 	}
 	data, _ := json.Marshal(map[string]any{"imports": imports})
 	return string(data)
@@ -108,7 +133,7 @@ func (c *CustomElementCollector) ImportMapJSON(urlPrefix string) string {
 // IndexJS returns an ES module string with one import statement per collected
 // script, in stable (encounter) order. Each line has the form:
 //
-//	import "./<hash>.js"
+//	import "./<tag>.<hash>.js"
 //
 // Duplicate hashes (same content added under different tags) are emitted only
 // once. Returns an empty string when no scripts have been collected.
@@ -116,6 +141,7 @@ func (c *CustomElementCollector) IndexJS() string {
 	if len(c.order) == 0 {
 		return ""
 	}
+	hashToTag := c.hashToFirstTag()
 	seen := make(map[string]bool, len(c.order))
 	var sb strings.Builder
 	for _, e := range c.order {
@@ -124,8 +150,8 @@ func (c *CustomElementCollector) IndexJS() string {
 		}
 		seen[e.Hash] = true
 		sb.WriteString(`import "./`)
-		sb.WriteString(e.Hash)
-		sb.WriteString(".js\"\n")
+		sb.WriteString(scriptFilename(hashToTag[e.Hash], e.Hash))
+		sb.WriteString("\"\n")
 	}
 	return sb.String()
 }

@@ -52,21 +52,20 @@ func TestCustomElementCollector_MultipleScripts(t *testing.T) {
 	// Verify each file is a .js file with the correct content.
 	hash1 := contentHash(script1)
 	hash2 := contentHash(script2)
-	for _, hash := range []string{hash1, hash2} {
-		data, err := fs.ReadFile(sfs, hash+".js")
-		if err != nil {
-			t.Errorf("ReadFile %s.js: %v", hash, err)
-		}
-		_ = data
+	// Verify file names include both tag and hash, and content is correct.
+	data1, err := fs.ReadFile(sfs, "ui-date-picker."+hash1+".js")
+	if err != nil {
+		t.Errorf("ReadFile ui-date-picker.%s.js: %v", hash1, err)
 	}
-	// Verify file names match the expected hashes.
-	data1, _ := fs.ReadFile(sfs, hash1+".js")
 	if string(data1) != script1 {
-		t.Errorf("file content for hash1 = %q, want %q", data1, script1)
+		t.Errorf("file content for ui-date-picker = %q, want %q", data1, script1)
 	}
-	data2, _ := fs.ReadFile(sfs, hash2+".js")
+	data2, err := fs.ReadFile(sfs, "widgets-shape-canvas."+hash2+".js")
+	if err != nil {
+		t.Errorf("ReadFile widgets-shape-canvas.%s.js: %v", hash2, err)
+	}
 	if string(data2) != script2 {
-		t.Errorf("file content for hash2 = %q, want %q", data2, script2)
+		t.Errorf("file content for widgets-shape-canvas = %q, want %q", data2, script2)
 	}
 }
 
@@ -89,11 +88,11 @@ func TestCustomElementCollector_ImportMapJSON(t *testing.T) {
 	}
 	hash1 := contentHash(script1)
 	hash2 := contentHash(script2)
-	want1 := "/scripts/" + hash1 + ".js"
+	want1 := "/scripts/ui-date-picker." + hash1 + ".js"
 	if result.Imports["ui-date-picker"] != want1 {
 		t.Errorf("imports[ui-date-picker] = %q, want %q", result.Imports["ui-date-picker"], want1)
 	}
-	want2 := "/scripts/" + hash2 + ".js"
+	want2 := "/scripts/widgets-shape-canvas." + hash2 + ".js"
 	if result.Imports["widgets-shape-canvas"] != want2 {
 		t.Errorf("imports[widgets-shape-canvas] = %q, want %q", result.Imports["widgets-shape-canvas"], want2)
 	}
@@ -144,7 +143,7 @@ func TestCustomElementCollector_IndexJS_Single(t *testing.T) {
 
 	hash := contentHash(script)
 	got := c.IndexJS()
-	want := `import "./` + hash + `.js"` + "\n"
+	want := `import "./ui-date-picker.` + hash + `.js"` + "\n"
 	if got != want {
 		t.Errorf("IndexJS = %q, want %q", got, want)
 	}
@@ -160,8 +159,8 @@ func TestCustomElementCollector_IndexJS_TwoScripts(t *testing.T) {
 	hash1 := contentHash(script1)
 	hash2 := contentHash(script2)
 	got := c.IndexJS()
-	want := `import "./` + hash1 + `.js"` + "\n" +
-		`import "./` + hash2 + `.js"` + "\n"
+	want := `import "./ui-date-picker.` + hash1 + `.js"` + "\n" +
+		`import "./widgets-shape-canvas.` + hash2 + `.js"` + "\n"
 	if got != want {
 		t.Errorf("IndexJS = %q, want %q", got, want)
 	}
@@ -175,7 +174,8 @@ func TestCustomElementCollector_IndexJS_DedupByHash(t *testing.T) {
 
 	hash := contentHash(script)
 	got := c.IndexJS()
-	want := `import "./` + hash + `.js"` + "\n"
+	// The first tag ("ui-date-picker") is used in the filename.
+	want := `import "./ui-date-picker.` + hash + `.js"` + "\n"
 	if got != want {
 		t.Errorf("IndexJS = %q, want %q (expected dedup)", got, want)
 	}
