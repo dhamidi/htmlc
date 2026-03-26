@@ -549,6 +549,37 @@ func (e *Engine) Components() []string {
 	return names
 }
 
+// CollectCustomElements returns a [CustomElementCollector] populated with all
+// custom element scripts registered in the engine, regardless of which pages
+// reference them.
+//
+// Unlike [Engine.RenderWithCollector], this method does not render any
+// component. It is useful for building a complete import map or script bundle
+// at startup time without needing a "warm render".
+//
+// CollectCustomElements returns an error if the engine has no entries (i.e. no
+// components are registered). In normal use the engine is always initialised by
+// [New], so this error path is a safety guard for future use.
+func (e *Engine) CollectCustomElements() (*CustomElementCollector, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if len(e.entries) == 0 {
+		return nil, fmt.Errorf("htmlc: engine has no registered components")
+	}
+	collector := NewCustomElementCollector()
+	seen := make(map[*engineEntry]bool, len(e.entries))
+	for _, entry := range e.entries {
+		if seen[entry] {
+			continue
+		}
+		seen[entry] = true
+		if entry.comp.CustomElementScript != "" {
+			collector.Add(entry.comp.CustomElementTag, entry.comp.CustomElementScript)
+		}
+	}
+	return collector, nil
+}
+
 // Has reports whether name is a registered component.
 func (e *Engine) Has(name string) bool {
 	e.mu.RLock()
