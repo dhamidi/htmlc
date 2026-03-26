@@ -1,6 +1,7 @@
 # RFC 006 (Updated): Custom Element Compilation
 
-- **Status**: Draft (updated 2026-03-25)
+- **Status**: Accepted
+- **Date**: 2026-03-26
 - **Original date**: 2026-03-16
 - **Author**: TBD
 
@@ -165,65 +166,78 @@ The author's `<template>` block contains only the inner content. The wrapping is
 
 ### 4.4 Script Collection and ScriptsFS
 
-A `CustomElementCollector` (mirroring `StyleCollector`) accumulates custom element entries during a render pass. The engine exposes:
+A `CustomElementCollector` accumulates custom element entries during a render pass. The engine manages its collector internally. The exported API is:
 
 ```go
-// pseudo-code — not implementation
-func (e *Engine) ScriptsFS() fs.FS
-func (e *Engine) NewScriptFSServer(basePath string) http.Handler  // Cache-Control: immutable for hashed files
+func (e *Engine) ScriptHandler() http.Handler      // serves hashed .js + index.js; immutable cache headers
+func (e *Engine) WriteScripts(dir string) error    // static build: write scripts/ to disk
+func (e *Engine) Collector() *CustomElementCollector  // direct access for advanced use
+func NewScriptFSServer(collector *CustomElementCollector) http.Handler  // low-level; prefer Engine.ScriptHandler
 ```
 
-`ScriptsFS` itself does **not** embed the base path — it is a pure `fs.FS` of hashed file names. The base path is only applied when generating importmap URLs via `NewScriptFSServer` or `CustomElementCollector.ImportMapHTML`.
+`ScriptHandler` serves hashed `.js` files with `Cache-Control: immutable` and the unhashed `index.js` without a long-lived cache header. Typical mount:
+
+```go
+http.Handle("/scripts/", http.StripPrefix("/scripts/", engine.ScriptHandler()))
+```
+
+`WriteScripts(dir)` is the static-build equivalent — it writes the same files to disk instead of serving them over HTTP.
 
 Script files are content-hashed:
 
 ```
-widgets-shape-canvas.a1b2c3d4.js
-ui-date-picker.e5f6a7b8.js
-index.js                            // not hashed; imports all custom elements
+a1b2c3d4e5f6a7b8.js          // widgets-shape-canvas script
+e5f6a7b8c9d0e1f2.js          // ui-date-picker script
+index.js                      // not hashed; imports all custom elements
 ```
 
-`index.js` is a list of side-effecting bare imports, one per registered custom element, in no guaranteed order:
+`index.js` is a list of side-effecting ES module imports using **relative paths** (no URL prefix), in encounter order:
 
 ```js
 // index.js — generated; do not edit
-import '/components/widgets-shape-canvas.a1b2c3d4.js'
-import '/components/ui-date-picker.e5f6a7b8.js'
+import "./a1b2c3d4e5f6a7b8.js"
+import "./e5f6a7b8c9d0e1f2.js"
 ```
 
-The base path in each import URL matches the `basePath` argument passed to `NewScriptFSServer`. `index.js` itself is not content-hashed and must be served without a long-lived `Cache-Control` header.
+Because `IndexJS()` uses relative imports, the URL prefix is determined entirely by where the handler is mounted. `index.js` itself is not content-hashed and must be served without a long-lived `Cache-Control` header.
 
 #### Fragment wiring
 
 For authors constructing fragment responses manually, `CustomElementCollector` provides a Go-side API:
 
 ```go
-// pseudo-code — not implementation
-cc := &CustomElementCollector{}
-renderer.WithCustomElements(cc)
+cc := htmlc.NewCustomElementCollector()
+renderer.WithCollector(cc)
 // ... render fragment(s) ...
-html := cc.ImportMapHTML("/components/")
+json := cc.ImportMapJSON("/scripts/")
 ```
 
-- `renderer.WithCustomElements(cc *CustomElementCollector)` attaches the collector to the renderer (mirroring `renderer.WithStyles`).
-- `{{ importMap() }}` inside a fragment template calls through to the collector on the current renderer and returns `template.HTML` containing the `<script type="importmap">` and `<script type="module">` tags.
-- `cc.ImportMapHTML(basePath string)` is the Go-side equivalent for authors constructing responses manually.
+- `renderer.WithCollector(cc *CustomElementCollector)` attaches the collector to the renderer.
+- `{{ importMap "/scripts/" }}` inside a template calls `cc.ImportMapJSON(urlPrefix)` and returns the JSON value (a string) suitable for embedding inside a `<script type="importmap">` tag — it does **not** include the surrounding `<script>` tags.
+- `cc.ImportMapJSON(urlPrefix string)` is the Go-side equivalent for authors constructing responses manually.
 
 ### 4.5 Importmap Injection
 
-For `RenderPage`, htmlc injects before `</head>`:
+`{{ importMap() }}` is available as a template function in **all** render paths (`RenderPage`, `RenderFragment`, and `RenderWithCollector`). The engine populates its internal collector before any render, so the function is always registered.
+
+The function takes one argument — the URL prefix — and returns the raw JSON value suitable for embedding inside a `<script type="importmap">` tag. It does **not** return the surrounding `<script>` tags; the template author writes those:
 
 ```html
-<!-- basePath supplied to NewScriptFSServer("/components/") -->
-<script type="importmap">
-{"imports":{"widgets-shape-canvas":"/components/widgets-shape-canvas.a1b2c3d4.js","ui-date-picker":"/components/ui-date-picker.e5f6a7b8.js"}}
-</script>
-<script type="module" src="/components/index.js"></script>
+<!-- in a page template's <head> section -->
+<script type="importmap">{{ importMap "/scripts/" }}</script>
+<script type="module" src="/scripts/index.js"></script>
 ```
 
-For `RenderFragment`, authors use `{{ importMap() }}` explicitly in their fragment template.
+This produces:
 
-An optional `NonceFunc` engine option injects CSP nonces on both tags. `NonceFunc` is an engine-level option. It is called once per page render (for `RenderPage`) or once per `{{ importMap() }}` call (for `RenderFragment`). Per-render nonce customisation is out of scope for v1; if needed it can be added later via a `RenderPageWithOptions` API.
+```html
+<script type="importmap">{"imports":{"widgets-shape-canvas":"/scripts/a1b2c3d4e5f6a7b8.js","ui-date-picker":"/scripts/e5f6a7b8c9d0e1f2.js"}}</script>
+<script type="module" src="/scripts/index.js"></script>
+```
+
+`RenderPage` does **not** automatically inject an importmap before `</head>`. Placing `{{ importMap }}` in the template is explicit and required. This keeps the output fully predictable and avoids any invisible injection.
+
+An optional `NonceFunc` engine option (deferred to a future version) could inject CSP nonces on both tags.
 
 ---
 
@@ -294,7 +308,7 @@ Usage:
 <widgets-shape-canvas src="/api/shapes/stream" :width="800" :height="600"></widgets-shape-canvas>
 ```
 
-Server emits:
+Server emits (when the page template includes `{{ importMap "/scripts/" }}`):
 
 ```html
 <widgets-shape-canvas>
@@ -303,9 +317,8 @@ Server emits:
           data-v-a1b2c3d4></canvas>
 </widgets-shape-canvas>
 <style>canvas[data-v-a1b2c3d4] { border: 1px solid #ccc }</style>
-<!-- basePath supplied to NewScriptFSServer("/components/") -->
-<script type="importmap">{"imports":{"widgets-shape-canvas":"/components/widgets-shape-canvas.a1b2c3d4.js"}}</script>
-<script type="module" src="/components/index.js"></script>
+<script type="importmap">{"imports":{"widgets-shape-canvas":"/scripts/a1b2c3d4e5f6a7b8.js"}}</script>
+<script type="module" src="/scripts/index.js"></script>
 ```
 
 **What the server controls:** canvas dimensions, stream URL — computed in Go, vary per user. Adding a second canvas on the same page just works; the importmap deduplicates the script reference.
@@ -439,47 +452,44 @@ Server emits:
 
 ---
 
-## 7. Implementation Sketch
+## 7. Implementation
 
-Changes required in core htmlc (all in the same module):
+Changes landed in core htmlc (all in the same module):
 
 **`component.go`**
-- Extend `extractSections` to read `customelement` and `shadowdom` attributes on `<script>` tags
-- Extend `Component` struct with `CustomElementScript`, `CustomElementTag`, `ShadowDOMMode`
-- Add compile-time validations in `ParseFile`
+- `CustomElementScript`, `CustomElementTag`, and `ShadowDOMMode` fields added to `Component`.
+- `extractSections` extended to read `customelement` and `shadowdom` attributes on `<script>` tags.
+- Compile-time validations added in `ParseFile`.
+
+**`customelement_collector.go`** (new file)
+- `CustomElementCollector` struct, `NewCustomElementCollector`, and `NewScriptFSServer`.
+- Key methods: `Add(tag, script)`, `ScriptsFS() fs.FS`, `IndexJS() string`, `ImportMapJSON(urlPrefix string) string`.
 
 **`engine.go`**
-- Derive `CustomElementTag` from component path at load time; error if no hyphen
-- Build `ScriptsFS` (in-memory `fs.FS`) from all loaded custom element scripts, content-hashed
-- Add `ScriptsFS() fs.FS` and `NewScriptFSServer(basePath string) http.Handler` methods
-- Add `WithNonceFunc` option:
-
-```go
-// pseudo-code — not implementation
-func WithNonceFunc(fn func(context.Context) string) EngineOption
-```
-
-- Inject importmap + loader script before `</head>` in `RenderPage`; the `/components/` prefix in generated URLs is the caller-supplied `basePath`
+- Internal `collector *CustomElementCollector` field; rebuilt via `rebuildCollectorLocked()` on each `Register` or `New` call.
+- `ScriptHandler() http.Handler` — delegates to `NewScriptFSServer(e.collector)`.
+- `WriteScripts(dir string) error` — writes all collected script files to disk (static build).
+- `Collector() *CustomElementCollector` — read-only access to the internal collector.
+- `CollectCustomElements() (*CustomElementCollector, error)` — convenience method that returns a freshly populated collector.
+- `importMap` template function registered in all render paths via `renderComponentWithCollector`; takes one `urlPrefix` string argument and returns `collector.ImportMapJSON(urlPrefix)`.
 
 **`renderer.go`**
-- After rendering a component with non-empty `CustomElementScript`: wrap output in CE tag
-- For shadow DOM mode: wrap rendered HTML + scoped styles in `<template shadowrootmode>`
-- Register `importMap() template.HTML` as a template function for use in fragment templates
-- Add `CustomElementCollector` (mirroring `StyleCollector`) for deduplication
-- Add `WithCustomElements(cc *CustomElementCollector)` method (mirroring `WithStyles`); `cc.ImportMapHTML(basePath string)` returns the importmap HTML for manual fragment construction
+- `WithCollector(c *CustomElementCollector) *Renderer` method added.
+- CE wrapping: when a component has a non-empty `CustomElementScript`, the rendered output is wrapped in the derived CE tag.
+- DSD wrapping: when `ShadowDOMMode` is non-empty, the rendered HTML and scoped styles are wrapped in `<template shadowrootmode="open|closed">`.
 
-**`cmd/htmlc/`**
-- `build` subcommand: write `ScriptsFS` contents to output directory alongside rendered HTML
+**`cmd/htmlc/build_command.go`**
+- Calls `engine.WriteScripts(outDir + "/scripts")` after the render pass to write script files alongside rendered HTML.
 
 ---
 
 ## 8. Backward Compatibility
 
 - All components without `<script customelement>` are unaffected.
-- `Engine` API: new methods (`ScriptsFS`, `NewScriptFSServer`, `WithNonceFunc`) are additive.
+- `Engine` API: new methods (`ScriptHandler`, `WriteScripts`, `Collector`, `CollectCustomElements`) are additive.
 - `Component` struct: new fields (`CustomElementScript`, `CustomElementTag`, `ShadowDOMMode`) are zero-valued for all existing components.
 - No changes to `RenderFragment` behavior for components without custom element scripts.
-- The importmap injection in `RenderPage` is new behavior, but only activates when at least one custom element is present in the rendered output.
+- The `importMap` template function is new behavior, but only produces output when at least one custom element is present in the rendered output.
 
 ---
 
@@ -495,10 +505,10 @@ func WithNonceFunc(fn func(context.Context) string) EngineOption
 
 ## 10. Open Questions
 
-1. **`shadowdom="closed"` support** — Should closed shadow roots be supported in v1? Closed shadow roots prevent external JS (`element.shadowRoot === null`) and complicate devtools inspection. Tentative recommendation: support it (it's a one-liner change to the DSD `shadowrootmode` attribute), but document that `open` is the recommended default. *(Non-blocking)*
+1. **`shadowdom="closed"` support** — **Resolved.** Implemented. Both `open` and `closed` values are supported via the `shadowdom` attribute (`<script customelement shadowdom="closed">`). `open` is the recommended default; `closed` prevents external JS from accessing `element.shadowRoot`.
 
-2. **Acronym casing in tag derivation** — `XMLParser.vue` → `x-m-l-parser` is ugly. Recommend documenting that files should use title-case acronyms (`XmlParser.vue` → `xml-parser`). A future heuristic could handle common acronyms. *(Non-blocking)*
+2. **Acronym casing in tag derivation** — **Resolved.** The implementation performs a straightforward PascalCase → kebab-case conversion with no special acronym handling. `XMLParser.vue` would yield `x-m-l-parser`, which is undesirable. **Recommendation**: use title-case acronyms (`XmlParser.vue` → `xml-parser`). A future heuristic for common acronyms can be added if demand warrants it.
 
-3. **`RenderFragmentWithElements` convenience method** — Deferred from v1. Authors use `{{ importMap() }}` explicitly in fragment templates. *(Non-blocking)*
+3. **`RenderFragmentWithElements` convenience method** — **Resolved/Deferred.** Not implemented. The `{{ importMap "/scripts/" }}` template function covers the primary use case. A dedicated convenience method can be added in a future version if needed.
 
-4. **TypeScript declarations for custom elements** — The `<script customelement>` block is vanilla JS. A future `htmlc lsp` or codegen step could emit `.d.ts` declarations from prop definitions. *(Non-blocking)*
+4. **TypeScript declarations for custom elements** — **Deferred.** The `<script customelement>` block is vanilla JS; no `.d.ts` generation is planned for v1. A future `htmlc lsp` or codegen step could emit type declarations from prop definitions.
