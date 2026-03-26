@@ -17,25 +17,36 @@
 //
 // # Mental model
 //
-// There are four main concepts:
+// There are five main concepts:
 //
-//   - Engine          – the high-level entry point. It owns a Registry of
-//                       parsed components discovered from a directory tree.
-//                       Create one with New; call RenderPage or RenderFragment
-//                       to produce HTML output. ServeComponent wraps a
-//                       component as an http.Handler for use with net/http.
+//   - Engine                 – the high-level entry point. It owns a Registry
+//                              of parsed components discovered from a directory
+//                              tree. Create one with New; call RenderPage or
+//                              RenderFragment to produce HTML output.
+//                              ServeComponent wraps a component as an
+//                              http.Handler for use with net/http.
 //
-//   - Component       – the parsed representation of one .vue file, produced
-//                       by ParseFile. Holds the template node tree, script
-//                       text, style text, and scoped-style metadata.
+//   - Component              – the parsed representation of one .vue file,
+//                              produced by ParseFile. Holds the template node
+//                              tree, script text, style text, and scoped-style
+//                              metadata.
 //
-//   - Renderer        – the low-level walker that evaluates a Component's
-//                       template against a data scope and writes HTML. Most
-//                       callers should use Engine instead.
+//   - Renderer               – the low-level walker that evaluates a
+//                              Component's template against a data scope and
+//                              writes HTML. Most callers should use Engine
+//                              instead.
 //
-//   - StyleCollector  – accumulates scoped-style contributions from all
-//                       components rendered in one request so they can be
-//                       emitted as a single <style> block at the end.
+//   - StyleCollector         – accumulates scoped-style contributions from all
+//                              components rendered in one request so they can
+//                              be emitted as a single <style> block at the end.
+//
+//   - CustomElementCollector – accumulates <script customelement>
+//                              contributions from all components rendered in
+//                              one request. The engine creates and manages one
+//                              automatically; call Engine.ScriptHandler or
+//                              Engine.WriteScripts to expose the collected
+//                              scripts. Access it directly via Engine.Collector
+//                              for advanced use.
 //
 // # Template directives
 //
@@ -225,6 +236,32 @@
 //	<template>
 //	  <Child v-slot="props"><p>{{ props.user.name }}</p></Child>
 //	</template>
+//
+// # Custom elements
+//
+// A .vue component can register itself as a custom element (Web Component) by
+// including a <script customelement> section. The engine derives a kebab-case
+// tag name from the component's file path (e.g. ui/DatePicker.vue becomes
+// "ui-date-picker") and records the script in its CustomElementCollector.
+//
+// Serving scripts over HTTP:
+//
+//	http.Handle("/scripts/", http.StripPrefix("/scripts/", engine.ScriptHandler()))
+//
+// ScriptHandler serves hashed .js files (Cache-Control: immutable) and also
+// serves index.js without a long-lived cache header.
+//
+// Writing scripts for static builds:
+//
+//	if err := engine.WriteScripts("dist/scripts/"); err != nil { /* handle */ }
+//
+// Injecting the import map into a page template:
+//
+//	{{ importMap "/scripts/" }}
+//
+// The importMap template function (available in every component scope) renders
+// a <script type="importmap"> tag containing the JSON produced by
+// collector.ImportMapJSON(urlPrefix).
 //
 // ## Slot fallback content
 //

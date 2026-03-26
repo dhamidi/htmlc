@@ -11,8 +11,24 @@ import (
 	"testing/fstest"
 )
 
-// CustomElementCollector accumulates custom element scripts encountered
-// during a render pass. It is safe for use by a single goroutine only.
+// CustomElementCollector accumulates custom element scripts encountered during
+// rendering. It is managed automatically by the engine; callers rarely need to
+// construct one directly.
+//
+// Key methods:
+//
+//   - ScriptsFS() – returns an in-memory fs.FS of content-hashed .js files,
+//     one file per unique script collected (file name: "<hash>.js").
+//
+//   - IndexJS() – returns a side-effecting ES-module entry point that imports
+//     all collected scripts using relative paths ("./hash.js"). Returns an
+//     empty string when no scripts have been collected.
+//
+//   - ImportMapJSON(urlPrefix) – returns the JSON value suitable for embedding
+//     in a <script type="importmap"> tag. Each entry maps the tag name to
+//     urlPrefix + "<hash>.js".
+//
+// It is safe for use by a single goroutine only.
 type CustomElementCollector struct {
 	// maps content-hash (hex) → script source
 	scripts map[string]string
@@ -115,10 +131,19 @@ func (c *CustomElementCollector) IndexJS() string {
 }
 
 // NewScriptFSServer returns an http.Handler that serves the scripts in
-// collector. When the request path (after stripping the leading "/") equals
-// "index.js", it responds with collector.IndexJS() and Content-Type:
-// application/javascript. All other paths are served from the collector's
-// ScriptsFS via http.FileServerFS.
+// collector.
+//
+// Hashed .js files (e.g. "/abcd1234.js") are served from collector.ScriptsFS()
+// via http.FileServerFS.
+//
+// When the request path (after stripping the leading "/") equals "index.js",
+// the handler responds with collector.IndexJS() — a side-effecting ES module
+// that imports all collected scripts using relative paths. index.js is
+// regenerated on each request and carries no long-lived cache header.
+//
+// Typical mount:
+//
+//	http.Handle("/scripts/", http.StripPrefix("/scripts/", NewScriptFSServer(collector)))
 func NewScriptFSServer(collector *CustomElementCollector) http.Handler {
 	fileServer := http.FileServerFS(collector.ScriptsFS())
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
