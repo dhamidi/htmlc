@@ -49,7 +49,7 @@ out/
   widgets/
     ShapeCanvas.html
   scripts/
-    components-widgets-shape-canvas.<hash>.js
+    widgets-shape-canvas.<hash>.js
     index.js
 ```
 

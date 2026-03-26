@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -507,6 +509,51 @@ export default {}
 		t.Fatal("entry for RaindropCanvas not found")
 	}
 	if got, want := entry.comp.CustomElementTag, "raindrop-canvas"; got != want {
+		t.Errorf("CustomElementTag = %q, want %q", got, want)
+	}
+}
+
+func TestNew_ComponentDir_DotSlashPrefix_CustomElementTagStripsPrefix(t *testing.T) {
+	// Regression test: when ComponentDir is passed with a leading "./"
+	// (as the CLI does: htmlc build -dir ./components), filepath.WalkDir
+	// strips the "./" from the returned paths (e.g. "components/widgets/Foo.vue"),
+	// while filepath.ToSlash("./components") retains it. Without filepath.Clean,
+	// the HasPrefix check fails and the tag incorrectly includes the directory
+	// name ("components-widgets-shape-canvas" instead of "widgets-shape-canvas").
+	tmp := t.TempDir()
+	widgetsDir := filepath.Join(tmp, "components", "widgets")
+	if err := os.MkdirAll(widgetsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	vueFile := filepath.Join(widgetsDir, "ShapeCanvas.vue")
+	const vueContent = `<template><canvas></canvas></template>
+<script customelement>
+class WidgetsShapeCanvas extends HTMLElement {}
+customElements.define('widgets-shape-canvas', WidgetsShapeCanvas)
+</script>
+`
+	if err := os.WriteFile(vueFile, []byte(vueContent), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// chdir to the temp root so that "./components" resolves correctly,
+	// matching how the CLI is invoked from the project directory.
+	t.Chdir(tmp)
+
+	e, err := New(Options{ComponentDir: "./components"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	e.mu.RLock()
+	entry := e.entries["ShapeCanvas"]
+	e.mu.RUnlock()
+
+	if entry == nil {
+		t.Fatal("entry for ShapeCanvas not found")
+	}
+	// Must be "widgets-shape-canvas", not "components-widgets-shape-canvas".
+	if got, want := entry.comp.CustomElementTag, "widgets-shape-canvas"; got != want {
 		t.Errorf("CustomElementTag = %q, want %q", got, want)
 	}
 }
