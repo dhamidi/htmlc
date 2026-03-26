@@ -38,7 +38,7 @@ func main() {
 
 	http.HandleFunc("/render", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := engine.RenderPage(w, "Hello", nil); err != nil {
+		if err := engine.RenderPage(r.Context(), w, "Hello", nil); err != nil {
 			http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
 		}
 	})

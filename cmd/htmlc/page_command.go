@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -118,7 +119,7 @@ func runPage(args []string, stdout, stderr io.Writer, strict bool) error {
 
 	if *layoutFlag != "" {
 		// Render the page component as a fragment first.
-		content, err := engine.RenderFragmentString(name, data)
+		content, err := engine.RenderFragmentString(context.Background(), name, data)
 		if err != nil {
 			if strings.Contains(err.Error(), name) {
 				fmt.Fprintln(stderr, componentNotFoundError("page", name, *dir))
@@ -134,7 +135,7 @@ func runPage(args []string, stdout, stderr io.Writer, strict bool) error {
 		}
 		layoutData["content"] = content
 		// Render the layout as the full page document.
-		if err := engine.RenderPage(stdout, *layoutFlag, layoutData); err != nil {
+		if err := engine.RenderPage(context.Background(), stdout, *layoutFlag, layoutData); err != nil {
 			if strings.Contains(err.Error(), *layoutFlag) {
 				fmt.Fprintln(stderr, componentNotFoundError("page", *layoutFlag, *dir))
 			} else {
@@ -143,7 +144,7 @@ func runPage(args []string, stdout, stderr io.Writer, strict bool) error {
 			return errSilent
 		}
 	} else {
-		if err := engine.RenderPage(stdout, name, data); err != nil {
+		if err := engine.RenderPage(context.Background(), stdout, name, data); err != nil {
 			if strings.Contains(err.Error(), name) {
 				fmt.Fprintln(stderr, componentNotFoundError("page", name, *dir))
 			} else {

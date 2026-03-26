@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,7 +35,7 @@ func TestIntegration_FullPipeline(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Featured", map[string]any{
+	out, err := e.RenderFragmentString(context.Background(), "Featured", map[string]any{
 		"title":      "Hello World",
 		"isActive":   true,
 		"isDisabled": false,
@@ -97,7 +98,7 @@ func TestIntegration_NestedComponentsWithSlots(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Page", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -170,7 +171,7 @@ func TestIntegration_VIfWithLength(t *testing.T) {
 	}
 
 	// Non-empty slice: the v-if branch must render.
-	out, err := e.RenderFragmentString("Posts", map[string]any{
+	out, err := e.RenderFragmentString(context.Background(), "Posts", map[string]any{
 		"posts": []any{"first", "second"},
 	})
 	if err != nil {
@@ -184,7 +185,7 @@ func TestIntegration_VIfWithLength(t *testing.T) {
 	}
 
 	// Empty slice: the v-else branch must render.
-	out, err = e.RenderFragmentString("Posts", map[string]any{
+	out, err = e.RenderFragmentString(context.Background(), "Posts", map[string]any{
 		"posts": []any{},
 	})
 	if err != nil {
@@ -212,7 +213,7 @@ func TestIntegration_LayoutPattern(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Page", map[string]any{
+	out, err := e.RenderFragmentString(context.Background(), "Page", map[string]any{
 		"title": "My Blog",
 		"body":  "Welcome!",
 		"copy":  "2024",
@@ -249,7 +250,7 @@ func TestIntegration_RenderlessListPattern(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Page", map[string]any{
+	out, err := e.RenderFragmentString(context.Background(), "Page", map[string]any{
 		"users": []any{
 			map[string]any{"name": "Alice"},
 			map[string]any{"name": "Bob"},
@@ -285,7 +286,7 @@ func TestIntegration_NestedParentChildGrandchild(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Parent", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Parent", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -320,7 +321,7 @@ func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Live", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Live", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (before reload): %v", err)
 	}
@@ -335,7 +336,7 @@ func TestIntegration_ReloadPicksUpChanges(t *testing.T) {
 		ModTime: time.Now().Add(time.Second),
 	}
 
-	out, err = e.RenderFragmentString("Live", nil)
+	out, err = e.RenderFragmentString(context.Background(), "Live", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (after reload): %v", err)
 	}
@@ -363,7 +364,7 @@ func TestIntegration_CamelCasePropViaSlot(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Page", map[string]any{
+	out, err := e.RenderFragmentString(context.Background(), "Page", map[string]any{
 		"myProp": "hello",
 	})
 	if err != nil {
@@ -386,7 +387,7 @@ func TestIntegration_DynamicComponent_BasicResolution(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Page", map[string]any{"widgetType": "Banner"})
+	out, err := e.RenderFragmentString(context.Background(), "Page", map[string]any{"widgetType": "Banner"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -413,11 +414,11 @@ func TestIntegration_SelfClosingComponentTag(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	selfCloseOut, err := e.RenderFragmentString("PageSelfClose", nil)
+	selfCloseOut, err := e.RenderFragmentString(context.Background(), "PageSelfClose", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (self-close): %v", err)
 	}
-	explicitOut, err := e.RenderFragmentString("PageExplicit", nil)
+	explicitOut, err := e.RenderFragmentString(context.Background(), "PageExplicit", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (explicit): %v", err)
 	}
@@ -471,7 +472,7 @@ func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Page", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (v1): %v", err)
 	}
@@ -486,7 +487,7 @@ func TestIntegration_DynamicComponent_ReloadPicksUpNewTemplate(t *testing.T) {
 		ModTime: time.Now().Add(time.Second),
 	}
 
-	out, err = e.RenderFragmentString("Page", nil)
+	out, err = e.RenderFragmentString(context.Background(), "Page", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (v2): %v", err)
 	}
@@ -515,7 +516,7 @@ p { font-family: "My Font"; }
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Fonts", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Fonts", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -547,7 +548,7 @@ p { font-family: "My Font"; }
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("ScopedFonts", nil)
+	out, err := e.RenderFragmentString(context.Background(), "ScopedFonts", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -575,7 +576,7 @@ func TestIntegration_CSSContentSpecialCharsPreserved(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Icons", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Icons", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -608,7 +609,7 @@ func TestIntegration_NestedSlotChain_NoInfiniteRecursion(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Outer", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Outer", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -637,7 +638,7 @@ func TestIntegration_NestedSlotChain_NamedSlot(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("OuterNamed", nil)
+	out, err := e.RenderFragmentString(context.Background(), "OuterNamed", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -669,7 +670,7 @@ func TestIntegration_NestedSlotChain_SlotProps(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("OuterProps", nil)
+	out, err := e.RenderFragmentString(context.Background(), "OuterProps", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}

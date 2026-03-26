@@ -247,31 +247,6 @@ func dirHashFS(fsys fs.FS, dirs ...string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-// writeScripts writes the collected custom element scripts to
-// <scriptsDir>/<hash>.js. It creates the directory only when collector has at
-// least one script. It is a no-op when the collector is empty.
-func writeScripts(collector *htmlc.CustomElementCollector, scriptsDir string) error {
-	if collector.Len() == 0 {
-		return nil
-	}
-	if err := os.MkdirAll(scriptsDir, 0755); err != nil {
-		return fmt.Errorf("creating scripts directory: %w", err)
-	}
-	fsys := collector.ScriptsFS()
-	return fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		data, err := fs.ReadFile(fsys, path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(filepath.Join(scriptsDir, path), data, 0644)
-	})
-}
 
 // runDevServer starts an HTTP file server on addr that serves the out directory
 // and rebuilds when source files change on each incoming request. Scripts
@@ -443,8 +418,6 @@ func runBuildCollect(args []string, stdout, stderr io.Writer, strict bool, collO
 	verbose := isTerminal(stdout)
 	failed := 0
 	total := len(discovered)
-	collector := htmlc.NewCustomElementCollector()
-
 	for _, e := range discovered {
 		name := strings.TrimSuffix(filepath.Base(e.relPath), ".vue")
 
@@ -492,7 +465,7 @@ func runBuildCollect(args []string, stdout, stderr io.Writer, strict bool, collO
 
 		var renderErr error
 		if *layoutFlag != "" {
-			content, fragErr := engine.RenderFragmentStringWithCollector(context.Background(), name, data, collector)
+			content, fragErr := engine.RenderFragmentString(context.Background(), name, data)
 			if fragErr != nil {
 				renderErr = fragErr
 			} else {
@@ -501,10 +474,10 @@ func runBuildCollect(args []string, stdout, stderr io.Writer, strict bool, collO
 					layoutData[k] = v
 				}
 				layoutData["content"] = content
-				renderErr = engine.RenderPageWithCollector(context.Background(), f, *layoutFlag, layoutData, collector)
+				renderErr = engine.RenderPage(context.Background(), f, *layoutFlag, layoutData)
 			}
 		} else {
-			renderErr = engine.RenderPageWithCollector(context.Background(), f, name, data, collector)
+			renderErr = engine.RenderPage(context.Background(), f, name, data)
 		}
 		f.Close()
 
@@ -524,7 +497,7 @@ func runBuildCollect(args []string, stdout, stderr io.Writer, strict bool, collO
 	}
 
 	// Write collected custom element scripts to <out>/scripts/.
-	if writeErr := writeScripts(collector, filepath.Join(*out, "scripts")); writeErr != nil {
+	if writeErr := engine.WriteScripts(filepath.Join(*out, "scripts")); writeErr != nil {
 		fmt.Fprintln(stderr, cmdErrorMsg("build", fmt.Sprintf("failed to write scripts: %v", writeErr)))
 	}
 
@@ -533,7 +506,7 @@ func runBuildCollect(args []string, stdout, stderr io.Writer, strict bool, collO
 		return errSilent
 	}
 	if collOut != nil {
-		*collOut = collector
+		*collOut = engine.Collector()
 	}
 	if *devAddr != "" {
 		return runDevServer(*devAddr, *dir, *pages, *out, *layoutFlag, *debugFlag, strict, stdout, stderr)

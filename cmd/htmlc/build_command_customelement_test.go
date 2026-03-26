@@ -134,7 +134,7 @@ func TestBuildCEDeduplication(t *testing.T) {
 	}
 	var jsFiles []string
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".js") {
+		if strings.HasSuffix(e.Name(), ".js") && e.Name() != "index.js" {
 			jsFiles = append(jsFiles, e.Name())
 		}
 	}
@@ -211,7 +211,7 @@ func TestBuildCE_MultipleDistinctScripts(t *testing.T) {
 	}
 	var jsFiles []string
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".js") {
+		if strings.HasSuffix(e.Name(), ".js") && e.Name() != "index.js" {
 			jsFiles = append(jsFiles, e.Name())
 		}
 	}

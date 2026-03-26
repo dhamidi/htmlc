@@ -102,9 +102,10 @@ type engineEntry struct {
 // multiple goroutines simultaneously.
 type Engine struct {
 	opts               Options
-	mu                 sync.RWMutex // guards entries and nsEntries
+	mu                 sync.RWMutex // guards entries, nsEntries, and collector
 	entries            map[string]*engineEntry
 	nsEntries          map[string]map[string]*engineEntry // relDir → localName → entry
+	collector          *CustomElementCollector
 	missingPropHandler MissingPropFunc
 	directives         DirectiveRegistry
 	funcs              map[string]any // per-engine functions, injected into every render scope
@@ -237,11 +238,13 @@ func New(opts Options) (*Engine, error) {
 	})
 	e.counterComponents = &counterComponents
 
+	e.collector = NewCustomElementCollector()
 	if opts.ComponentDir != "" {
 		if err := e.discover(opts.ComponentDir); err != nil {
 			return nil, err
 		}
 	}
+	e.rebuildCollectorLocked()
 	return e, nil
 }
 
@@ -255,6 +258,23 @@ func (e *Engine) componentCountDedup() int {
 		seen[entry] = true
 	}
 	return len(seen)
+}
+
+// rebuildCollectorLocked rebuilds the internal CustomElementCollector from
+// e.entries. It must be called while holding e.mu for writing.
+func (e *Engine) rebuildCollectorLocked() {
+	c := NewCustomElementCollector()
+	seen := make(map[*engineEntry]bool, len(e.entries))
+	for _, entry := range e.entries {
+		if seen[entry] {
+			continue
+		}
+		seen[entry] = true
+		if entry.comp != nil && entry.comp.CustomElementScript != "" {
+			c.Add(entry.comp.CustomElementTag, entry.comp.CustomElementScript)
+		}
+	}
+	e.collector = c
 }
 
 // discover walks dir in lexical order and registers every *.vue file found.
@@ -391,6 +411,7 @@ func (e *Engine) registerPathLocked(name, path string) error {
 		e.nsEntries[relDir][name] = entry
 	}
 
+	e.rebuildCollectorLocked()
 	return nil
 }
 
@@ -460,8 +481,11 @@ func (e *Engine) maybeReload() error {
 	e.entries = make(map[string]*engineEntry)
 	e.nsEntries = make(map[string]map[string]*engineEntry)
 	if e.opts.ComponentDir != "" {
-		return e.discover(e.opts.ComponentDir)
+		if err := e.discover(e.opts.ComponentDir); err != nil {
+			return err
+		}
 	}
+	e.rebuildCollectorLocked()
 	return nil
 }
 
@@ -745,9 +769,10 @@ func (e *Engine) applyDataMiddleware(r *http.Request, data map[string]any) map[s
 }
 
 // renderComponent renders the named component with the given data scope,
-// writing HTML to w and returning the collected styles.
+// writing HTML to w and returning the collected styles. It uses the engine's
+// internal collector so importMap is available in all renders.
 func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, data map[string]any) (*StyleCollector, error) {
-	sc, _, err := e.renderComponentWithCollector(ctx, w, name, data, nil)
+	sc, _, err := e.renderComponentWithCollector(ctx, w, name, data, e.collector)
 	return sc, err
 }
 
@@ -914,22 +939,13 @@ func styleBlock(sc *StyleCollector) string {
 // component that includes <!DOCTYPE html>, <html>, <head>, and <body>).
 // For partial HTML — such as HTMX responses or turbo-frame updates — use
 // RenderFragment instead, which prepends styles without searching for </head>.
-func (e *Engine) RenderPage(w io.Writer, name string, data map[string]any) error {
-	return e.RenderPageContext(context.Background(), w, name, data)
-}
-
-// RenderPageContext is like RenderPage but accepts a context.Context. The
-// render is aborted and ctx.Err() is returned if the context is cancelled or
-// its deadline is exceeded during rendering.
-func (e *Engine) RenderPageContext(ctx context.Context, w io.Writer, name string, data map[string]any) error {
+func (e *Engine) RenderPage(ctx context.Context, w io.Writer, pageName string, data map[string]any) error {
 	var buf strings.Builder
-	sc, err := e.renderComponent(ctx, &buf, name, data)
+	sc, _, err := e.renderComponentWithCollector(ctx, &buf, pageName, data, e.collector)
 	if err != nil {
 		return err
 	}
 	out := buf.String()
-
-	// Inject scoped styles before </head>.
 	style := styleBlock(sc)
 	if style != "" {
 		if idx := strings.Index(out, "</head>"); idx >= 0 {
@@ -938,8 +954,6 @@ func (e *Engine) RenderPageContext(ctx context.Context, w io.Writer, name string
 			out = style + out
 		}
 	}
-
-	// Inject inspector script before </body> when debug mode is active.
 	if e.varDebug.Value() != 0 {
 		script := "\n<script>\n" + InspectorScript + "\n</script>\n"
 		if idx := strings.Index(out, "</body>"); idx >= 0 {
@@ -948,9 +962,17 @@ func (e *Engine) RenderPageContext(ctx context.Context, w io.Writer, name string
 			out = out + script
 		}
 	}
-
 	_, err = io.WriteString(w, out)
 	return err
+}
+
+// RenderPageContext is like RenderPage but accepts a context.Context. The
+// render is aborted and ctx.Err() is returned if the context is cancelled or
+// its deadline is exceeded during rendering.
+//
+// Deprecated: Use RenderPage, which now accepts a context.Context directly.
+func (e *Engine) RenderPageContext(ctx context.Context, w io.Writer, name string, data map[string]any) error {
+	return e.RenderPage(ctx, w, name, data)
 }
 
 // RenderFragment renders name as an HTML fragment, writing the result to w,
@@ -985,45 +1007,12 @@ func (e *Engine) RenderFragmentContext(ctx context.Context, w io.Writer, name st
 	return err
 }
 
-// RenderPageWithCollector renders name as a full HTML page like RenderPage,
-// but also passes collector through every component in the tree so that
-// custom element scripts are accumulated. collector may be nil.
-func (e *Engine) RenderPageWithCollector(ctx context.Context, w io.Writer, name string, data map[string]any, collector *CustomElementCollector) error {
+// RenderFragmentString renders name as an HTML fragment and returns the result
+// as a string. Scoped styles are prepended before the HTML. It uses the
+// engine's internal collector so importMap is available in all renders.
+func (e *Engine) RenderFragmentString(ctx context.Context, name string, data map[string]any) (string, error) {
 	var buf strings.Builder
-	sc, _, err := e.renderComponentWithCollector(ctx, &buf, name, data, collector)
-	if err != nil {
-		return err
-	}
-	out := buf.String()
-
-	style := styleBlock(sc)
-	if style != "" {
-		if idx := strings.Index(out, "</head>"); idx >= 0 {
-			out = out[:idx] + style + out[idx:]
-		} else {
-			out = style + out
-		}
-	}
-
-	if e.varDebug.Value() != 0 {
-		script := "\n<script>\n" + InspectorScript + "\n</script>\n"
-		if idx := strings.Index(out, "</body>"); idx >= 0 {
-			out = out[:idx] + script + out[idx:]
-		} else {
-			out = out + script
-		}
-	}
-
-	_, err = io.WriteString(w, out)
-	return err
-}
-
-// RenderFragmentStringWithCollector renders name as an HTML fragment and
-// returns the result as a string like RenderFragmentString, but also passes
-// collector through every component in the tree. collector may be nil.
-func (e *Engine) RenderFragmentStringWithCollector(ctx context.Context, name string, data map[string]any, collector *CustomElementCollector) (string, error) {
-	var buf strings.Builder
-	sc, _, err := e.renderComponentWithCollector(ctx, &buf, name, data, collector)
+	sc, _, err := e.renderComponentWithCollector(ctx, &buf, name, data, e.collector)
 	if err != nil {
 		return "", err
 	}
@@ -1040,21 +1029,59 @@ func (e *Engine) RenderFragmentStringWithCollector(ctx context.Context, name str
 // need a string rather than writing to an io.Writer.
 func (e *Engine) RenderPageString(name string, data map[string]any) (string, error) {
 	var buf strings.Builder
-	if err := e.RenderPage(&buf, name, data); err != nil {
+	if err := e.RenderPage(context.Background(), &buf, name, data); err != nil {
 		return "", err
 	}
 	return buf.String(), nil
 }
 
-// RenderFragmentString renders name as an HTML fragment and returns the result
-// as a string. It is a convenience wrapper around RenderFragment for callers
-// that need a string rather than writing to an io.Writer.
-func (e *Engine) RenderFragmentString(name string, data map[string]any) (string, error) {
-	var buf strings.Builder
-	if err := e.RenderFragment(&buf, name, data); err != nil {
-		return "", err
+// ScriptHandler returns an http.Handler that serves the engine's collected
+// custom element scripts. It handles requests for "/<hash>.js" files and
+// also responds to "/index.js" with an ES module that imports all scripts.
+func (e *Engine) ScriptHandler() http.Handler {
+	return NewScriptFSServer(e.collector)
+}
+
+// WriteScripts writes the engine's collected custom element scripts to dir.
+// It creates dir if it does not exist. For each collected script a file named
+// "<hash>.js" is written, and an "index.js" file is written that imports all
+// scripts using relative imports. WriteScripts is a no-op when no scripts
+// have been collected.
+func (e *Engine) WriteScripts(dir string) error {
+	coll := e.collector
+	if coll.Len() == 0 {
+		return nil
 	}
-	return buf.String(), nil
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("WriteScripts: create dir: %w", err)
+	}
+	fsys := coll.ScriptsFS()
+	if err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, readErr := fs.ReadFile(fsys, path)
+		if readErr != nil {
+			return readErr
+		}
+		return os.WriteFile(filepath.Join(dir, path), data, 0644)
+	}); err != nil {
+		return err
+	}
+	indexContent := coll.IndexJS()
+	if indexContent == "" {
+		return nil
+	}
+	return os.WriteFile(filepath.Join(dir, "index.js"), []byte(indexContent), 0644)
+}
+
+// Collector returns the engine's internal CustomElementCollector, populated
+// with all custom element scripts registered in the engine. Power users can
+// call ImportMapJSON or integrate with an existing asset pipeline.
+func (e *Engine) Collector() *CustomElementCollector {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.collector
 }
 
 // ServeComponent returns an http.HandlerFunc that renders name as a fragment
@@ -1110,7 +1137,7 @@ func (e *Engine) ServePageComponent(name string, data func(*http.Request) (map[s
 
 		// Buffer output so we can set the status code before writing the body.
 		var buf strings.Builder
-		if err := e.RenderPageContext(r.Context(), &buf, name, scope); err != nil {
+		if err := e.RenderPage(r.Context(), &buf, name, scope); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

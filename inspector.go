@@ -6,8 +6,8 @@ import _ "embed"
 // It is a self-contained JavaScript module that, when executed, registers
 // and appends the <htmlc-inspector> custom element to the document body.
 //
-// The script is automatically injected before </body> by RenderPage and
-// RenderPageContext when the engine is created with Options{Debug: true}.
+// The script is automatically injected before </body> by RenderPage when the
+// engine is created with Options{Debug: true}.
 //
 //go:embed htmlc-inspector.js
 var InspectorScript string

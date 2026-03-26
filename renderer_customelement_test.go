@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -130,7 +131,7 @@ export default {}
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	out, err := e.RenderFragmentString("Page", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}

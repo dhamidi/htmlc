@@ -131,7 +131,7 @@ func TestCustomElementCollector_Empty(t *testing.T) {
 
 func TestCustomElementCollector_IndexJS_Empty(t *testing.T) {
 	c := NewCustomElementCollector()
-	got := c.IndexJS("/s/")
+	got := c.IndexJS()
 	if got != "" {
 		t.Errorf("IndexJS on empty collector = %q, want \"\"", got)
 	}
@@ -143,13 +143,10 @@ func TestCustomElementCollector_IndexJS_Single(t *testing.T) {
 	c.Add("ui-date-picker", script)
 
 	hash := contentHash(script)
-	got := c.IndexJS("/scripts/")
-	want := `import "/scripts/` + hash + `.js"` + "\n"
+	got := c.IndexJS()
+	want := `import "./` + hash + `.js"` + "\n"
 	if got != want {
 		t.Errorf("IndexJS = %q, want %q", got, want)
-	}
-	if !strings.HasPrefix(got, `import "`) {
-		t.Errorf("IndexJS line does not start with `import \"`: %q", got)
 	}
 }
 
@@ -162,17 +159,11 @@ func TestCustomElementCollector_IndexJS_TwoScripts(t *testing.T) {
 
 	hash1 := contentHash(script1)
 	hash2 := contentHash(script2)
-	got := c.IndexJS("/scripts/")
-	want := `import "/scripts/` + hash1 + `.js"` + "\n" +
-		`import "/scripts/` + hash2 + `.js"` + "\n"
+	got := c.IndexJS()
+	want := `import "./` + hash1 + `.js"` + "\n" +
+		`import "./` + hash2 + `.js"` + "\n"
 	if got != want {
 		t.Errorf("IndexJS = %q, want %q", got, want)
-	}
-	lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
-	for _, line := range lines {
-		if !strings.HasPrefix(line, `import "`) {
-			t.Errorf("line does not start with `import \"`: %q", line)
-		}
 	}
 }
 
@@ -183,8 +174,8 @@ func TestCustomElementCollector_IndexJS_DedupByHash(t *testing.T) {
 	c.Add("alt-date-picker", script) // same content, different tag
 
 	hash := contentHash(script)
-	got := c.IndexJS("/scripts/")
-	want := `import "/scripts/` + hash + `.js"` + "\n"
+	got := c.IndexJS()
+	want := `import "./` + hash + `.js"` + "\n"
 	if got != want {
 		t.Errorf("IndexJS = %q, want %q (expected dedup)", got, want)
 	}

@@ -1,6 +1,7 @@
 package htmlc_test
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -24,7 +25,7 @@ func Example() {
 		log.Fatal(err)
 	}
 
-	out, err := engine.RenderFragmentString("Greeting", map[string]any{"name": "World"})
+	out, err := engine.RenderFragmentString(context.Background(), "Greeting", map[string]any{"name": "World"})
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package htmlctest
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -88,7 +89,7 @@ func (h *Harness) Page(name string, data map[string]any) *Result {
 // Fragment renders name as an HTML fragment using [htmlc.Engine.RenderFragmentString].
 func (h *Harness) Fragment(name string, data map[string]any) *Result {
 	h.t.Helper()
-	out, err := h.eng.RenderFragmentString(name, data)
+	out, err := h.eng.RenderFragmentString(context.Background(), name, data)
 	if err != nil {
 		h.t.Fatalf("htmlctest: Fragment(%q): %v", name, err)
 	}

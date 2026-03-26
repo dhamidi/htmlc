@@ -1,6 +1,7 @@
 package htmlc_test
 
 import (
+	"context"
 	"encoding/json"
 	"expvar"
 	"io"
@@ -52,7 +53,7 @@ func TestPublishExpvars_counters(t *testing.T) {
 
 	const N = 10
 	for i := 0; i < N; i++ {
-		if _, err := e.RenderFragmentString("Counter", map[string]any{"n": i}); err != nil {
+		if _, err := e.RenderFragmentString(context.Background(), "Counter", map[string]any{"n": i}); err != nil {
 			t.Fatalf("render %d: %v", i, err)
 		}
 	}
@@ -78,7 +79,7 @@ func TestSetDebug_toggles(t *testing.T) {
 	e.PublishExpvars("htmlc_test_a3")
 
 	// Render with debug off — no data-htmlc-* attributes expected.
-	out, err := e.RenderFragmentString("DbgParent", nil)
+	out, err := e.RenderFragmentString(context.Background(), "DbgParent", nil)
 	if err != nil {
 		t.Fatalf("render (debug off): %v", err)
 	}
@@ -88,7 +89,7 @@ func TestSetDebug_toggles(t *testing.T) {
 
 	// Enable debug — data-htmlc-* attributes should appear on component root elements.
 	e.SetDebug(true)
-	out, err = e.RenderFragmentString("DbgParent", nil)
+	out, err = e.RenderFragmentString(context.Background(), "DbgParent", nil)
 	if err != nil {
 		t.Fatalf("render (debug on): %v", err)
 	}
@@ -105,7 +106,7 @@ func TestSetDebug_toggles(t *testing.T) {
 
 	// Disable debug again — no data-htmlc-* attributes expected.
 	e.SetDebug(false)
-	out, err = e.RenderFragmentString("DbgParent", nil)
+	out, err = e.RenderFragmentString(context.Background(), "DbgParent", nil)
 	if err != nil {
 		t.Fatalf("render (debug off again): %v", err)
 	}
@@ -243,7 +244,7 @@ func TestNoPublishExpvars_noSideEffect(t *testing.T) {
 	}).Engine()
 
 	for i := 0; i < 5; i++ {
-		if _, err := e.RenderFragmentString("Nopub", nil); err != nil {
+		if _, err := e.RenderFragmentString(context.Background(), "Nopub", nil); err != nil {
 			t.Fatalf("render %d: %v", i, err)
 		}
 	}
@@ -288,7 +289,7 @@ func TestExpvarHTTPEndpoint(t *testing.T) {
 
 	// Perform 5 renders.
 	for i := 0; i < 5; i++ {
-		if _, err := e.RenderFragmentString("Page", nil); err != nil {
+		if _, err := e.RenderFragmentString(context.Background(), "Page", nil); err != nil {
 			t.Fatalf("render %d: %v", i, err)
 		}
 	}

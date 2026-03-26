@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"context"
 	"errors"
 	htmltmpl "html/template"
 	"strings"
@@ -196,7 +197,7 @@ func TestEngine_RegisterTemplate_SimpleStdlib(t *testing.T) {
 		t.Fatalf("RegisterTemplate: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Page", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -242,7 +243,7 @@ func TestEngine_RegisterTemplate_LastWriteWins(t *testing.T) {
 		t.Fatalf("RegisterTemplate t2: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("my-comp", nil)
+	out, err := e.RenderFragmentString(context.Background(), "my-comp", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}

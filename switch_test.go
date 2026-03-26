@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -26,7 +27,7 @@ func TestVSwitch_BasicCaseMatch(t *testing.T) {
 	e := switchEngine(t, map[string]string{
 		"Host": `<template v-switch="'b'"><div v-case="'a'">alpha</div><div v-case="'b'">beta</div></template>`,
 	})
-	out, err := e.RenderFragmentString("Host", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -42,7 +43,7 @@ func TestVSwitch_NoMatchRendersDefault(t *testing.T) {
 	e := switchEngine(t, map[string]string{
 		"Host": `<template v-switch="'x'"><div v-case="'a'">alpha</div><div v-case="'b'">beta</div><div v-default>fallback</div></template>`,
 	})
-	out, err := e.RenderFragmentString("Host", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -58,7 +59,7 @@ func TestVSwitch_NoMatchNoDefault(t *testing.T) {
 	e := switchEngine(t, map[string]string{
 		"Host": `<template v-switch="'x'"><div v-case="'a'">alpha</div></template>`,
 	})
-	out, err := e.RenderFragmentString("Host", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -71,7 +72,7 @@ func TestVSwitch_DynamicExpression(t *testing.T) {
 	e := switchEngine(t, map[string]string{
 		"Host": `<template v-switch="tab"><div v-case="'home'">home content</div><div v-case="'settings'">settings content</div></template>`,
 	})
-	out, err := e.RenderFragmentString("Host", map[string]any{"tab": "settings"})
+	out, err := e.RenderFragmentString(context.Background(), "Host", map[string]any{"tab": "settings"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -87,7 +88,7 @@ func TestVSwitch_FirstMatchWins(t *testing.T) {
 	e := switchEngine(t, map[string]string{
 		"Host": `<template v-switch="'a'"><div v-case="'a'">first</div><div v-case="'a'">second</div></template>`,
 	})
-	out, err := e.RenderFragmentString("Host", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestVSwitch_DefaultSkippedWhenMatched(t *testing.T) {
 	e := switchEngine(t, map[string]string{
 		"Host": `<template v-switch="'a'"><div v-case="'a'">matched</div><div v-default>default content</div></template>`,
 	})
-	out, err := e.RenderFragmentString("Host", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestVSwitch_ComponentChildren(t *testing.T) {
 		"Card":   `<div class="card">card content</div>`,
 		"Banner": `<div class="banner">banner content</div>`,
 	})
-	out, err := e.RenderFragmentString("Host", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -137,7 +138,7 @@ func TestVSwitch_SwitchExprError(t *testing.T) {
 	e := switchEngine(t, map[string]string{
 		"Host": `<template v-switch="badExpr["><div v-case="'a'">a</div></template>`,
 	})
-	_, err := e.RenderFragmentString("Host", nil)
+	_, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err == nil {
 		t.Fatal("expected error for invalid v-switch expression, got nil")
 	}
@@ -150,7 +151,7 @@ func TestVSwitch_CaseExprError(t *testing.T) {
 	e := switchEngine(t, map[string]string{
 		"Host": `<template v-switch="'a'"><div v-case="badExpr[">a</div></template>`,
 	})
-	_, err := e.RenderFragmentString("Host", nil)
+	_, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err == nil {
 		t.Fatal("expected error for invalid v-case expression, got nil")
 	}
@@ -163,7 +164,7 @@ func TestVSwitch_NonTemplateElement(t *testing.T) {
 	e := switchEngine(t, map[string]string{
 		"Host": `<div v-switch="'a'"><div v-case="'a'">yes</div></div>`,
 	})
-	_, err := e.RenderFragmentString("Host", nil)
+	_, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err == nil {
 		t.Fatal("expected error for v-switch on non-template element, got nil")
 	}
@@ -176,7 +177,7 @@ func TestVSwitch_ChildrenWithoutCaseIgnored(t *testing.T) {
 	e := switchEngine(t, map[string]string{
 		"Host": `<template v-switch="'b'"><div v-case="'a'">alpha</div><div>plain child</div><div v-case="'b'">beta</div></template>`,
 	})
-	out, err := e.RenderFragmentString("Host", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestVSwitch_IntegerSwitchValue(t *testing.T) {
 		"Host": `<template v-switch="count"><div v-case="1">one</div><div v-case="2">two</div><div v-default>other</div></template>`,
 	})
 	// The expr evaluator parses numeric literals as float64, so provide float64 in scope.
-	out, err := e.RenderFragmentString("Host", map[string]any{"count": float64(2)})
+	out, err := e.RenderFragmentString(context.Background(), "Host", map[string]any{"count": float64(2)})
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -214,7 +215,7 @@ func TestVSwitch_NilSwitchValue(t *testing.T) {
 		"Host": `<template v-switch="missing"><div v-case="null">nil matched</div><div v-default>no match</div></template>`,
 	})
 	// Provide missing=nil so the switch value is nil; v-case="null" also evaluates to nil.
-	out, err := e.RenderFragmentString("Host", map[string]any{"missing": nil})
+	out, err := e.RenderFragmentString(context.Background(), "Host", map[string]any{"missing": nil})
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}

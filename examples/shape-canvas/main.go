@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/dhamidi/htmlc"
@@ -89,16 +87,9 @@ func main() {
 		log.Fatalf("init engine: %v", err)
 	}
 
-	collector, err := engine.CollectCustomElements()
-	if err != nil {
-		log.Fatalf("collect custom elements: %v", err)
-	}
-
-	indexJS := collector.IndexJS("/scripts/")
-
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		var buf bytes.Buffer
-		if err := engine.RenderPageWithCollector(r.Context(), &buf, "DashboardPage", nil, collector); err != nil {
+		if err := engine.RenderPage(r.Context(), &buf, "DashboardPage", nil); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
@@ -106,15 +97,7 @@ func main() {
 		buf.WriteTo(w)
 	})
 
-	scriptHandler := http.StripPrefix("/scripts/", htmlc.NewScriptFSServer(collector))
-	http.Handle("/scripts/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.TrimPrefix(r.URL.Path, "/scripts/") == "index.js" {
-			w.Header().Set("Content-Type", "text/javascript")
-			io.WriteString(w, indexJS)
-			return
-		}
-		scriptHandler.ServeHTTP(w, r)
-	}))
+	http.Handle("/scripts/", http.StripPrefix("/scripts/", engine.ScriptHandler()))
 
 	http.HandleFunc("/api/shapes/stream", streamShapes)
 

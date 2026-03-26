@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -23,7 +24,7 @@ func TestEngine_DiscoverRegistersVueFiles(t *testing.T) {
 	}
 
 	// Card should be registered.
-	out, err := e.RenderFragmentString("Card", map[string]any{"title": "Hello"})
+	out, err := e.RenderFragmentString(context.Background(), "Card", map[string]any{"title": "Hello"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString Card: %v", err)
 	}
@@ -32,7 +33,7 @@ func TestEngine_DiscoverRegistersVueFiles(t *testing.T) {
 	}
 
 	// Alert (from ui/ subdir) should register as Alert.
-	out, err = e.RenderFragmentString("Alert", map[string]any{"msg": "Warning"})
+	out, err = e.RenderFragmentString(context.Background(), "Alert", map[string]any{"msg": "Warning"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString Alert: %v", err)
 	}
@@ -53,7 +54,7 @@ func TestEngine_DuplicateNameLastWins(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Card", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Card", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestEngine_RegisterManual(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Alias", map[string]any{"val": "manual"})
+	out, err := e.RenderFragmentString(context.Background(), "Alias", map[string]any{"val": "manual"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -161,7 +162,7 @@ func TestEngine_RenderFragmentPrependsStyle(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Badge", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Badge", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -301,7 +302,7 @@ func TestEngine_MissingProp_NoHandler_ReturnsError(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Greeter", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Greeter", nil)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -320,7 +321,7 @@ func TestEngine_MissingProp_DefaultPlaceholder(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Greeter", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Greeter", nil)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -340,7 +341,7 @@ func TestEngine_MissingProp_ErrorOnMissingPropHandler(t *testing.T) {
 	}
 	e.WithMissingPropHandler(ErrorOnMissingProp)
 
-	_, err = e.RenderFragmentString("Greeter", nil)
+	_, err = e.RenderFragmentString(context.Background(), "Greeter", nil)
 	if err == nil {
 		t.Error("expected error for missing prop with ErrorOnMissingProp handler, got nil")
 	}
@@ -360,7 +361,7 @@ func TestEngine_MissingProp_SubstituteHandler_ProducesPlaceholder(t *testing.T) 
 	}
 	e.WithMissingPropHandler(SubstituteMissingProp)
 
-	out, err := e.RenderFragmentString("Greeter", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Greeter", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -386,7 +387,7 @@ func TestEngine_MissingProp_CustomHandler_InvokedForAllComponents(t *testing.T) 
 		return "CUSTOM:" + name, nil
 	})
 
-	out, err := e.RenderFragmentString("Parent", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Parent", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -424,7 +425,7 @@ func TestEngine_AllPropsProvided_NoHandler_Succeeds(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Nameplate", map[string]any{"text": "hello"})
+	out, err := e.RenderFragmentString(context.Background(), "Nameplate", map[string]any{"text": "hello"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -444,7 +445,7 @@ func TestNew_WithFS_DiscoverAndRender(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("UserCard", map[string]any{"label": "Click me"})
+	out, err := e.RenderFragmentString(context.Background(), "UserCard", map[string]any{"label": "Click me"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString UserCard: %v", err)
 	}
@@ -452,7 +453,7 @@ func TestNew_WithFS_DiscoverAndRender(t *testing.T) {
 		t.Errorf("UserCard: got %q, want 'Click me'", out)
 	}
 
-	out, err = e.RenderFragmentString("StatusBadge", map[string]any{"msg": "Watch out"})
+	out, err = e.RenderFragmentString(context.Background(), "StatusBadge", map[string]any{"msg": "Watch out"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString StatusBadge: %v", err)
 	}
@@ -471,7 +472,7 @@ func TestNew_WithFS_ComponentDir(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Card", map[string]any{"title": "Hello FS"})
+	out, err := e.RenderFragmentString(context.Background(), "Card", map[string]any{"title": "Hello FS"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -494,7 +495,7 @@ func TestNew_WithFS_NoReload(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Live", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Live", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -516,7 +517,7 @@ func TestEngine_Register_WithFS(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("MyWidget", map[string]any{"val": "from fs"})
+	out, err := e.RenderFragmentString(context.Background(), "MyWidget", map[string]any{"val": "from fs"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -535,7 +536,7 @@ func TestEngine_ReloadDetectsChangedFile(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Live", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Live", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (before): %v", err)
 	}
@@ -550,7 +551,7 @@ func TestEngine_ReloadDetectsChangedFile(t *testing.T) {
 		ModTime: time.Now().Add(time.Second),
 	}
 
-	out, err = e.RenderFragmentString("Live", nil)
+	out, err = e.RenderFragmentString(context.Background(), "Live", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (after): %v", err)
 	}
@@ -583,7 +584,7 @@ func TestEngine_RegisterFunc_AvailableInChildComponent(t *testing.T) {
 		return "Hello, " + fmt.Sprint(args[0]) + "!", nil
 	})
 
-	out, err := e.RenderFragmentString("Parent", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Parent", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -613,7 +614,7 @@ func TestEngine_RegisterFunc_PropOverridesFunc(t *testing.T) {
 		return "from-func", nil
 	})
 
-	out, err := e.RenderFragmentString("Parent", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Parent", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -650,7 +651,7 @@ func TestEngine_RegisterFunc_AvailableInGrandchildComponent(t *testing.T) {
 		return strings.ToUpper(fmt.Sprint(args[0])) + "!", nil
 	})
 
-	out, err := e.RenderFragmentString("Parent", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Parent", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -674,7 +675,7 @@ func TestEngine_Proximity_FlatProject_BackwardCompat(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Page", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -698,7 +699,7 @@ func TestEngine_Proximity_SameNameDifferentDirs(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	blogOut, err := e.RenderFragmentString("Post", nil)
+	blogOut, err := e.RenderFragmentString(context.Background(), "Post", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString Post: %v", err)
 	}
@@ -706,7 +707,7 @@ func TestEngine_Proximity_SameNameDifferentDirs(t *testing.T) {
 		t.Errorf("Post: got %q, want 'blog-card'", blogOut)
 	}
 
-	adminOut, err := e.RenderFragmentString("Dashboard", nil)
+	adminOut, err := e.RenderFragmentString(context.Background(), "Dashboard", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString Dashboard: %v", err)
 	}
@@ -728,7 +729,7 @@ func TestEngine_Proximity_WalkUpFallback(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Thread", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Thread", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -750,7 +751,7 @@ func TestEngine_Proximity_ExplicitPathIs(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Page", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -775,7 +776,7 @@ func TestEngine_Proximity_RootRelativeIs(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Post", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Post", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -820,7 +821,7 @@ func TestEngine_Proximity_HotReload_FullRebuild(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Post", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Post", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (before): %v", err)
 	}
@@ -835,7 +836,7 @@ func TestEngine_Proximity_HotReload_FullRebuild(t *testing.T) {
 		ModTime: time.Now().Add(time.Second),
 	}
 
-	out, err = e.RenderFragmentString("Post", nil)
+	out, err = e.RenderFragmentString(context.Background(), "Post", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (after): %v", err)
 	}
@@ -863,7 +864,7 @@ func TestEngine_Proximity_SlotAuthoringProximity(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Post", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Post", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -888,7 +889,7 @@ func TestEngine_Proximity_ForwardSlashKeysOnAllPlatforms(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	out, err := e.RenderFragmentString("Page", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -91,11 +92,11 @@ func (c *CustomElementCollector) ImportMapJSON(urlPrefix string) string {
 // IndexJS returns an ES module string with one import statement per collected
 // script, in stable (encounter) order. Each line has the form:
 //
-//	import "<urlPrefix><hash>.js"
+//	import "./<hash>.js"
 //
 // Duplicate hashes (same content added under different tags) are emitted only
 // once. Returns an empty string when no scripts have been collected.
-func (c *CustomElementCollector) IndexJS(urlPrefix string) string {
+func (c *CustomElementCollector) IndexJS() string {
 	if len(c.order) == 0 {
 		return ""
 	}
@@ -106,8 +107,7 @@ func (c *CustomElementCollector) IndexJS(urlPrefix string) string {
 			continue
 		}
 		seen[e.Hash] = true
-		sb.WriteString(`import "`)
-		sb.WriteString(urlPrefix)
+		sb.WriteString(`import "./`)
 		sb.WriteString(e.Hash)
 		sb.WriteString(".js\"\n")
 	}
@@ -115,7 +115,19 @@ func (c *CustomElementCollector) IndexJS(urlPrefix string) string {
 }
 
 // NewScriptFSServer returns an http.Handler that serves the scripts in
-// collector at paths of the form "/<hash>.js" with Content-Type: text/javascript.
+// collector. When the request path (after stripping the leading "/") equals
+// "index.js", it responds with collector.IndexJS() and Content-Type:
+// application/javascript. All other paths are served from the collector's
+// ScriptsFS via http.FileServerFS.
 func NewScriptFSServer(collector *CustomElementCollector) http.Handler {
-	return http.FileServerFS(collector.ScriptsFS())
+	fileServer := http.FileServerFS(collector.ScriptsFS())
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "index.js" {
+			w.Header().Set("Content-Type", "application/javascript")
+			io.WriteString(w, collector.IndexJS())
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 }

@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -33,7 +34,7 @@ func TestComponentPathInError(t *testing.T) {
 			"Child.vue": &fstest.MapFile{Data: []byte(`<template><span>{{ missing.field }}</span></template>`)},
 		}
 		e := newMapFSEngine(t, fsys, Options{})
-		err := e.RenderPage(io.Discard, "Root", nil)
+		err := e.RenderPage(context.Background(), io.Discard, "Root", nil)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -59,7 +60,7 @@ func TestComponentPathInError(t *testing.T) {
 			"Leaf.vue":    &fstest.MapFile{Data: []byte(`<template><p>{{ missing.x }}</p></template>`)},
 		}
 		e := newMapFSEngine(t, fsys, Options{})
-		err := e.RenderPage(io.Discard, "Root", nil)
+		err := e.RenderPage(context.Background(), io.Discard, "Root", nil)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -80,7 +81,7 @@ func TestComponentPathErrorString(t *testing.T) {
 		"Child.vue": &fstest.MapFile{Data: []byte(`<template><span>{{ missing.x }}</span></template>`)},
 	}
 	e := newMapFSEngine(t, fsys, Options{})
-	err := e.RenderPage(io.Discard, "Root", nil)
+	err := e.RenderPage(context.Background(), io.Discard, "Root", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -110,7 +111,7 @@ func TestComponentErrorHandlerContinues(t *testing.T) {
 
 	e := newMapFSEngine(t, fsys, Options{ComponentErrorHandler: handler})
 	var buf strings.Builder
-	renderErr := e.RenderPage(&buf, "Root", nil)
+	renderErr := e.RenderPage(context.Background(), &buf, "Root", nil)
 	if renderErr != nil {
 		t.Fatalf("RenderPage returned error: %v", renderErr)
 	}
@@ -141,7 +142,7 @@ func TestComponentErrorHandlerAborts(t *testing.T) {
 
 	e := newMapFSEngine(t, fsys, Options{ComponentErrorHandler: handler})
 	var buf strings.Builder
-	renderErr := e.RenderPage(&buf, "Root", nil)
+	renderErr := e.RenderPage(context.Background(), &buf, "Root", nil)
 	if renderErr == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -163,7 +164,7 @@ func TestComponentErrorHandlerNil(t *testing.T) {
 
 	e := newMapFSEngine(t, fsys, Options{ComponentErrorHandler: nil})
 	var buf strings.Builder
-	err := e.RenderPage(&buf, "Root", nil)
+	err := e.RenderPage(context.Background(), &buf, "Root", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -182,7 +183,7 @@ func TestHTMLErrorHandler(t *testing.T) {
 
 	e := newMapFSEngine(t, fsys, Options{ComponentErrorHandler: HTMLErrorHandler()})
 	var buf strings.Builder
-	err := e.RenderPage(&buf, "Root", nil)
+	err := e.RenderPage(context.Background(), &buf, "Root", nil)
 	if err != nil {
 		t.Fatalf("RenderPage returned error: %v", err)
 	}
@@ -205,7 +206,7 @@ func TestComponentPathPropagationDeep(t *testing.T) {
 	}
 
 	e := newMapFSEngine(t, fsys, Options{})
-	err := e.RenderPage(io.Discard, "A", nil)
+	err := e.RenderPage(context.Background(), io.Discard, "A", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

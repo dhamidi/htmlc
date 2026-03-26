@@ -416,7 +416,7 @@ data into a shared shell (layout) component:
 Render data for the page:
 
 ```go
-engine.RenderPage(w, "HomePage", map[string]any{
+engine.RenderPage(ctx, w, "HomePage", map[string]any{
     "title": "Welcome",
     "intro": "Hello from the server.",
 })
@@ -592,7 +592,7 @@ engine, err := htmlc.New(htmlc.Options{
 Scoped styles are injected before the first `</head>` tag.
 
 ```go
-err = engine.RenderPage(w, "Page", map[string]any{
+err = engine.RenderPage(ctx, w, "Page", map[string]any{
     "title": "Home",
     "items": []string{"a", "b"},
 })
@@ -629,7 +629,7 @@ post := Post{
     Draft:  false,
 }
 
-err = engine.RenderPage(w, "PostPage", map[string]any{
+err = engine.RenderPage(ctx, w, "PostPage", map[string]any{
     "post": post,
 })
 ```
@@ -800,7 +800,7 @@ Pass a `context.Context` to propagate cancellation and deadlines through the ren
 ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 defer cancel()
 
-err = engine.RenderPageContext(ctx, w, "Page", data)
+err = engine.RenderPage(ctx, w, "Page", data)
 err = engine.RenderFragmentContext(ctx, w, "Card", data)
 ```
 
@@ -1079,7 +1079,7 @@ Every `*RenderError` now carries a `ComponentPath []string` field — the ordere
 
 ```go
 var rerr *htmlc.RenderError
-err := engine.RenderPage(w, "HomePage", data)
+err := engine.RenderPage(ctx, w, "HomePage", data)
 if errors.As(err, &rerr) {
     fmt.Println(strings.Join(rerr.ComponentPath, " > "))
     // Output: HomePage > Layout > Sidebar
@@ -1101,7 +1101,7 @@ engine, _ := htmlc.New(htmlc.Options{
     ComponentDir:          "templates/",
     ComponentErrorHandler: htmlc.HTMLErrorHandler(), // built-in dev helper
 })
-err := engine.RenderPage(w, "HomePage", data)
+err := engine.RenderPage(ctx, w, "HomePage", data)
 // err == nil; w contains the page with <div class="htmlc-error"> placeholders
 ```
 
@@ -1413,21 +1413,21 @@ automatically when source files change.
 ### Go API
 
 ```go
-collector := htmlc.NewCustomElementCollector()
-html, err := engine.RenderWithCollector(ctx, "MyPage", data, collector)
+// Serve scripts over HTTP — the engine manages the collector internally
+http.Handle("/scripts/", http.StripPrefix("/scripts/", engine.ScriptHandler()))
 
-// Serve scripts over HTTP
-http.Handle("/scripts/", http.StripPrefix("/scripts/",
-    htmlc.NewScriptFSServer(collector)))
+// Or write scripts to disk during a static build
+engine.WriteScripts(filepath.Join(outDir, "scripts"))
 
-// Or generate an import map for <script type="importmap">
+// For advanced use, access the collector directly
+collector := engine.Collector()
 importMap := collector.ImportMapJSON("/scripts/")
 ```
 
 ### importMap template function
 
-When rendering with a collector, an `importMap` template function is
-automatically available in page templates and all child components:
+An `importMap` template function is automatically available in all page templates
+and child components when rendering with `RenderPage` or `RenderFragment`:
 
 ```html
 <head>
@@ -1436,9 +1436,7 @@ automatically available in page templates and all child components:
 ```
 
 `importMap(urlPrefix)` returns the same JSON as `collector.ImportMapJSON(urlPrefix)`.
-If no collector is attached (or the collector is empty), it returns a valid empty
-import map. The function is only available when the render was initiated via
-`RenderPageWithCollector`, `RenderWithCollector`, or `RenderFragmentStringWithCollector`.
+If no custom element scripts have been collected, it returns a valid empty import map.
 
 ---
 

@@ -50,7 +50,7 @@ func TestLoggerEmitsRecordPerComponent(t *testing.T) {
 	var buf bytes.Buffer
 	e := setupTwoLevel(t, &buf)
 
-	if _, err := e.RenderFragmentString("Page", nil); err != nil {
+	if _, err := e.RenderFragmentString(context.Background(), "Page", nil); err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
 
@@ -72,7 +72,7 @@ func TestLoggerRecordsBytes(t *testing.T) {
 	var buf bytes.Buffer
 	e := setupTwoLevel(t, &buf)
 
-	if _, err := e.RenderFragmentString("Page", nil); err != nil {
+	if _, err := e.RenderFragmentString(context.Background(), "Page", nil); err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestLoggerRecordsDuration(t *testing.T) {
 	var buf bytes.Buffer
 	e := setupTwoLevel(t, &buf)
 
-	if _, err := e.RenderFragmentString("Page", nil); err != nil {
+	if _, err := e.RenderFragmentString(context.Background(), "Page", nil); err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
 
@@ -147,7 +147,7 @@ func TestLoggerErrorRecord(t *testing.T) {
 		"ParentWithBad.vue": `<template><div><BadChild /></div></template>`,
 	}, htmlc.Options{Logger: newTestLogger(&buf)}).Engine()
 
-	_, renderErr := e.RenderFragmentString("ParentWithBad", nil)
+	_, renderErr := e.RenderFragmentString(context.Background(), "ParentWithBad", nil)
 	if renderErr == nil {
 		t.Fatal("expected render error, got nil")
 	}
@@ -184,11 +184,11 @@ func TestLoggerNil(t *testing.T) {
 	eWithoutLogger := htmlctest.NewHarness(t, files).Engine()
 	eWithNilLogger := htmlctest.NewHarness(t, files, htmlc.Options{Logger: nil}).Engine()
 
-	out1, err := eWithoutLogger.RenderFragmentString("Card", nil)
+	out1, err := eWithoutLogger.RenderFragmentString(context.Background(), "Card", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (no logger): %v", err)
 	}
-	out2, err := eWithNilLogger.RenderFragmentString("Card", nil)
+	out2, err := eWithNilLogger.RenderFragmentString(context.Background(), "Card", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString (nil logger): %v", err)
 	}
@@ -223,7 +223,7 @@ func (h *contextCapturingHandler) WithGroup(name string) slog.Handler {
 	return &contextCapturingHandler{inner: h.inner.WithGroup(name), captured: h.captured}
 }
 
-// TestLoggerContextPropagation checks that the context passed to RenderPageContext
+// TestLoggerContextPropagation checks that the context passed to RenderPage
 // is the same context received by the slog handler.
 func TestLoggerContextPropagation(t *testing.T) {
 	var buf bytes.Buffer
@@ -239,8 +239,8 @@ func TestLoggerContextPropagation(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxKey{}, "sentinel")
 
 	var out strings.Builder
-	if err := e.RenderPageContext(ctx, &out, "Simple", nil); err != nil {
-		t.Fatalf("RenderPageContext: %v", err)
+	if err := e.RenderPage(ctx, &out, "Simple", nil); err != nil {
+		t.Fatalf("RenderPage: %v", err)
 	}
 
 	if len(handler.captured) == 0 {
@@ -259,7 +259,7 @@ func TestLoggerPostOrder(t *testing.T) {
 	var buf bytes.Buffer
 	e := setupTwoLevel(t, &buf)
 
-	if _, err := e.RenderFragmentString("Page", nil); err != nil {
+	if _, err := e.RenderFragmentString(context.Background(), "Page", nil); err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
 
@@ -300,14 +300,14 @@ func TestLoggerMessageConstants(t *testing.T) {
 	logger := newTestLogger(&buf)
 	eOk := htmlctest.NewHarness(t, files, htmlc.Options{Logger: logger}).Engine()
 
-	if _, err := eOk.RenderFragmentString("Root", nil); err != nil {
+	if _, err := eOk.RenderFragmentString(context.Background(), "Root", nil); err != nil {
 		t.Fatalf("RenderFragmentString Root: %v", err)
 	}
 
 	var bufFail bytes.Buffer
 	loggerFail := newTestLogger(&bufFail)
 	eFail := htmlctest.NewHarness(t, files, htmlc.Options{Logger: loggerFail}).Engine()
-	_, _ = eFail.RenderFragmentString("Failing", nil)
+	_, _ = eFail.RenderFragmentString(context.Background(), "Failing", nil)
 
 	// Successful records.
 	for _, r := range parseRecords(t, &buf) {

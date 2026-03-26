@@ -1,6 +1,7 @@
 package htmlc
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -25,7 +26,7 @@ func highlightEngine(t *testing.T, tmpl string) *Engine {
 // style property on the host element.
 func TestVHighlight_SetsBackground(t *testing.T) {
 	e := highlightEngine(t, `<p v-highlight="'yellow'">text</p>`)
-	out, err := e.RenderFragmentString("Host", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestVHighlight_SetsBackground(t *testing.T) {
 // TestVHighlight_DynamicColour verifies that the expression is evaluated.
 func TestVHighlight_DynamicColour(t *testing.T) {
 	e := highlightEngine(t, `<span v-highlight="colour">text</span>`)
-	out, err := e.RenderFragmentString("Host", map[string]any{"colour": "red"})
+	out, err := e.RenderFragmentString(context.Background(), "Host", map[string]any{"colour": "red"})
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -50,7 +51,7 @@ func TestVHighlight_DynamicColour(t *testing.T) {
 // is preserved and the background is appended.
 func TestVHighlight_MergesExistingStyle(t *testing.T) {
 	e := highlightEngine(t, `<p style="color:blue" v-highlight="'green'">text</p>`)
-	out, err := e.RenderFragmentString("Host", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -66,7 +67,7 @@ func TestVHighlight_MergesExistingStyle(t *testing.T) {
 // the element unchanged.
 func TestVHighlight_EmptyValueNoOp(t *testing.T) {
 	e := highlightEngine(t, `<p v-highlight="noColour">text</p>`)
-	out, err := e.RenderFragmentString("Host", map[string]any{"noColour": ""})
+	out, err := e.RenderFragmentString(context.Background(), "Host", map[string]any{"noColour": ""})
 	if err != nil {
 		t.Fatalf("RenderFragmentString: %v", err)
 	}
@@ -88,7 +89,7 @@ func TestVHighlight_NotRegisteredByDefault(t *testing.T) {
 	}
 	// Without registration, v-highlight is an unknown attribute and passes
 	// through as a plain HTML attribute (not an error, per directive semantics).
-	out, err := e.RenderFragmentString("Host", nil)
+	out, err := e.RenderFragmentString(context.Background(), "Host", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
