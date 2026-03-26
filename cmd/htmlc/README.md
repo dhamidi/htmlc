@@ -25,6 +25,8 @@ For template syntax, directives, the Go API, and the expression language, see th
    - [Inspect the parsed template AST](#inspect-the-parsed-template-ast)
    - [Use components from a different directory](#use-components-from-a-different-directory)
    - [Add an external directive to the build](#add-an-external-directive-to-the-build)
+   - [Serve custom element scripts from a running Go server](#serve-custom-element-scripts-from-a-running-go-server)
+   - [Include custom element scripts in a static build](#include-custom-element-scripts-in-a-static-build)
 3. [Reference](#reference)
    - [Subcommands at a glance](#subcommands-at-a-glance)
    - [render](#render)
@@ -547,6 +549,44 @@ grep -A3 'syntax-highlight' dist/index.html
 
 ---
 
+### Serve custom element scripts from a running Go server
+
+When at least one component uses `<script customelement>`, the engine collects the hashed JS files internally. To expose them over HTTP, register `engine.ScriptHandler()` and add `{{ importMap() }}` to the page template's `<head>`.
+
+```go
+engine, _ := htmlc.New(htmlc.Options{ComponentDir: "components/"})
+
+http.Handle("/scripts/", http.StripPrefix("/scripts/", engine.ScriptHandler()))
+```
+
+```html
+<head>
+  <meta charset="utf-8">
+  {{ importMap() }}
+</head>
+```
+
+`importMap()` emits a `<script type="importmap">` tag and a `<script type="module" src="./index.js">` tag pointing at the collected scripts.
+
+---
+
+### Include custom element scripts in a static build
+
+`htmlc build` writes hashed script files to `<out>/scripts/` automatically. No extra flags are needed.
+
+```
+out/
+  index.html
+  about.html
+  scripts/
+    a1b2c3d4e5f6a7b8.js
+    index.js
+```
+
+`scripts/` is only created when at least one custom element component is rendered; projects without `<script customelement>` blocks are unaffected.
+
+---
+
 ## Reference
 
 ### Subcommands at a glance
@@ -615,6 +655,12 @@ htmlc build [-dir <path>] [-pages <path>] [-out <path>] [-layout <name>] [-debug
 | `-debug` | false | Annotate output with `data-htmlc-*` attributes on each component's root element |
 
 Files in the pages directory whose base name starts with `_` are skipped — they are treated as shared partials, not pages.
+
+**Additional outputs**
+
+| Output | Description |
+|---|---|
+| `<out>/scripts/` | Hashed custom element JS files and `index.js` entry point (only created when custom element components are present) |
 
 Props for each page are loaded by shallow-merging JSON data files in ascending directory order:
 
