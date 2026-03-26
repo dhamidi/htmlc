@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,56 +14,6 @@ import (
 
 	"github.com/dhamidi/htmlc"
 )
-
-func newEngine() (*htmlc.Engine, error) {
-	return htmlc.New(htmlc.Options{
-		FS:           os.DirFS("components"),
-		ComponentDir: ".",
-	})
-}
-
-// collectScripts does a warm render to collect all custom element scripts.
-func collectScripts(engine *htmlc.Engine) (*htmlc.CustomElementCollector, error) {
-	collector := htmlc.NewCustomElementCollector()
-	var buf strings.Builder
-	if err := engine.RenderPageWithCollector(context.Background(), &buf, "DashboardPage", nil, collector); err != nil {
-		return nil, err
-	}
-	return collector, nil
-}
-
-// buildIndexJS generates an ES module that imports each collected script.
-func buildIndexJS(collector *htmlc.CustomElementCollector, urlPrefix string) string {
-	raw := collector.ImportMapJSON(urlPrefix)
-	var importMap struct {
-		Imports map[string]string `json:"imports"`
-	}
-	if err := json.Unmarshal([]byte(raw), &importMap); err != nil {
-		return ""
-	}
-	var sb strings.Builder
-	for _, url := range importMap.Imports {
-		fmt.Fprintf(&sb, "import %q\n", url)
-	}
-	return sb.String()
-}
-
-func renderDashboard(w http.ResponseWriter, r *http.Request, engine *htmlc.Engine, collector *htmlc.CustomElementCollector) {
-	var buf bytes.Buffer
-	c := htmlc.NewCustomElementCollector()
-	if err := engine.RenderPageWithCollector(r.Context(), &buf, "DashboardPage", nil, c); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	html := buf.String()
-	if collector.Len() > 0 {
-		importMapHTML := `<script type="importmap">` + collector.ImportMapJSON("/scripts/") + `</script>` +
-			"\n" + `<script type="module" src="/scripts/index.js"></script>`
-		html = strings.Replace(html, "</head>", importMapHTML+"\n</head>", 1)
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, html)
-}
 
 var colors = []string{
 	"#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6",
@@ -132,33 +81,39 @@ func streamShapes(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	engine, err := newEngine()
+	engine, err := htmlc.New(htmlc.Options{
+		FS:           os.DirFS("components"),
+		ComponentDir: ".",
+	})
 	if err != nil {
 		log.Fatalf("init engine: %v", err)
 	}
 
-	collector, err := collectScripts(engine)
+	collector, err := engine.CollectCustomElements()
 	if err != nil {
-		log.Fatalf("collect scripts: %v", err)
+		log.Fatalf("collect custom elements: %v", err)
 	}
 
-	scriptServer := htmlc.NewScriptFSServer(collector)
-	indexJS := buildIndexJS(collector, "/scripts/")
+	indexJS := collector.IndexJS("/scripts/")
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		renderDashboard(w, r, engine, collector)
+		var buf bytes.Buffer
+		if err := engine.RenderPageWithCollector(r.Context(), &buf, "DashboardPage", nil, collector); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		buf.WriteTo(w)
 	})
 
+	scriptHandler := http.StripPrefix("/scripts/", htmlc.NewScriptFSServer(collector))
 	http.Handle("/scripts/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		name := strings.TrimPrefix(r.URL.Path, "/scripts/")
-		if name == "index.js" {
+		if strings.TrimPrefix(r.URL.Path, "/scripts/") == "index.js" {
 			w.Header().Set("Content-Type", "text/javascript")
 			io.WriteString(w, indexJS)
 			return
 		}
-		r2 := r.Clone(r.Context())
-		r2.URL.Path = "/" + name
-		scriptServer.ServeHTTP(w, r2)
+		scriptHandler.ServeHTTP(w, r)
 	}))
 
 	http.HandleFunc("/api/shapes/stream", streamShapes)
