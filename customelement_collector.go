@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"strings"
 	"testing/fstest"
 )
 
@@ -85,6 +86,32 @@ func (c *CustomElementCollector) ImportMapJSON(urlPrefix string) string {
 	}
 	data, _ := json.Marshal(map[string]any{"imports": imports})
 	return string(data)
+}
+
+// IndexJS returns an ES module string with one import statement per collected
+// script, in stable (encounter) order. Each line has the form:
+//
+//	import "<urlPrefix><hash>.js"
+//
+// Duplicate hashes (same content added under different tags) are emitted only
+// once. Returns an empty string when no scripts have been collected.
+func (c *CustomElementCollector) IndexJS(urlPrefix string) string {
+	if len(c.order) == 0 {
+		return ""
+	}
+	seen := make(map[string]bool, len(c.order))
+	var sb strings.Builder
+	for _, e := range c.order {
+		if seen[e.Hash] {
+			continue
+		}
+		seen[e.Hash] = true
+		sb.WriteString(`import "`)
+		sb.WriteString(urlPrefix)
+		sb.WriteString(e.Hash)
+		sb.WriteString(".js\"\n")
+	}
+	return sb.String()
 }
 
 // NewScriptFSServer returns an http.Handler that serves the scripts in
