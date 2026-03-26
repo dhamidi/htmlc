@@ -25,7 +25,7 @@ For template syntax, directives, the Go API, and the expression language, see th
    - [Inspect the parsed template AST](#inspect-the-parsed-template-ast)
    - [Use components from a different directory](#use-components-from-a-different-directory)
    - [Add an external directive to the build](#add-an-external-directive-to-the-build)
-   - [Serve custom element scripts from a running Go server](#serve-custom-element-scripts-from-a-running-go-server)
+   - [Add an import map for custom element scripts](#add-an-import-map-for-custom-element-scripts)
    - [Include custom element scripts in a static build](#include-custom-element-scripts-in-a-static-build)
 3. [Reference](#reference)
    - [Subcommands at a glance](#subcommands-at-a-glance)
@@ -549,15 +549,9 @@ grep -A3 'syntax-highlight' dist/index.html
 
 ---
 
-### Serve custom element scripts from a running Go server
+### Add an import map for custom element scripts
 
-When at least one component uses `<script customelement>`, the engine collects the hashed JS files internally. To expose them over HTTP, register `engine.ScriptHandler()` and add `{{ importMap() }}` to the page template's `<head>`.
-
-```go
-engine, _ := htmlc.New(htmlc.Options{ComponentDir: "components/"})
-
-http.Handle("/scripts/", http.StripPrefix("/scripts/", engine.ScriptHandler()))
-```
+When at least one component uses `<script customelement>`, add `{{ importMap() }}` to the `<head>` of a page component or shared layout:
 
 ```html
 <head>
@@ -566,7 +560,11 @@ http.Handle("/scripts/", http.StripPrefix("/scripts/", engine.ScriptHandler()))
 </head>
 ```
 
-`importMap()` emits a `<script type="importmap">` tag and a `<script type="module" src="./index.js">` tag pointing at the collected scripts.
+`htmlc page` and `htmlc build` will emit a `<script type="importmap">` tag and a `<script type="module" src="./scripts/index.js">` tag pointing at the collected custom element scripts.
+
+The `scripts/` directory that contains those files is produced automatically by `htmlc build` — see [Include custom element scripts in a static build](#include-custom-element-scripts-in-a-static-build) for details.
+
+Your web server must serve the `scripts/` directory so browsers can fetch the script files.
 
 ---
 
