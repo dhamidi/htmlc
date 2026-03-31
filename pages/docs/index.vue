@@ -18,6 +18,8 @@
       {href: '#props', label: 'Props'},
       {href: '#slots', label: 'Slots'},
       {href: '#scoped-styles', label: 'Scoped styles'},
+      {label: 'Custom Elements'},
+      {href: '#custom-elements', label: 'Custom element components'},
       {label: 'Reference'},
       {href: '/docs/directives.html', label: 'All directives'},
       {href: '/docs/cli.html', label: 'CLI reference'},
@@ -185,6 +187,24 @@ p    { color: gray; }
 .card[data-v-3a2b1c] { background: white; }
 p[data-v-3a2b1c]    { color: gray; }
 &lt;/style&gt;</code></pre>
+
+    <h2 id="custom-elements">Custom element components</h2>
+
+    <p>A <code>.vue</code> component can include a <code>&lt;script customelement&gt;</code> block to define a Web Component. htmlc derives a kebab-case tag name from the component's file path and wraps the server-rendered template in that custom element tag. The browser then activates the class when the page loads.</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/ui/Counter.vue --&gt;
+&lt;template&gt;
+  &lt;button&gt;Count: {{ count }}&lt;/button&gt;
+&lt;/template&gt;
+
+&lt;script customelement&gt;
+class UICounter extends HTMLElement {
+  connectedCallback() { /* client-side upgrade logic */ }
+}
+customElements.define('ui-counter', UICounter);
+&lt;/script&gt;</code></pre>
+
+    <p>The server renders the template wrapped in <code>&lt;ui-counter&gt;...&lt;/ui-counter&gt;</code>. Scripts are collected and written to <code>scripts/</code> (static build) or served from memory (dev server) automatically — no extra CLI flags required. See the <a href="/docs/custom-elements.html">Custom Elements reference</a> for full API details and the <a href="/docs/howto.html#serve-custom-elements">how-to guide</a> for practical examples.</p>
   </DocsPage>
 </template>
 
