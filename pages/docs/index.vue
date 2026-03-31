@@ -21,7 +21,8 @@
       {label: 'Reference'},
       {href: '/docs/directives.html', label: 'All directives'},
       {href: '/docs/cli.html', label: 'CLI reference'},
-      {href: '/docs/components.html', label: 'Component API'}
+      {href: '/docs/components.html', label: 'Component API'},
+      {href: '/docs/custom-elements.html', label: 'Custom Elements'}
     ]"
   >
     <h1 id="overview">htmlc</h1>
