@@ -19,6 +19,8 @@
       {label: 'Static sites'},
       {href: '#static-site', label: 'Static site with layout'},
       {href: '#syntax-highlight', label: 'Syntax highlighting'},
+      {href: '#serve-custom-elements', label: 'Serve custom element scripts'},
+      {href: '#custom-elements-static-build', label: 'Custom elements in static build'},
       {label: 'Testing'},
       {href: '#testing', label: 'Testing components'}
     ]"
@@ -538,6 +540,95 @@ func main() {
     <h3>Step 4 — Build</h3>
     <pre v-syntax-highlight="'bash'"><code v-pre>htmlc build -dir ./components -pages ./pages -out ./dist</code></pre>
     <p>The generated HTML will contain highlighted <code>&lt;span&gt;</code> elements styled by the Chroma CSS classes. See the <a href="/docs/cli.html#external-directives">external directives reference</a> for the full protocol and discovery rules.</p>
+
+    <!-- ═══════════════════════════════════════════════ Serve custom elements -->
+    <h2 id="serve-custom-elements">Serve custom element scripts from a Go server</h2>
+    <p class="howto-goal">You want to write a component with a <code>&lt;script customelement&gt;</code> block and have its JavaScript served automatically from your Go HTTP server.</p>
+
+    <h3>Step 1 — Write a custom element component</h3>
+    <p>Create a component with both a <code>&lt;template&gt;</code> block (for server-rendered HTML) and a <code>&lt;script customelement&gt;</code> block (for client-side interactivity). The tag name is derived from the component's directory path and file name.</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/ui/Counter.vue --&gt;
+&lt;template&gt;
+  &lt;div class="counter"&gt;
+    &lt;span&gt;{{ initial }}&lt;/span&gt;
+  &lt;/div&gt;
+&lt;/template&gt;
+&lt;script customelement&gt;
+class UiCounter extends HTMLElement {
+  connectedCallback() {
+    const span = this.querySelector('span')
+    let n = parseInt(span.textContent, 10)
+    this.addEventListener('click', () =&gt; span.textContent = ++n)
+  }
+}
+customElements.define('ui-counter', UiCounter)
+&lt;/script&gt;</code></pre>
+
+    <h3>Step 2 — Mount the script handler</h3>
+    <p>Call <code>engine.ScriptHandler()</code> and register it at a path prefix on your mux. Browsers will fetch script files from this prefix.</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>engine, err := htmlc.New(htmlc.Options{ComponentDir: &#34;./components&#34;})
+if err != nil {
+    log.Fatal(err)
+}
+
+http.Handle(&#34;/scripts/&#34;, http.StripPrefix(&#34;/scripts/&#34;, engine.ScriptHandler()))</code></pre>
+
+    <h3>Step 3 — Add <code>importMap()</code> to your page <code>&lt;head&gt;</code></h3>
+    <p>The <code>importMap()</code> template function emits an <a href="https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap">import map</a> <code>&lt;script&gt;</code> tag that tells the browser where to find each custom element module. Add it to every layout or page template that may use custom element components:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;head&gt;
+  &lt;meta charset="utf-8"&gt;
+  {{ importMap() }}
+&lt;/head&gt;</code></pre>
+
+    <h3>Step 4 — Use the component in a page</h3>
+    <p>Reference the component as usual. It renders as a custom element tag wrapping the server-rendered template output:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;UiCounter :initial="5"&gt;&lt;/UiCounter&gt;
+&lt;!-- renders: &lt;ui-counter&gt;&lt;div class="counter"&gt;&lt;span&gt;5&lt;/span&gt;&lt;/div&gt;&lt;/ui-counter&gt; --&gt;</code></pre>
+
+    <p><strong>Note:</strong> <code>importMap()</code> emits nothing when no custom element components are present in the rendered page, so it is safe to include unconditionally in layouts.</p>
+
+    <p>See the <a href="/docs/custom-elements.html">Custom Elements reference</a> for the full API.</p>
+
+    <!-- ═══════════════════════════════════════════════ Custom elements static build -->
+    <h2 id="custom-elements-static-build">Include custom element scripts in a static build</h2>
+    <p class="howto-goal">You want your <code>htmlc build</code> output to include the JavaScript for custom element components alongside the HTML pages.</p>
+
+    <h3>Step 1 — Write your custom element components</h3>
+    <p>Create components with <code>&lt;script customelement&gt;</code> blocks as shown in the <a href="#serve-custom-elements">guide above</a>, or see the <a href="/docs/custom-elements.html">Custom Elements reference</a>.</p>
+
+    <h3>Step 2 — Add <code>importMap()</code> to your page <code>&lt;head&gt;</code></h3>
+    <p>The static build uses the same <code>importMap()</code> function as the server — include it in your layout or page template <code>&lt;head&gt;</code>:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;head&gt;
+  &lt;meta charset="utf-8"&gt;
+  {{ importMap() }}
+&lt;/head&gt;</code></pre>
+
+    <h3>Step 3 — Run <code>htmlc build</code></h3>
+    <p>No additional flags are needed. The build command detects custom element components automatically:</p>
+
+    <pre v-syntax-highlight="'bash'"><code v-pre>htmlc build -dir ./components -pages ./pages -out ./dist</code></pre>
+
+    <h3>Step 4 — Inspect the output</h3>
+    <p>The output directory will contain a <code>scripts/</code> subdirectory with one hashed file per unique custom element script and an <code>index.js</code> entry point that imports them all:</p>
+
+    <pre v-syntax-highlight="'text'"><code v-pre>dist/
+  index.html
+  about.html
+  scripts/
+    a1b2c3d4e5f6a7b8.js   ← one file per unique custom element script
+    index.js               ← ES module entry point that imports all scripts</code></pre>
+
+    <h3>Step 5 — Serve the scripts directory</h3>
+    <p>Configure your web server to serve the <code>scripts/</code> directory so browsers can fetch the script files. The import map emitted by <code>importMap()</code> already points to the correct paths.</p>
+
+    <p><strong>Note:</strong> The <code>scripts/</code> directory is only created when at least one custom element component is used. Projects without <code>&lt;script customelement&gt;</code> blocks produce no <code>scripts/</code> directory.</p>
+
+    <p>See the <a href="/docs/custom-elements.html">Custom Elements reference</a> for the full API.</p>
 
     <!-- ═══════════════════════════════════════════════ Testing -->
     <h2 id="testing">Testing components</h2>
