@@ -22,14 +22,15 @@
       {href: '#advanced-options', label: 'Hot-reload / FS'},
       {href: '#errors', label: 'Error handling'},
       {href: '#scope-rules', label: 'Scope rules'},
-      {href: '#custom-directives', label: 'Custom directives'}
+      {href: '#custom-directives', label: 'Custom directives'},
+      {href: '#custom-element-api', label: 'Custom element API'}
     ]"
   >
     <h1>Component system</h1>
     <p class="lead">htmlc components are Vue Single File Components — <code>.vue</code> files with a required template and an optional style section.</p>
 
     <h2 id="sfc-format">SFC format</h2>
-    <p>A component file has up to two sections:</p>
+    <p>A component file has up to three sections:</p>
     <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/Card.vue --&gt;
 &lt;template&gt;
   &lt;div class="card"&gt;
@@ -51,7 +52,61 @@
       <li><code v-pre>&lt;template&gt;</code> — required; contains the HTML template with directives</li>
       <li><code v-pre>&lt;script&gt;</code> and <code v-pre>&lt;script setup&gt;</code> — <strong>not supported</strong>; using either causes a parse error. htmlc renders components on the server in Go — there is no JavaScript execution context, so script blocks serve no purpose and are rejected to prevent silent misconfiguration. Props are declared via Go types, not <code>export default { props: [...] }</code>. If you are porting a Vue SFC, remove the <code v-pre>&lt;script&gt;</code> block entirely.</li>
       <li><code v-pre>&lt;style&gt;</code> — optional; add <code>scoped</code> attribute to scope styles to this component</li>
+      <li><code v-pre>&lt;script customelement&gt;</code> — optional; declares this component as a Web Custom Element. Contains a plain JavaScript class that extends <code>HTMLElement</code> and calls <code>customElements.define(…)</code>. The tag name is derived automatically from the component's file path. Cannot coexist with <code v-pre>&lt;script&gt;</code> or <code v-pre>&lt;script setup&gt;</code>.</li>
     </ul>
+
+    <h3 id="customelement-example">Full three-section example</h3>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/ui/Counter.vue --&gt;
+&lt;template&gt;
+  &lt;div class="counter"&gt;{{ count }}&lt;/div&gt;
+&lt;/template&gt;
+
+&lt;style scoped&gt;
+.counter { font-size: 2rem; }
+&lt;/style&gt;
+
+&lt;script customelement&gt;
+class UiCounter extends HTMLElement {
+  connectedCallback() {
+    this.querySelector('.counter').textContent = this.getAttribute('count') || '0'
+  }
+}
+customElements.define('ui-counter', UiCounter)
+&lt;/script&gt;</code></pre>
+
+    <h3 id="custom-element-components">Custom element components</h3>
+    <p>
+      When a component contains a <code v-pre>&lt;script customelement&gt;</code> block, htmlc
+      collects the JavaScript and makes it available as a browser module. The custom element
+      tag name is derived from the component's file path by joining the directory segments and
+      filename (without extension) with hyphens, all lowercased:
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>File path</th>
+          <th>Tag name</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>components/Counter.vue</code></td>
+          <td><code>counter</code></td>
+        </tr>
+        <tr>
+          <td><code>components/ui/Counter.vue</code></td>
+          <td><code>ui-counter</code></td>
+        </tr>
+        <tr>
+          <td><code>components/ui/form/Input.vue</code></td>
+          <td><code>ui-form-input</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      See the <a href="/docs/custom-elements.html">Custom Elements reference</a> for full
+      details including the Go API and the <code>importMap()</code> template function.
+    </p>
 
     <h2 id="registration">Component registration</h2>
     <p>The engine automatically discovers all <code>.vue</code> files in the component directory. Components are referenced by their filename without the extension.</p>
@@ -424,5 +479,37 @@ if errors.As(err, &re) {
     })
     return nil
 })</code></pre>
+
+    <h2 id="custom-element-api">Custom element API</h2>
+    <p>
+      Components with a <code v-pre>&lt;script customelement&gt;</code> block are collected by the
+      engine and served as browser JavaScript modules. Two pieces are needed to wire them into
+      your pages.
+    </p>
+
+    <h3>ScriptHandler</h3>
+    <p>
+      <code>engine.ScriptHandler()</code> returns an <code>http.Handler</code> that serves the
+      collected custom element scripts as hashed JS files plus an <code>index.js</code> entry
+      point. Mount it at a URL prefix using <code>http.StripPrefix</code>:
+    </p>
+    <pre v-syntax-highlight="'go'"><code v-pre>http.Handle("/scripts/", http.StripPrefix("/scripts/", engine.ScriptHandler()))</code></pre>
+
+    <h3>importMap() template function</h3>
+    <p>
+      Place <code v-pre>{{ importMap("/scripts/") }}</code> inside the <code v-pre>&lt;head&gt;</code> of your
+      page template to emit the browser import map and the module entry point script tag. Pass
+      the same path prefix used when mounting <code>ScriptHandler</code>:
+    </p>
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;head&gt;
+  &lt;meta charset="UTF-8"&gt;
+  &lt;title&gt;{{ title }}&lt;/title&gt;
+  {{ importMap("/scripts/") }}
+&lt;/head&gt;</code></pre>
+
+    <p>
+      See the <a href="/docs/custom-elements.html">Custom Elements reference</a> for the full
+      API including collector options and advanced usage.
+    </p>
   </DocsPage>
 </template>
