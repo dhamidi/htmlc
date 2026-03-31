@@ -14,7 +14,8 @@
       {label: 'API'},
       {href: '#engine-vs-renderer', label: 'Engine vs Renderer'},
       {label: 'Design'},
-      {href: '#ssr-vs-csr', label: 'Server-side vs client-side'}
+      {href: '#ssr-vs-csr', label: 'Server-side vs client-side'},
+      {href: '#custom-elements', label: 'Custom element boundary'}
     ]"
   >
     <h1>Concepts</h1>
@@ -307,6 +308,92 @@ if err != nil {
     <p>htmlc is designed around a single constraint: produce correct HTML as quickly as possible from a Go data map. Everything that would require a JavaScript runtime, mutable state, or asynchronous execution is out of scope. This constraint is what makes htmlc small, fast, and easy to embed — and it is why the library can confidently claim that rendering is a pure, deterministic function from data to HTML.</p>
 
     <p>See the <a href="/docs/directives.html">directives reference</a> for the complete list of supported directives, and the <a href="/docs/go-api.html">Go API reference</a> for the full type signatures discussed on this page.</p>
+
+    <!-- ═══════════════════════════════════════════════ Custom Elements -->
+    <h2 id="custom-elements">Custom Elements: The Client-Side Boundary</h2>
+
+    <p>htmlc is designed to produce static HTML with no client-side JavaScript. Every render call is a pure Go function: data in, HTML bytes out. But real applications sometimes need interactivity — click handlers, live data streams, canvas drawing, animations. <code>&lt;script customelement&gt;</code> is the intentional escape hatch: a way to attach client-side behaviour to a server-rendered component while preserving the clean, stateless rendering model everywhere else.</p>
+
+    <p>The key insight is a clean division of labour: <strong>htmlc handles the HTML (server), the browser handles the JavaScript (client)</strong>. Neither side needs to know the implementation details of the other.</p>
+
+    <h3>How it works: a two-part rendering model</h3>
+
+    <p>When a component contains a <code>&lt;script customelement&gt;</code> block, htmlc treats it differently from the rest of the component. At parse time, the script source is extracted and stored separately — it is never evaluated by Go. The <code>&lt;template&gt;</code> is rendered as usual, but the output is wrapped in the custom element tag derived from the component name:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- Template (Counter.vue) --&gt;
+&lt;template&gt;
+  &lt;button id="dec"&gt;−&lt;/button&gt;
+  &lt;span id="val"&gt;{{ count }}&lt;/span&gt;
+  &lt;button id="inc"&gt;+&lt;/button&gt;
+&lt;/template&gt;
+
+&lt;!-- Rendered output --&gt;
+&lt;ui-counter&gt;
+  &lt;button id="dec"&gt;−&lt;/button&gt;
+  &lt;span id="val"&gt;0&lt;/span&gt;
+  &lt;button id="inc"&gt;+&lt;/button&gt;
+&lt;/ui-counter&gt;</code></pre>
+
+    <p>On the client side, the browser encounters the <code>&lt;ui-counter&gt;</code> tag, runs <code>customElements.define('ui-counter', …)</code> from the delivered script, and calls <code>connectedCallback()</code>. At that point the custom element class has full access to the already-rendered HTML inside the tag — the buttons and the value span are already in the DOM, ready to query and wire up.</p>
+
+    <Callout type="info">
+      <strong>Key insight:</strong> The <code>&lt;script customelement&gt;</code> source is extracted at parse time and collected separately. It is <em>never evaluated by Go</em>. The Go renderer only sees the <code>&lt;template&gt;</code>; the browser only sees the compiled HTML and the delivered script file. The two halves are completely decoupled.
+    </Callout>
+
+    <h3>Why this design: no hydration, no mismatch</h3>
+
+    <p>Frameworks like React and Vue offer server-side rendering with client-side hydration: the server renders HTML, the client downloads a JavaScript bundle, and the framework re-renders the virtual DOM to reconcile it with the real DOM. This process is complex and fragile — a mismatch between server and client state causes hydration errors, content flashes, or subtle bugs.</p>
+
+    <p>htmlc's custom element approach avoids hydration entirely. The server produces the <em>final</em> DOM; the custom element class enhances it in place. There is no reconciliation, no virtual DOM, and no risk of mismatch. The component can read attribute values or pre-rendered content directly from the DOM as its initial state — no serialisation or JSON embedding required. And because it uses standard browser APIs, there is no build step, no bundler, and no transpilation.</p>
+
+    <h3>Declarative Shadow DOM: optional progressive enhancement</h3>
+
+    <p>Adding the <code>shadowdom</code> attribute to the script tag opts the component in to Declarative Shadow DOM:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;script customelement shadowdom&gt;
+  class UiCard extends HTMLElement {
+    connectedCallback() { /* shadow root already attached */ }
+  }
+  customElements.define('ui-card', UiCard);
+&lt;/script&gt;</code></pre>
+
+    <p>With <code>shadowdom</code> enabled, the server wraps the rendered HTML in <code>&lt;template shadowrootmode="open"&gt;</code>. Browsers that support Declarative Shadow DOM attach the shadow root natively — before any JavaScript loads. This enables streaming SSR for custom elements: the content is visible and styled even on slow connections where JavaScript has not yet arrived.</p>
+
+    <p>Shadow DOM is not always the right choice. Use it for components where encapsulation matters (styles that must not bleed out) or where streaming paint is a priority. For simpler components, the plain custom element wrapper is sufficient.</p>
+
+    <h3>Script delivery and caching</h3>
+
+    <p>htmlc collects custom element scripts by content hash. If the same component is used ten times on a page, only one script file is emitted — deduplication is automatic. The hashed filenames enable long-lived browser caching: a file whose content has not changed will always have the same URL, and a file whose content has changed will have a new URL.</p>
+
+    <p>The <code>importMap()</code> helper emits a <code>&lt;script type="importmap"&gt;</code> block that maps module specifiers to their hashed URLs. This lets custom element scripts use clean <code>import</code> specifiers without a bundler:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- Emitted by importMap() --&gt;
+&lt;script type="importmap"&gt;
+{
+  "imports": {
+    "ui-counter": "/assets/ui-counter.a1b2c3d4.js"
+  }
+}
+&lt;/script&gt;</code></pre>
+
+    <p>This is a progressively-enhanced architecture: pages render and function completely without JavaScript — the HTML produced by the server is already the final, complete document. Custom elements load asynchronously and enhance the page when they arrive. Users on slow connections or with JavaScript disabled see fully-formed content from the first byte.</p>
+
+    <h3>When to use custom elements</h3>
+
+    <p>Custom elements are the right tool when a component needs genuine interactivity that cannot be expressed in server-rendered HTML alone:</p>
+
+    <ul>
+      <li>Click handlers and form interactions that modify local state</li>
+      <li>Live data via <code>EventSource</code> or <code>WebSocket</code></li>
+      <li>Canvas drawing, animations, or Web Audio</li>
+      <li>Browser APIs that have no server-side equivalent (geolocation, clipboard, media devices)</li>
+    </ul>
+
+    <p>They are the wrong tool for components that are purely structural or presentational. A navigation bar, a card layout, a data table rendered from Go — these should remain plain htmlc components with no JavaScript. The more JavaScript a custom element contains, the more it undermines the performance and simplicity benefits of the server-rendering model. Keep the JavaScript minimal: the custom element should <em>enhance</em> the server-rendered HTML, not replace it.</p>
+
+    <Callout type="info">
+      <strong>Summary:</strong> Custom elements are the deliberate, bounded exception to htmlc's no-client-JavaScript rule. The server renders complete HTML; the browser registers the custom element class and enhances it in place. No hydration, no framework overhead, no build step — just a clean boundary between what Go knows and what the browser does.
+    </Callout>
   </DocsPage>
 </template>
 
