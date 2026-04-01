@@ -17,6 +17,7 @@
       <link rel="icon" href="/images/logo.svg" type="image/svg+xml" />
       <link rel="icon" href="/images/logo.png" type="image/png" />
       <script type="importmap">{{ importMap("/scripts/") }}</script>
+      <script type="module" src="/scripts/index.js"></script>
       <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
