@@ -17,7 +17,8 @@
       {label: 'Go API'},
       {href: '#collect-custom-elements', label: 'CollectCustomElements'},
       {href: '#script-handler', label: 'ScriptHandler'},
-      {href: '#render-page-with-collector', label: 'RenderPageWithCollector'},
+      {href: '#collector', label: 'Collector'},
+      {href: '#render-with-collector', label: 'RenderWithCollector'},
       {href: '#write-scripts', label: 'WriteScripts'},
       {href: '#new-collector', label: 'NewCustomElementCollector'},
       {href: '#new-script-fs-server', label: 'NewScriptFSServer'},
@@ -160,7 +161,7 @@ customElements.define('my-widget', MyWidget);
       <p><strong>Note:</strong> <code v-pre>importMap()</code> is a no-op when no custom element components are present — it returns an empty import map JSON object. Place it unconditionally in your layout's <code>&lt;head&gt;</code>; pages without custom elements produce no observable overhead.</p>
     </Callout>
 
-    <p>The function is available after <code>RenderPage</code>, <code>RenderFragment</code>, <code>RenderPageWithCollector</code>, or any render path that goes through the engine.</p>
+    <p>The function is available after <code>RenderPage</code>, <code>RenderFragment</code>, <code>RenderWithCollector</code>, or any render path that goes through the engine.</p>
 
     <!-- ═══════════════════════════════════════════════ Go API -->
     <h2 id="collect-custom-elements">engine.CollectCustomElements</h2>
@@ -191,20 +192,37 @@ log.Printf("collected %d custom element scripts", collector.Len())</code></pre>
       <li><strong><code>index.js</code></strong> — an ES module entry point that imports all collected scripts using relative paths. Served without a long-lived cache header so it stays fresh after rebuilds.</li>
     </ul>
 
-    <h2 id="render-page-with-collector">engine.RenderPageWithCollector</h2>
+    <h2 id="render-with-collector">engine.RenderWithCollector</h2>
 
-    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RenderPageWithCollector(ctx context.Context, w io.Writer, name string, data map[string]any, collector *CustomElementCollector) error</code></pre>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RenderWithCollector(ctx context.Context, w io.Writer, name string, props map[string]any, collector *CustomElementCollector) error</code></pre>
 
-    <p>Like <code>RenderPage</code> but populates the given <code>collector</code> with every custom element script encountered during the render. Use this when you manage the collector lifecycle yourself — for example, when rendering multiple pages into a single collector before building an import map.</p>
-
-    <p>Most callers should use <code>RenderPage</code> or <code>RenderFragment</code> instead; those methods manage the collector lifecycle automatically.</p>
+    <p>Renders the named component to <code>w</code> and populates the given <code>collector</code> with every custom element script encountered during the render. Most callers should use <code>RenderPage</code> or <code>RenderFragment</code> instead; those methods manage the collector lifecycle automatically. <code>RenderWithCollector</code> is intended for advanced use cases where the caller controls the collector lifecycle — for example, when rendering multiple fragments into a single response and accumulating scripts from all of them.</p>
 
     <pre v-syntax-highlight="'go'"><code v-pre>collector := htmlc.NewCustomElementCollector()
-var buf bytes.Buffer
-if err := engine.RenderPageWithCollector(r.Context(), &amp;buf, "HomePage", data, collector); err != nil {
+if err := engine.RenderWithCollector(r.Context(), w, "HomePage", props, collector); err != nil {
     http.Error(w, err.Error(), 500)
     return
 }</code></pre>
+
+    <h3>RenderWithCollectorString</h3>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RenderWithCollectorString(ctx context.Context, name string, props map[string]any, collector *CustomElementCollector) (string, error)</code></pre>
+
+    <p>Convenience wrapper around <code>RenderWithCollector</code> that returns the rendered HTML as a string instead of writing to an <code>io.Writer</code>.</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>collector := htmlc.NewCustomElementCollector()
+html, err := engine.RenderWithCollectorString(r.Context(), "HomePage", props, collector)
+if err != nil {
+    http.Error(w, err.Error(), 500)
+    return
+}
+fmt.Fprint(w, html)</code></pre>
+
+    <h2 id="collector">engine.Collector</h2>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) Collector() *CustomElementCollector</code></pre>
+
+    <p>Returns the engine's internal <code>*CustomElementCollector</code>. Use this to access the collector that is automatically populated during <code>RenderPage</code> and <code>RenderFragment</code> calls.</p>
 
     <h2 id="write-scripts">engine.WriteScripts</h2>
 
@@ -232,6 +250,10 @@ if err := engine.RenderPageWithCollector(r.Context(), &amp;buf, "HomePage", data
     htmlc.NewScriptFSServer(collector)))</code></pre>
 
     <h2 id="collector-methods">Collector methods</h2>
+
+    <h3>Add</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (c *CustomElementCollector) Add(tag, script string)</code></pre>
+    <p>Registers a custom element script under the given tag name. The script is deduplicated by content hash — adding the same source under multiple tags produces a single file. This is called automatically by the engine during rendering; manual use is only needed for advanced scenarios.</p>
 
     <h3>ScriptsFS</h3>
     <pre v-syntax-highlight="'go'"><code v-pre>func (c *CustomElementCollector) ScriptsFS() fs.FS</code></pre>
