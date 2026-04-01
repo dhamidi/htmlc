@@ -33,7 +33,7 @@ export default class DatePicker extends HTMLElement {}
 		t.Fatalf("CollectCustomElements: %v", err)
 	}
 
-	out, err := e.RenderWithCollector(context.Background(), "Page", nil, collector)
+	out, err := e.RenderWithCollectorString(context.Background(), "Page", nil, collector)
 	if err != nil {
 		t.Fatalf("RenderWithCollector: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestImportMapFunc_NilCollector(t *testing.T) {
 	}
 
 	// Pass nil collector — importMap should silently return "".
-	out, err := e.RenderWithCollector(context.Background(), "Page", nil, nil)
+	out, err := e.RenderWithCollectorString(context.Background(), "Page", nil, nil)
 	if err != nil {
 		t.Fatalf("RenderWithCollector: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestImportMapFunc_EmptyCollector(t *testing.T) {
 	// An empty collector — no custom elements added.
 	collector := &CustomElementCollector{}
 
-	out, err := e.RenderWithCollector(context.Background(), "Page", nil, collector)
+	out, err := e.RenderWithCollectorString(context.Background(), "Page", nil, collector)
 	if err != nil {
 		t.Fatalf("RenderWithCollector: %v", err)
 	}
@@ -154,7 +154,7 @@ export default class DatePicker extends HTMLElement {}
 		t.Fatalf("CollectCustomElements: %v", err)
 	}
 
-	out, err := e.RenderWithCollector(context.Background(), "Page", nil, collector)
+	out, err := e.RenderWithCollectorString(context.Background(), "Page", nil, collector)
 	if err != nil {
 		t.Fatalf("RenderWithCollector: %v", err)
 	}

@@ -47,7 +47,7 @@ export default class ShapeCanvas extends HTMLElement {}
 	}
 
 	collector := NewCustomElementCollector()
-	out, err := e.RenderWithCollector(context.Background(), "Page", nil, collector)
+	out, err := e.RenderWithCollectorString(context.Background(), "Page", nil, collector)
 	if err != nil {
 		t.Fatalf("RenderWithCollector: %v", err)
 	}

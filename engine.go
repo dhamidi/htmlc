@@ -896,19 +896,28 @@ func (e *Engine) renderComponentWithCollector(ctx context.Context, w io.Writer, 
 	return sc, collector, nil
 }
 
-// RenderWithCollector renders the named component and records any custom
-// element scripts in collector (may be nil for no collection). It returns the
-// rendered HTML as a string.
+// RenderWithCollector renders the named component into w and records any custom
+// element scripts in collector (may be nil for no collection).
 //
 // Most callers should use [Engine.RenderPage] or [Engine.RenderFragment]
 // instead; those methods manage the collector lifecycle automatically.
 // RenderWithCollector is intended for advanced use cases where the caller
 // controls the collector lifecycle — for example, when rendering multiple
 // fragments into a single response and accumulating scripts from all of them.
-func (e *Engine) RenderWithCollector(ctx context.Context, name string, props map[string]any, collector *CustomElementCollector) (string, error) {
+func (e *Engine) RenderWithCollector(ctx context.Context, w io.Writer, name string, props map[string]any, collector *CustomElementCollector) error {
+	_, _, err := e.renderComponentWithCollector(ctx, w, name, props, collector)
+	return err
+}
+
+// RenderWithCollectorString renders the named component and records any custom
+// element scripts in collector (may be nil for no collection). It returns the
+// rendered HTML as a string.
+//
+// This is a convenience wrapper around [Engine.RenderWithCollector] for callers
+// that need the output as a string rather than streaming it to an [io.Writer].
+func (e *Engine) RenderWithCollectorString(ctx context.Context, name string, props map[string]any, collector *CustomElementCollector) (string, error) {
 	var buf strings.Builder
-	_, _, err := e.renderComponentWithCollector(ctx, &buf, name, props, collector)
-	if err != nil {
+	if err := e.RenderWithCollector(ctx, &buf, name, props, collector); err != nil {
 		return "", err
 	}
 	return buf.String(), nil

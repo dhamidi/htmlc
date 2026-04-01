@@ -3,6 +3,7 @@ package htmlc
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"strings"
 	"testing"
@@ -196,7 +197,7 @@ export default class DatePicker extends HTMLElement {}
 		t.Fatalf("New: %v", err)
 	}
 	collector := NewCustomElementCollector()
-	_, err = e.RenderWithCollector(context.Background(), "DatePicker", nil, collector)
+	err = e.RenderWithCollector(context.Background(), io.Discard, "DatePicker", nil, collector)
 	if err != nil {
 		t.Fatalf("RenderWithCollector: %v", err)
 	}
@@ -216,7 +217,7 @@ func TestRenderWithCollector_NonCEComponent(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	collector := NewCustomElementCollector()
-	_, err = e.RenderWithCollector(context.Background(), "Normal", nil, collector)
+	err = e.RenderWithCollector(context.Background(), io.Discard, "Normal", nil, collector)
 	if err != nil {
 		t.Fatalf("RenderWithCollector: %v", err)
 	}
