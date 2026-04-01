@@ -485,7 +485,7 @@ func main() {
     <p>Call <code>RenderFragment</code> for the inner page, then pass the result as data to <code>RenderPage</code> on the layout:</p>
 
     <pre v-syntax-highlight="'go'"><code>// Render the inner page as a fragment (no full &lt;html&gt; document).
-inner, err := engine.RenderFragmentString(&#34;BlogPost&#34;, map[string]any{
+inner, err := engine.RenderFragmentString(context.Background(), &#34;BlogPost&#34;, map[string]any{
     &#34;title&#34;:   post.Title,
     &#34;content&#34;: post.Body,
 })
@@ -495,7 +495,7 @@ if err != nil {
 
 // Wrap the fragment in the layout, which renders a full HTML document.
 // The layout template uses {{ &#34;{{&#34; }} slot }} to embed the inner HTML.
-html, err := engine.RenderPageString(&#34;Layout&#34;, map[string]any{
+html, err := engine.RenderPageString(context.Background(), &#34;Layout&#34;, map[string]any{
     &#34;pageTitle&#34;: post.Title,
     &#34;slot&#34;:      inner,
 })
