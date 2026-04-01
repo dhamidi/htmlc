@@ -14,7 +14,8 @@
       {href: '#render-page', label: 'RenderPage'},
       {href: '#render-fragment', label: 'RenderFragment'},
       {href: '#render-string', label: 'String helpers'},
-      {href: '#render-context', label: 'Context variants'},
+      {href: '#render-context', label: 'Deprecated context aliases'},
+      {href: '#render-with-collector', label: 'RenderWithCollector'},
       {label: 'HTTP'},
       {href: '#serve-component', label: 'ServeComponent'},
       {href: '#serve-page-component', label: 'ServePageComponent'},
@@ -24,6 +25,7 @@
       {href: '#register-func', label: 'RegisterFunc'},
       {href: '#register-directive', label: 'RegisterDirective'},
       {href: '#missing-prop', label: 'Missing prop handling'},
+      {href: '#component-error-handler', label: 'ComponentErrorHandler'},
       {label: 'Low-level API'},
       {href: '#parse-file', label: 'ParseFile / Component'},
       {href: '#renderer', label: 'Renderer'},
@@ -38,7 +40,11 @@
       {href: '#style-helpers', label: 'ScopeID / ScopeCSS'},
       {label: 'Errors'},
       {href: '#error-types', label: 'Error types'},
-      {href: '#sentinel-errors', label: 'Sentinel errors'}
+      {href: '#sentinel-errors', label: 'Sentinel errors'},
+      {label: 'html/template Interop'},
+      {href: '#compile-to-template', label: 'CompileToTemplate'},
+      {href: '#register-template', label: 'RegisterTemplate'},
+      {href: '#template-text', label: 'TemplateText'}
     ]"
   >
     <h1>Go API Reference</h1>
@@ -64,6 +70,7 @@ if err != nil {
     FS           fs.FS
     Directives   DirectiveRegistry
     Debug        bool
+    Logger       *slog.Logger
 }</code></pre>
     <table>
       <thead>
@@ -292,11 +299,11 @@ if record.Message != htmlc.MsgComponentRendered {
     <h2 id="rendering">Rendering</h2>
 
     <h3 id="render-page">RenderPage</h3>
-    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RenderPage(w io.Writer, name string, data map[string]any) error</code></pre>
-    <p>Renders the named component as a full HTML page and writes the result to <code>w</code>. Scoped styles are collected from the entire component tree and injected as a <code>&lt;style&gt;</code> block immediately before the first <code>&lt;/head&gt;</code> tag. If no <code>&lt;/head&gt;</code> is found the style block is prepended to the output.</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RenderPage(ctx context.Context, w io.Writer, pageName string, data map[string]any) error</code></pre>
+    <p>Renders the named component as a full HTML page and writes the result to <code>w</code>. Scoped styles are collected from the entire component tree and injected as a <code>&lt;style&gt;</code> block immediately before the first <code>&lt;/head&gt;</code> tag. If no <code>&lt;/head&gt;</code> is found the style block is prepended to the output. The render is aborted and <code>ctx.Err()</code> is returned if the context is cancelled or its deadline is exceeded.</p>
     <p>Use <code>RenderPage</code> for page components that include <code>&lt;!DOCTYPE html&gt;</code>, <code>&lt;html&gt;</code>, <code>&lt;head&gt;</code>, and <code>&lt;body&gt;</code>.</p>
     <pre v-syntax-highlight="'go'"><code v-pre>var buf bytes.Buffer
-err := engine.RenderPage(&amp;buf, "HomePage", map[string]any{
+err := engine.RenderPage(ctx, &amp;buf, "HomePage", map[string]any{
     "title": "Welcome",
 })</code></pre>
 
@@ -305,17 +312,20 @@ err := engine.RenderPage(&amp;buf, "HomePage", map[string]any{
     <p>Renders the named component as an HTML fragment and prepends the collected <code>&lt;style&gt;</code> block to the output. Does not search for a <code>&lt;/head&gt;</code> tag. Use for partial page updates such as HTMX responses or turbo-frame updates.</p>
 
     <h3 id="render-string">String helpers</h3>
-    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RenderPageString(name string, data map[string]any) (string, error)
-func (e *Engine) RenderFragmentString(name string, data map[string]any) (string, error)</code></pre>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RenderPageString(ctx context.Context, name string, data map[string]any) (string, error)
+func (e *Engine) RenderFragmentString(ctx context.Context, name string, data map[string]any) (string, error)</code></pre>
     <p>Convenience wrappers around <code>RenderPage</code> and <code>RenderFragment</code> that return the result as a string instead of writing to an <code>io.Writer</code>.</p>
 
-    <h3 id="render-context">Context variants</h3>
-    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RenderPageContext(ctx context.Context, w io.Writer, name string, data map[string]any) error
+    <h3 id="render-context">Deprecated context aliases</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>// Deprecated: Use RenderPage, which now accepts a context.Context directly.
+func (e *Engine) RenderPageContext(ctx context.Context, w io.Writer, name string, data map[string]any) error
+// Deprecated: Use RenderFragment, which now accepts a context.Context directly.
 func (e *Engine) RenderFragmentContext(ctx context.Context, w io.Writer, name string, data map[string]any) error</code></pre>
-    <p>Like <code>RenderPage</code> and <code>RenderFragment</code> but accept a <code>context.Context</code>. The render is aborted and <code>ctx.Err()</code> is returned if the context is cancelled or its deadline is exceeded.</p>
-    <pre v-syntax-highlight="'go'"><code v-pre>ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-defer cancel()
-err := engine.RenderPageContext(ctx, w, "HomePage", data)</code></pre>
+    <p><code>RenderPageContext</code> and <code>RenderFragmentContext</code> are deprecated aliases kept for backwards compatibility. <code>RenderPage</code> and <code>RenderFragment</code> now accept a <code>context.Context</code> directly as their first argument; use those instead.</p>
+
+    <h3 id="render-with-collector">RenderWithCollector</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RenderWithCollector(ctx context.Context, name string, props map[string]any, collector *CustomElementCollector) (string, error)</code></pre>
+    <p>Low-level render method that uses a caller-supplied <code>CustomElementCollector</code>. Most callers should use <code>RenderPage</code> or <code>RenderFragment</code> instead; those methods manage the collector lifecycle automatically. Use <code>RenderWithCollector</code> only when you need to control the collector lifecycle yourself — for example, when aggregating custom-element registrations across multiple renders before emitting scripts.</p>
 
     <!-- ═══════════════════════════════════════════════ HTTP Integration -->
     <h2 id="http">HTTP Integration</h2>
@@ -410,6 +420,16 @@ engine.WithMissingPropHandler(htmlc.ErrorOnMissingProp)
 // Substitute a legacy placeholder string
 engine.WithMissingPropHandler(htmlc.SubstituteMissingProp)</code></pre>
 
+    <h3 id="component-error-handler">ComponentErrorHandler / HTMLErrorHandler</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>type ComponentErrorHandler func(w io.Writer, path []string, err error) error
+
+func HTMLErrorHandler() ComponentErrorHandler</code></pre>
+    <p><code>ComponentErrorHandler</code> is a function called when a child component fails to render. It receives the output writer, the component path (breadcrumb of component names from root to the failing component), and the error. It may write fallback HTML to <code>w</code>. If it returns a non-nil error, rendering is aborted; returning <code>nil</code> allows rendering to continue.</p>
+    <p><code>HTMLErrorHandler</code> returns a built-in <code>ComponentErrorHandler</code> that writes an HTML comment describing the error and continues rendering, making component failures visible in the output without aborting the page.</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>renderer := htmlc.NewRenderer(component).
+    WithComponents(reg).
+    WithComponentErrorHandler(htmlc.HTMLErrorHandler())</code></pre>
+
     <!-- ═══════════════════════════════════════════════ Low-level API -->
     <h2 id="low-level">Low-level API</h2>
 
@@ -475,6 +495,22 @@ engine.WithMissingPropHandler(htmlc.SubstituteMissingProp)</code></pre>
         <tr>
           <td><code v-pre>WithFuncs(funcs map[string]any) *Renderer</code></td>
           <td>Attaches engine-registered functions so they are available in expressions and propagated to all child renderers.</td>
+        </tr>
+        <tr>
+          <td><code v-pre>WithCollector(c *CustomElementCollector) *Renderer</code></td>
+          <td>Sets the <code>CustomElementCollector</code> used to accumulate custom-element registrations during rendering.</td>
+        </tr>
+        <tr>
+          <td><code v-pre>WithComponentErrorHandler(h ComponentErrorHandler) *Renderer</code></td>
+          <td>Sets the handler called when a child component fails to render. See <a href="#component-error-handler">ComponentErrorHandler</a>.</td>
+        </tr>
+        <tr>
+          <td><code v-pre>WithComponentPath(path []string) *Renderer</code></td>
+          <td>Sets the component path (breadcrumb) passed to <code>ComponentErrorHandler</code> calls for nested components.</td>
+        </tr>
+        <tr>
+          <td><code v-pre>WithNSComponents(ns map[string]map[string]*Component, componentDir string) *Renderer</code></td>
+          <td>Attaches a namespace-keyed component registry for multi-namespace component resolution.</td>
         </tr>
       </tbody>
     </table>
@@ -614,6 +650,18 @@ func ScopeCSS(css, scopeAttr string) string</code></pre>
     Snippet string // ~3-line context around the error (may be empty)
 }</code></pre>
 
+    <h4>ConversionError</h4>
+    <pre v-syntax-highlight="'go'"><code v-pre>type ConversionError struct {
+    Component string          // component being converted
+    Directive string          // directive involved (may be empty)
+    Message   string          // human-readable description
+    Location  *SourceLocation // source position, or nil if unknown
+    Cause     error           // underlying error (may be nil)
+}
+
+var ErrConversion</code></pre>
+    <p>Returned by <code>CompileToTemplate</code> and <code>RegisterTemplate</code> when a component cannot be converted to an <code>html/template</code>-compatible representation. <code>errors.Is(err, htmlc.ErrConversion)</code> is true for all conversion failures.</p>
+
     <h3 id="missing-prop-types">MissingPropFunc / handlers</h3>
     <pre v-syntax-highlight="'go'"><code v-pre>type MissingPropFunc func(name string) (any, error)
 
@@ -627,15 +675,41 @@ func SubstituteMissingProp(name string) (any, error)</code></pre>
 
     <h3 id="sentinel-errors">Sentinel errors</h3>
     <pre v-syntax-highlight="'go'"><code v-pre>var ErrComponentNotFound = errors.New("htmlc: component not found")
-var ErrMissingProp       = errors.New("htmlc: missing required prop")</code></pre>
+var ErrMissingProp       = errors.New("htmlc: missing required prop")
+var ErrConversion        // sentinel for html/template conversion errors</code></pre>
     <ul>
       <li><code v-pre>ErrComponentNotFound</code> — wrapped inside the error returned by render methods when the requested component name is not registered.</li>
       <li><code v-pre>ErrMissingProp</code> — returned (wrapped) when a required prop is absent and no <code>MissingPropFunc</code> has been set.</li>
+      <li><code v-pre>ErrConversion</code> — sentinel for <code>ConversionError</code> values returned by <code>CompileToTemplate</code> and <code>RegisterTemplate</code>.</li>
     </ul>
     <pre v-syntax-highlight="'go'"><code v-pre>if errors.Is(err, htmlc.ErrComponentNotFound) {
     http.NotFound(w, r)
     return
 }</code></pre>
+
+    <!-- ═══════════════════════════════════════════════ html/template Interop -->
+    <h2 id="htmltemplate-interop">html/template Interop</h2>
+    <p>These methods allow components to be used with Go's standard <code>html/template</code> package — either by compiling htmlc components into <code>*html/template.Template</code> values, or by registering existing Go templates as components.</p>
+
+    <h3 id="compile-to-template">CompileToTemplate</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) CompileToTemplate(componentName string) (*html/template.Template, error)</code></pre>
+    <p>Compiles the named component to a <code>*html/template.Template</code>. Returns a <code>ConversionError</code> (sentinel: <code>ErrConversion</code>) if the component uses features that cannot be expressed in Go's template language.</p>
+
+    <h3 id="register-template">RegisterTemplate</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RegisterTemplate(name string, tmpl *html/template.Template) error</code></pre>
+    <p>Registers an existing <code>*html/template.Template</code> as an htmlc component under <code>name</code>. Other components may then use <code>&lt;Name&gt;&lt;/Name&gt;</code> to embed it. Returns a <code>ConversionError</code> if the template cannot be adapted.</p>
+
+    <h3 id="template-text">TemplateText</h3>
+    <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) TemplateText(componentName string) (text string, warnings []string, err error)</code></pre>
+    <p>Returns the <code>html/template</code>-compatible template source text for the named component, along with any non-fatal warnings produced during conversion. Useful for inspecting the generated template text or for integrating with other template engines.</p>
+    <pre v-syntax-highlight="'go'"><code v-pre>text, warnings, err := engine.TemplateText("NavBar")
+if err != nil {
+    log.Fatal(err)
+}
+for _, w := range warnings {
+    log.Println("warning:", w)
+}
+fmt.Println(text)</code></pre>
 
   </DocsPage>
 </template>
