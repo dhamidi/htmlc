@@ -118,7 +118,10 @@
     <p>Components are <code>.vue</code> Single File Components with up to three sections:</p>
     <ul>
       <li><code v-pre>&lt;template&gt;</code> — required; the HTML template with directives</li>
-      <li><code v-pre>&lt;script&gt;</code> and <code v-pre>&lt;script setup&gt;</code> — <strong>not supported</strong>; using either causes a parse error. htmlc renders on the server in Go — script blocks serve no purpose and are rejected to prevent silent misconfiguration.</li>
+      <li>
+        <code v-pre>&lt;script&gt;</code> and <code v-pre>&lt;script setup&gt;</code> — <strong>not supported</strong>; using either causes a parse error. htmlc renders on the server in Go — script blocks serve no purpose and are rejected to prevent silent misconfiguration.
+        <code v-pre>&lt;script customelement&gt;</code> is the exception: it defines a client-side Web Component class and <em>is</em> supported. See <a href="#custom-elements">Custom element components</a> below.
+      </li>
       <li><code v-pre>&lt;style&gt;</code> — optional; global or scoped CSS</li>
     </ul>
 
