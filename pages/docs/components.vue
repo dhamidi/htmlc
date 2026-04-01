@@ -222,13 +222,13 @@ if err != nil {
 
     <h2 id="rendering">Rendering</h2>
     <pre v-syntax-highlight="'go'"><code v-pre>// Render a fragment (no &lt;!DOCTYPE&gt;)
-html, err := engine.RenderFragmentString("Card", map[string]any{
+html, err := engine.RenderFragmentString(context.Background(), "Card", map[string]any{
     "title": "Hello",
     "body":  "World",
 })
 
 // Render a full page (&lt;!DOCTYPE html&gt;)
-err = engine.RenderPage(w, "HomePage", map[string]any{
+err = engine.RenderPage(context.Background(), w, "HomePage", map[string]any{
     "title": "My site",
 })</code></pre>
 
@@ -387,16 +387,17 @@ engine, err := htmlc.New(htmlc.Options{
 
     <h3>Context-aware rendering</h3>
     <p>
-      Use <code>RenderPageContext</code> / <code>RenderFragmentContext</code> to
-      propagate cancellation and deadlines through the render pipeline.
+      Pass a context as the first argument to <code>RenderPage</code> and
+      <code>RenderFragmentString</code> to propagate cancellation and deadlines
+      through the render pipeline.
       <code>ServeComponent</code> and <code>ServePageComponent</code> forward
       <code>r.Context()</code> automatically.
     </p>
     <pre v-syntax-highlight="'go'"><code v-pre>ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 defer cancel()
 
-err = engine.RenderPageContext(ctx, w, "Page", data)
-err = engine.RenderFragmentContext(ctx, w, "Card", data)</code></pre>
+err = engine.RenderPage(ctx, w, "Page", data)
+html, err := engine.RenderFragmentString(ctx, "Card", data)</code></pre>
 
     <h2 id="errors">Error handling</h2>
     <p>
