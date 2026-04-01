@@ -29,17 +29,19 @@ A successful build outputs: `Build complete: N pages, 0 errors.`
 `htmlc build -strict` rejects self-closing custom component tags. Always use explicit open/close form.
 
 **WRONG:**
+
 ```html
 <InstallCommand />
 <MyComponent />
-<Button />
+<Buttonlink />
 ```
 
 **CORRECT:**
+
 ```html
 <InstallCommand></InstallCommand>
 <MyComponent></MyComponent>
-<Button></Button>
+<ButtonLink></ButtonLink>
 ```
 
 Note: Standard HTML void elements (`<br />`, `<img />`, `<input />`) are fine.

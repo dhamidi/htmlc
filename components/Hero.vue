@@ -13,8 +13,8 @@
       no virtual DOM.
     </p>
     <div class="hero-actions">
-      <Button href="/docs/tutorial.html" variant="primary">Get started</Button>
-      <Button href="/docs/index.html" variant="secondary">Documentation</Button>
+      <ButtonLink href="/docs/tutorial.html" variant="primary">Get started</ButtonLink>
+      <ButtonLink href="/docs/index.html" variant="secondary">Documentation</ButtonLink>
     </div>
     <div class="hero-install">
       <InstallCommand></InstallCommand>
