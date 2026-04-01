@@ -221,7 +221,7 @@ if err != nil {
   &lt;h2&gt;{{ title }}&lt;/h2&gt;
   &lt;div v-html="body"&gt;&lt;/div&gt;
 &lt;/div&gt;</code></pre>
-      <pre v-syntax-highlight="'go'"><code v-pre>html, err := engine.RenderFragmentString("Card", map[string]any{
+      <pre v-syntax-highlight="'go'"><code v-pre>html, err := engine.RenderFragmentString(r.Context(), "Card", map[string]any{
     "title": "Hello",
     "body":  "&lt;p&gt;Dynamic content from Go&lt;/p&gt;",
 })</code></pre>
@@ -288,15 +288,15 @@ customElements.define('ui-counter', UiCounter)
     <p>How it works: the <code>&lt;template&gt;</code> block is rendered server-side — the <code>initial</code> prop is interpolated into the <code>&lt;span&gt;</code> before the page is sent to the browser. The class in the <code>&lt;script customelement&gt;</code> block extends <code>HTMLElement</code>; <code>connectedCallback</code> fires as soon as the browser inserts the element into the DOM, at which point the click handler takes over and increments the displayed count. The prop value is "handed off" from Go to the browser without any extra wiring.</p>
 
     <h3>Wiring it up in Go</h3>
-    <p>To serve the custom-element scripts you need a <code>Collector</code>. Pass it to <code>RenderPageWithCollector</code>, then expose it via <code>ScriptHandler</code>:</p>
+    <p>To serve the custom-element scripts, use <code>RenderWithCollector</code> to capture which scripts were used, then expose them via <code>ScriptHandler</code>:</p>
 
     <pre v-syntax-highlight="'go'"><code v-pre>collector := htmlc.NewCollector()
-html, err := engine.RenderPageWithCollector("ui/Counter", map[string]any{
+html, err := engine.RenderWithCollector(r.Context(), "ui/Counter", map[string]any{
     "initial": 0,
 }, collector)
 
 // Serve the collected scripts at /scripts/
-http.Handle("/scripts/", engine.ScriptHandler(collector))</code></pre>
+http.Handle("/scripts/", http.StripPrefix("/scripts/", engine.ScriptHandler()))</code></pre>
 
     <p>Add <code>importMap()</code> to your page <code>&lt;head&gt;</code> so the browser can resolve the module references:</p>
 
