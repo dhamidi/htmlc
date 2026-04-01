@@ -34,21 +34,29 @@
 
     <p>Place a <code>&lt;script customelement&gt;</code> block inside any <code>.vue</code> file alongside the <code>&lt;template&gt;</code> and optional <code>&lt;style&gt;</code> blocks. The block contains a plain Web Component class and a <code>customElements.define()</code> call.</p>
 
-    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/ui/DatePicker.vue --&gt;
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;!-- components/ui/Counter.vue --&gt;
 &lt;template&gt;
-  &lt;div class="date-picker"&gt;
-    &lt;input type="date" /&gt;
-  &lt;/div&gt;
+  &lt;button class="counter-demo"&gt;Count: &lt;span&gt;{{ initial }}&lt;/span&gt;&lt;/button&gt;
 &lt;/template&gt;
 
 &lt;script customelement&gt;
-class UIDatePicker extends HTMLElement {
+class UiCounter extends HTMLElement {
   connectedCallback() {
-    // upgrade logic here
+    const span = this.querySelector('span')
+    let n = parseInt(span.textContent, 10)
+    this.addEventListener('click', () =&gt; { span.textContent = ++n })
   }
 }
-customElements.define('ui-date-picker', UIDatePicker);
+customElements.define('ui-counter', UiCounter)
 &lt;/script&gt;</code></pre>
+
+    <p>The rendered HTML output for <code>&lt;UiCounter :initial="0"&gt;&lt;/UiCounter&gt;</code> is:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;ui-counter&gt;&lt;button class="counter-demo"&gt;Count: &lt;span&gt;0&lt;/span&gt;&lt;/button&gt;&lt;/ui-counter&gt;</code></pre>
+
+    <h3>Live demo</h3>
+    <p>Click the button to increment the counter:</p>
+    <Counter :initial="0"></Counter>
 
     <Callout>
       <p><strong>Constraint:</strong> <code>&lt;script customelement&gt;</code> cannot coexist with <code>&lt;script&gt;</code> or <code>&lt;script setup&gt;</code> blocks. Combining them causes a parse error.</p>
