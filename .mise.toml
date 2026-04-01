@@ -13,8 +13,9 @@ cp -r public/. dist/
 
 [tasks.dev]
 description = "Build and serve with live reload"
+depends = ["build"]
 run = """
-mise run build
+htmlc build -strict -dir ./components -pages ./pages -out ./dist -dev :${PORT:-8888}
 """
 
 [tasks.deploy]
