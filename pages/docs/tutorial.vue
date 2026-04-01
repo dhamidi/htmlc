@@ -12,6 +12,7 @@
       {href: '#step-4b', label: '4b — Pass a struct as props'},
       {href: '#step-5', label: '5 — Layouts with slots'},
       {href: '#step-6', label: '6 — Reuse existing templates'},
+      {href: '#step-7', label: '7 — Client-side interactivity'},
       {label: 'See also'},
       {href: '/docs/components.html', label: 'Component system'},
       {href: '/docs/go-api.html', label: 'Go API reference'},
@@ -260,6 +261,63 @@ if err := engine.RegisterTemplate("site-header", headerTmpl); err != nil {
       <p><strong>Conversion limits</strong><br>
       <code>RegisterTemplate</code> converts common Go template constructs to their <code>.vue</code> equivalents, but <code v-pre>{{with}}</code>, variable assignments (<code>$x :=</code>), and multi-command pipelines are not supported and will return an error. Nothing is registered if any conversion fails.
       See the <a href="/docs/go-api.html">Go API reference</a> for the full list of supported constructs.</p>
+    </Callout>
+
+    <!-- ═══════════════════════════════════════════════ Step 7 -->
+    <h2 id="step-7">Step 7 — Client-side interactivity</h2>
+    <p>So far every step has been purely server-rendered. For interactive elements you can add a <code>&lt;script customelement&gt;</code> block to any <code>.vue</code> component. htmlc ships that block as a standard Web Component alongside the server-rendered HTML — no JavaScript framework required.</p>
+
+    <p>The <code>components/ui/Counter.vue</code> component that ships with htmlc demonstrates this pattern:</p>
+
+    <pre v-syntax-highlight="'vue'"><code v-pre>&lt;!-- components/ui/Counter.vue --&gt;
+&lt;template&gt;
+  &lt;button class="counter-demo"&gt;Count: &lt;span&gt;{{ initial }}&lt;/span&gt;&lt;/button&gt;
+&lt;/template&gt;
+
+&lt;script customelement&gt;
+class UiCounter extends HTMLElement {
+  connectedCallback() {
+    const span = this.querySelector('span')
+    let n = parseInt(span.textContent, 10)
+    this.addEventListener('click', () =&gt; { span.textContent = ++n })
+  }
+}
+customElements.define('ui-counter', UiCounter)
+&lt;/script&gt;</code></pre>
+
+    <p>How it works: the <code>&lt;template&gt;</code> block is rendered server-side — the <code>initial</code> prop is interpolated into the <code>&lt;span&gt;</code> before the page is sent to the browser. The class in the <code>&lt;script customelement&gt;</code> block extends <code>HTMLElement</code>; <code>connectedCallback</code> fires as soon as the browser inserts the element into the DOM, at which point the click handler takes over and increments the displayed count. The prop value is "handed off" from Go to the browser without any extra wiring.</p>
+
+    <h3>Wiring it up in Go</h3>
+    <p>To serve the custom-element scripts you need a <code>Collector</code>. Pass it to <code>RenderPageWithCollector</code>, then expose it via <code>ScriptHandler</code>:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>collector := htmlc.NewCollector()
+html, err := engine.RenderPageWithCollector("ui/Counter", map[string]any{
+    "initial": 0,
+}, collector)
+
+// Serve the collected scripts at /scripts/
+http.Handle("/scripts/", engine.ScriptHandler(collector))</code></pre>
+
+    <p>Add <code>importMap()</code> to your page <code>&lt;head&gt;</code> so the browser can resolve the module references:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;head&gt;
+  {{ importMap() }}
+&lt;/head&gt;</code></pre>
+
+    <h3>Rendered output</h3>
+    <p>The engine wraps the server-rendered <code>&lt;template&gt;</code> output in the custom element tag. The browser upgrades it once the script loads:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;ui-counter&gt;
+  &lt;button class="counter-demo"&gt;Count: &lt;span&gt;0&lt;/span&gt;&lt;/button&gt;
+&lt;/ui-counter&gt;</code></pre>
+
+    <h3>Live demo</h3>
+    <p>Click the button to see the custom element in action:</p>
+    <Counter :initial="0"></Counter>
+
+    <Callout>
+      <p><strong>Further reading</strong><br>
+      See the <a href="/docs/custom-elements.html">custom elements reference</a> for the full API: <code>ScriptHandler</code>, <code>WriteScripts</code>, shadow DOM support, and more.</p>
     </Callout>
 
   </DocsPage>
