@@ -1,0 +1,3 @@
+FROM ubuntu:22.04
+COPY shape-canvas /usr/local/bin/shape-canvas
+CMD ["shape-canvas"]
