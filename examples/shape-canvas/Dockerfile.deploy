@@ -1,3 +1,5 @@
 FROM ubuntu:22.04
+WORKDIR /app
 COPY shape-canvas /usr/local/bin/shape-canvas
+COPY components /app/components
 CMD ["shape-canvas"]
