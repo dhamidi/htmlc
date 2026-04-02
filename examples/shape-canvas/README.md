@@ -24,6 +24,17 @@ go run .
 Open <http://localhost:8081>.  Both canvases will start receiving shapes
 immediately.
 
+The listen address can be overridden with environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HOST` | `` (all interfaces) | Interface to bind to |
+| `PORT` | `8081` | Port to listen on |
+
+```sh
+HOST=127.0.0.1 PORT=9090 go run .
+```
+
 ## Running with the `htmlc` CLI
 
 The same page can be built and served with the `htmlc` CLI.  Because `htmlc`

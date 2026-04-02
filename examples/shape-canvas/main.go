@@ -101,7 +101,12 @@ func main() {
 
 	http.HandleFunc("/api/shapes/stream", streamShapes)
 
-	addr := ":8081"
+	host := os.Getenv("HOST")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8081"
+	}
+	addr := host + ":" + port
 	log.Printf("Listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
