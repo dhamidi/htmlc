@@ -80,11 +80,14 @@ func streamShapes(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	engine, err := htmlc.New(htmlc.Options{
-		FS:           os.DirFS("components"),
-		ComponentDir: ".",
+		ComponentDir: "components",
 	})
 	if err != nil {
 		log.Fatalf("init engine: %v", err)
+	}
+
+	if err := engine.Register("DashboardPage", "pages/DashboardPage.vue"); err != nil {
+		log.Fatalf("register DashboardPage: %v", err)
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
