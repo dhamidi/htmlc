@@ -1,0 +1,2 @@
+Run `wrangler pages deploy dist --project-name=htmlc-sh --branch=preview` to deploy
+a preview version of the website and report the commit-based version of the deployment URL back, e.g. `https://6c9499c8.htmlc-sh.pages.dev`
