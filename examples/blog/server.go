@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -100,18 +101,19 @@ func (s *Server) routes() http.Handler {
 	return mux
 }
 
-// renderPage renders a full HTML page component.
-func (s *Server) renderPage(w http.ResponseWriter, name string, data map[string]any) {
+// renderPage renders a full HTML page component with the given status code.
+func (s *Server) renderPage(w http.ResponseWriter, status int, name string, data map[string]any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
 	if err := s.engine.RenderPage(context.Background(), w, name, data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// Headers already sent; log the error but don't try to write another status.
+		log.Printf("renderPage %s: %v", name, err)
 	}
 }
 
 // renderNotFound renders the 404 page.
 func (s *Server) renderNotFound(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotFound)
-	s.renderPage(w, "NotFoundPage", map[string]any{
+	s.renderPage(w, http.StatusNotFound, "NotFoundPage", map[string]any{
 		"siteTitle": s.cfg.SiteTitle,
 	})
 }
@@ -240,7 +242,7 @@ func buildPagination(page, totalPages int, base string, q url.Values) map[string
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	posts := s.store.ListPublished()
 	page, totalPages, paginated := paginate(posts, r, 10)
-	s.renderPage(w, "IndexPage", map[string]any{
+	s.renderPage(w, http.StatusOK, "IndexPage", map[string]any{
 		"siteTitle":  s.cfg.SiteTitle,
 		"posts":      postsToSlice(paginated),
 		"pagination": buildPagination(page, totalPages, "/", r.URL.Query()),
@@ -265,7 +267,7 @@ func (s *Server) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.RecordImpression(post.ID)
-	s.renderPage(w, "PostPage", map[string]any{
+	s.renderPage(w, http.StatusOK, "PostPage", map[string]any{
 		"siteTitle": s.cfg.SiteTitle,
 		"post":      postToMap(post),
 	})
@@ -275,7 +277,7 @@ func (s *Server) handleTag(w http.ResponseWriter, r *http.Request) {
 	tag := r.PathValue("tag")
 	posts := s.store.ListByTag(tag)
 	page, totalPages, paginated := paginate(posts, r, 10)
-	s.renderPage(w, "TagPage", map[string]any{
+	s.renderPage(w, http.StatusOK, "TagPage", map[string]any{
 		"siteTitle":  s.cfg.SiteTitle,
 		"tag":        tag,
 		"posts":      postsToSlice(paginated),
@@ -292,7 +294,7 @@ func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
 			"Posts": postsToSlice(g.Posts),
 		})
 	}
-	s.renderPage(w, "ArchivePage", map[string]any{
+	s.renderPage(w, http.StatusOK, "ArchivePage", map[string]any{
 		"siteTitle": s.cfg.SiteTitle,
 		"groups":    archiveData,
 	})
@@ -308,7 +310,7 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 	if content == "" {
 		content = `<p>This blog is powered by <a href="https://github.com/dhamidi/htmlc">htmlc</a>.</p>`
 	}
-	s.renderPage(w, "AboutPage", map[string]any{
+	s.renderPage(w, http.StatusOK, "AboutPage", map[string]any{
 		"siteTitle": s.cfg.SiteTitle,
 		"content":   content,
 	})
@@ -380,7 +382,7 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/", http.StatusSeeOther)
 		return
 	}
-	s.renderPage(w, "LoginPage", map[string]any{
+	s.renderPage(w, http.StatusOK, "LoginPage", map[string]any{
 		"siteTitle": s.cfg.SiteTitle,
 		"error":     "",
 	})
@@ -394,7 +396,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 	if username != s.cfg.AdminUsername || password != s.cfg.AdminPassword {
-		s.renderPage(w, "LoginPage", map[string]any{
+		s.renderPage(w, http.StatusOK, "LoginPage", map[string]any{
 			"siteTitle": s.cfg.SiteTitle,
 			"error":     "Invalid username or password.",
 		})
@@ -430,7 +432,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	posts := s.store.ListAll()
-	s.renderPage(w, "DashboardPage", map[string]any{
+	s.renderPage(w, http.StatusOK, "DashboardPage", map[string]any{
 		"siteTitle": s.cfg.SiteTitle,
 		"posts":     postsToSlice(posts),
 	})
@@ -444,14 +446,14 @@ func (s *Server) handleDrafts(w http.ResponseWriter, r *http.Request) {
 			drafts = append(drafts, p)
 		}
 	}
-	s.renderPage(w, "DraftsPage", map[string]any{
+	s.renderPage(w, http.StatusOK, "DraftsPage", map[string]any{
 		"siteTitle": s.cfg.SiteTitle,
 		"posts":     postsToSlice(drafts),
 	})
 }
 
 func (s *Server) handleNewPostForm(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, "PostFormPage", map[string]any{
+	s.renderPage(w, http.StatusOK, "PostFormPage", map[string]any{
 		"siteTitle":   s.cfg.SiteTitle,
 		"pageTitle":   "New Post",
 		"action":      "/admin/posts/new",
@@ -494,7 +496,7 @@ func (s *Server) handlePreviewPost(w http.ResponseWriter, r *http.Request) {
 		ReadingTime: readingTime(body),
 		PublishedAt: time.Now(),
 	}
-	s.renderPage(w, "PostPreviewPage", map[string]any{
+	s.renderPage(w, http.StatusOK, "PostPreviewPage", map[string]any{
 		"siteTitle": s.cfg.SiteTitle,
 		"post":      postToMap(fake),
 	})
@@ -511,7 +513,7 @@ func (s *Server) handleEditPostForm(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.renderPage(w, "PostFormPage", map[string]any{
+	s.renderPage(w, http.StatusOK, "PostFormPage", map[string]any{
 		"siteTitle":   s.cfg.SiteTitle,
 		"pageTitle":   "Edit Post",
 		"action":      fmt.Sprintf("/admin/posts/%d/edit", post.ID),
