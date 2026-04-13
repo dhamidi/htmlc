@@ -1,0 +1,12 @@
+FROM golang:1.24-alpine AS builder
+WORKDIR /build
+COPY . .
+RUN go build -o blog .
+
+FROM alpine:3.19
+WORKDIR /app
+COPY --from=builder /build/blog .
+ENV PORT=9001
+ENV HOST=0.0.0.0
+EXPOSE 9001
+CMD ["./blog"]
