@@ -8,6 +8,7 @@
       <thead>
         <tr>
           <th>Title</th>
+          <th>Slug</th>
           <th>Status</th>
           <th>Views</th>
           <th>Created</th>
@@ -17,8 +18,11 @@
       <tbody>
         <tr v-for="post in posts">
           <td class="col-title">
-            <a v-if="post.Published" :href="'/posts/' + post.ID">{{ post.Title }}</a>
+            <a v-if="post.Published" :href="'/posts/' + post.Slug">{{ post.Title }}</a>
             <span v-else class="draft-title">{{ post.Title }}</span>
+          </td>
+          <td class="col-slug">
+            <code class="post-slug">{{ post.Slug }}</code>
           </td>
           <td class="col-status">
             <span v-if="post.Published" class="badge badge-published">published</span>

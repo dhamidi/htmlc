@@ -129,6 +129,15 @@ func generateToken() string {
 	return hex.EncodeToString(b)
 }
 
+// excerptText returns the first maxLen characters of body as plain text.
+func excerptText(body string, maxLen int) string {
+	body = strings.TrimSpace(body)
+	if len(body) <= maxLen {
+		return body
+	}
+	return body[:maxLen]
+}
+
 // postToMap converts a Post to a map[string]any for template rendering.
 func postToMap(p *Post) map[string]any {
 	return map[string]any{
@@ -136,9 +145,11 @@ func postToMap(p *Post) map[string]any {
 		"Title":       p.Title,
 		"Slug":        p.Slug,
 		"Tags":        p.Tags,
+		"TagsCSV":     strings.Join(p.Tags, ", "),
 		"Body":        p.Body,
 		"BodyHTML":    renderMarkdown(p.Body),
 		"ExcerptHTML": renderExcerptHTML(p.Body),
+		"ExcerptText": excerptText(p.Body, 160),
 		"ReadingTime": p.ReadingTime,
 		"Published":   p.Published,
 		"CreatedAt":   p.CreatedAt.Format("2 Jan 2006"),
@@ -441,7 +452,7 @@ func (s *Server) handleNewPostForm(w http.ResponseWriter, r *http.Request) {
 		"pageTitle":   "New Post",
 		"action":      "/admin/posts/new",
 		"submitLabel": "Create Draft",
-		"post":        map[string]any{"Title": "", "Slug": "", "Tags": []string{}, "Body": "", "Published": false},
+		"post":        map[string]any{"Title": "", "Slug": "", "Tags": []string{}, "TagsCSV": "", "Body": "", "Published": false},
 	})
 }
 

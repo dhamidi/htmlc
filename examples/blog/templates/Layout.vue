@@ -3,12 +3,19 @@
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>{{ siteTitle }}</title>
+      <title>{{ pageTitle ? pageTitle + ' – ' + siteTitle : siteTitle }}</title>
+      <meta v-if="description" name="description" :content="description" />
+      <meta property="og:title" :content="pageTitle ? pageTitle + ' – ' + siteTitle : siteTitle" />
+      <meta v-if="description" property="og:description" :content="description" />
+      <meta property="og:type" :content="ogType ? ogType : 'website'" />
+      <link rel="alternate" type="application/atom+xml" href="/feed.atom" :title="siteTitle + ' Feed'" />
     </head>
     <body>
       <header class="site-header">
         <a href="/" class="site-logo">{{ siteTitle }}</a>
         <nav class="site-nav">
+          <a href="/archive" class="nav-link">Archive</a>
+          <a href="/about" class="nav-link">About</a>
           <a href="/feed.atom" class="nav-link">Feed</a>
         </nav>
       </header>

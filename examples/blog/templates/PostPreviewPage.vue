@@ -1,5 +1,5 @@
 <template>
-  <Layout :siteTitle="siteTitle">
+  <Layout :siteTitle="siteTitle" :pageTitle="post.Title" ogType="article" description="">
     <div class="preview-banner">Preview — not published</div>
     <article class="post">
       <header class="post-header">

@@ -1,5 +1,5 @@
 <template>
-  <Layout :siteTitle="siteTitle">
+  <Layout :siteTitle="siteTitle" :pageTitle="'Tag: ' + tag" ogType="website" description="">
     <h1 class="page-title">Posts tagged &ldquo;{{ tag }}&rdquo;</h1>
     <div v-if="posts.length === 0" class="empty">
       <p>No posts with this tag.</p>

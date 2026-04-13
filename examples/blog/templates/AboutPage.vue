@@ -1,5 +1,5 @@
 <template>
-  <Layout :siteTitle="siteTitle">
+  <Layout :siteTitle="siteTitle" pageTitle="About" ogType="website" description="">
     <h1 class="page-title">About</h1>
     <div class="about-content" v-html="content"></div>
   </Layout>

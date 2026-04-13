@@ -1,15 +1,23 @@
 <template>
-  <Layout :siteTitle="siteTitle">
+  <Layout :siteTitle="siteTitle" :pageTitle="post.Title" :description="post.ExcerptText" ogType="article">
     <article class="post">
       <header class="post-header">
         <h1 class="post-title">{{ post.Title }}</h1>
         <p class="post-meta">
-          Published {{ post.PublishedAt }}
+          <template v-switch="post.Published">
+            <span v-case="true">Published {{ post.PublishedAt }}</span>
+            <span v-default>Draft</span>
+          </template>
+          &middot;
+          {{ post.ReadingTime }} min read
           &middot;
           {{ post.Impressions }} view<span v-if="post.Impressions !== 1">s</span>
         </p>
+        <div class="post-tags" v-if="post.Tags.length > 0">
+          <TagBadge v-for="tag in post.Tags" :tag="tag" />
+        </div>
       </header>
-      <div class="post-body" v-html="post.Body"></div>
+      <div class="post-body" v-html="post.BodyHTML"></div>
       <footer class="post-footer">
         <a href="/" class="back-link">&larr; All posts</a>
       </footer>
@@ -39,6 +47,14 @@
   font-family: "SF Mono", "Fira Code", monospace;
   font-size: 0.78rem;
   color: #888;
+  margin-bottom: 0.5rem;
+}
+
+.post-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
 }
 
 .post-body {

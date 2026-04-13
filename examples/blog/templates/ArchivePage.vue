@@ -1,5 +1,5 @@
 <template>
-  <Layout :siteTitle="siteTitle">
+  <Layout :siteTitle="siteTitle" pageTitle="Archive" ogType="website" description="">
     <h1 class="page-title">Archive</h1>
     <div v-if="groups.length === 0" class="empty">
       <p>No posts yet.</p>

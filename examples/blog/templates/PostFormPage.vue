@@ -5,33 +5,34 @@
         <h1 class="form-title">{{ pageTitle }}</h1>
         <a href="/admin/" class="back-link">&larr; Dashboard</a>
       </div>
-      <form method="POST" :action="action" class="post-form">
+      <form method="POST" :action="action" class="post-form" id="post-form">
         <div class="field">
           <label for="title" class="field-label">Title</label>
-          <input
-            id="title"
-            type="text"
-            name="title"
-            :value="post.Title"
-            required
-            class="field-input"
-            placeholder="Post title"
-          />
+          <input id="title" type="text" name="title" :value="post.Title" required class="field-input" placeholder="Post title" />
         </div>
         <div class="field">
-          <label for="body" class="field-label">Body</label>
-          <textarea
-            id="body"
-            name="body"
-            rows="18"
-            class="field-textarea"
-            placeholder="Write your post here…"
-          >{{ post.Body }}</textarea>
+          <label for="slug" class="field-label">Slug</label>
+          <input id="slug" type="text" name="slug" :value="post.Slug" class="field-input" placeholder="url-friendly-slug" />
+        </div>
+        <div class="field">
+          <label for="tags" class="field-label">Tags (comma-separated)</label>
+          <input id="tags" type="text" name="tags" :value="post.TagsCSV" class="field-input" placeholder="go, tutorial, web" />
+        </div>
+        <div class="field">
+          <label for="body" class="field-label">Body (Markdown)</label>
+          <textarea id="body" name="body" rows="18" class="field-textarea" placeholder="Write your post here…">{{ post.Body }}</textarea>
         </div>
         <div class="form-footer">
-          <button type="submit" class="submit-btn">{{ submitLabel }}</button>
+          <button type="submit" name="publish" value="0" class="submit-btn">Save Draft</button>
+          <button type="submit" name="publish" value="1" class="submit-btn submit-btn-publish">Publish</button>
           <a href="/admin/" class="cancel-link">Cancel</a>
         </div>
+      </form>
+      <form method="POST" action="/admin/posts/preview" target="_blank" class="preview-form">
+        <input type="hidden" name="title" :value="post.Title" />
+        <input type="hidden" name="body" :value="post.Body" />
+        <input type="hidden" name="tags" :value="post.TagsCSV" />
+        <button type="submit" class="preview-btn">Preview in new tab</button>
       </form>
     </div>
   </AdminLayout>
@@ -130,6 +131,15 @@
   background: #333;
 }
 
+.submit-btn-publish {
+  background: #b5451b;
+  color: #fff;
+}
+
+.submit-btn-publish:hover {
+  background: #d4541f;
+}
+
 .cancel-link {
   font-size: 0.85rem;
   color: #888;
@@ -137,5 +147,25 @@
 
 .cancel-link:hover {
   color: #b5451b;
+}
+
+.preview-form {
+  margin-top: 1rem;
+}
+
+.preview-btn {
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  color: #666;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.8rem;
+  padding: 0.4rem 1rem;
+}
+
+.preview-btn:hover {
+  border-color: #888;
+  color: #1a1a1a;
 }
 </style>

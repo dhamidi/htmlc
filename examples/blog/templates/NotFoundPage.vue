@@ -1,36 +1,43 @@
 <template>
-  <Layout :siteTitle="siteTitle">
+  <Layout :siteTitle="siteTitle" pageTitle="Page Not Found" ogType="website" description="">
     <div class="not-found">
-      <h1 class="not-found-title">404</h1>
-      <p class="not-found-message">Page not found.</p>
+      <p class="not-found-code">404</p>
+      <h1 class="not-found-title">Page not found</h1>
+      <p class="not-found-body">The page you're looking for doesn't exist or has been moved.</p>
       <a href="/" class="not-found-link">&larr; Back to home</a>
     </div>
   </Layout>
 </template>
 
-<style>
+<style scoped>
 .not-found {
   text-align: center;
   padding: 4rem 0;
 }
 
-.not-found-title {
-  font-family: Georgia, serif;
+.not-found-code {
+  font-family: "SF Mono", "Fira Code", monospace;
   font-size: 5rem;
-  color: #1a1a1a;
+  font-weight: bold;
+  color: #e0ddd8;
   line-height: 1;
   margin-bottom: 1rem;
 }
 
-.not-found-message {
-  font-size: 1.2rem;
-  color: #666;
+.not-found-title {
+  font-family: Georgia, serif;
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.not-found-body {
+  color: #888;
   margin-bottom: 2rem;
 }
 
 .not-found-link {
   font-family: "SF Mono", "Fira Code", monospace;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: #b5451b;
 }
 </style>
