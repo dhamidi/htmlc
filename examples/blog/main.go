@@ -13,6 +13,8 @@ type Config struct {
 	AdminPassword string
 	SiteTitle     string
 	LogFile       string
+	AboutFile     string // path to a file containing about page HTML (env: ABOUT_FILE)
+	AboutHTML     string // raw about HTML (env: ABOUT_HTML); fallback if file not set
 }
 
 func getEnv(key, def string) string {
@@ -29,6 +31,8 @@ func main() {
 		AdminPassword: getEnv("ADMIN_PASSWORD", "password"),
 		SiteTitle:     getEnv("SITE_TITLE", "My Blog"),
 		LogFile:       getEnv("LOG_FILE", "blog.jsonl"),
+		AboutFile:     os.Getenv("ABOUT_FILE"),
+		AboutHTML:     os.Getenv("ABOUT_HTML"),
 	}
 
 	store, err := NewStore(cfg.LogFile)

@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,9 +41,31 @@ func NewServer(store *Store, cfg Config) (*Server, error) {
 	return &Server{store: store, engine: engine, cfg: cfg}, nil
 }
 
+// statusResponseWriter captures the HTTP status code written by a handler.
+type statusResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rw *statusResponseWriter) WriteHeader(code int) {
+	rw.status = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *statusResponseWriter) Write(b []byte) (int, error) {
+	if rw.status == 0 {
+		rw.status = http.StatusOK
+	}
+	return rw.ResponseWriter.Write(b)
+}
+
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.routes().ServeHTTP(w, r)
+	rw := &statusResponseWriter{ResponseWriter: w}
+	s.routes().ServeHTTP(rw, r)
+	if rw.status == http.StatusNotFound {
+		s.renderNotFound(w, r)
+	}
 }
 
 // routes builds and returns the HTTP mux.
@@ -48,7 +74,10 @@ func (s *Server) routes() http.Handler {
 
 	// Public routes
 	mux.HandleFunc("GET /{$}", s.handleIndex)
-	mux.HandleFunc("GET /posts/{id}", s.handlePost)
+	mux.HandleFunc("GET /posts/{slug}", s.handlePost)
+	mux.HandleFunc("GET /tags/{tag}", s.handleTag)
+	mux.HandleFunc("GET /archive", s.handleArchive)
+	mux.HandleFunc("GET /about", s.handleAbout)
 	mux.HandleFunc("GET /feed.atom", s.handleFeed)
 
 	// Admin auth
@@ -61,6 +90,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /admin/drafts", s.requireAdmin(s.handleDrafts))
 	mux.HandleFunc("GET /admin/posts/new", s.requireAdmin(s.handleNewPostForm))
 	mux.HandleFunc("POST /admin/posts/new", s.requireAdmin(s.handleCreatePost))
+	mux.HandleFunc("POST /admin/posts/preview", s.requireAdmin(s.handlePreviewPost))
 	mux.HandleFunc("GET /admin/posts/{id}/edit", s.requireAdmin(s.handleEditPostForm))
 	mux.HandleFunc("POST /admin/posts/{id}/edit", s.requireAdmin(s.handleUpdatePost))
 	mux.HandleFunc("POST /admin/posts/{id}/publish", s.requireAdmin(s.handlePublishPost))
@@ -73,9 +103,17 @@ func (s *Server) routes() http.Handler {
 // renderPage renders a full HTML page component.
 func (s *Server) renderPage(w http.ResponseWriter, name string, data map[string]any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.engine.RenderPage(w, name, data); err != nil {
+	if err := s.engine.RenderPage(context.Background(), w, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// renderNotFound renders the 404 page.
+func (s *Server) renderNotFound(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotFound)
+	s.renderPage(w, "NotFoundPage", map[string]any{
+		"siteTitle": s.cfg.SiteTitle,
+	})
 }
 
 // isAuthenticated returns true if the request carries a valid session cookie.
@@ -111,7 +149,12 @@ func postToMap(p *Post) map[string]any {
 	return map[string]any{
 		"ID":          p.ID,
 		"Title":       p.Title,
+		"Slug":        p.Slug,
+		"Tags":        p.Tags,
 		"Body":        p.Body,
+		"BodyHTML":    renderMarkdown(p.Body),
+		"ExcerptHTML": renderExcerptHTML(p.Body),
+		"ReadingTime": p.ReadingTime,
 		"Published":   p.Published,
 		"CreatedAt":   p.CreatedAt.Format("2 Jan 2006"),
 		"PublishedAt": p.PublishedAt.Format("2 Jan 2006"),
@@ -128,31 +171,146 @@ func postsToSlice(posts []*Post) []any {
 	return items
 }
 
+// parseTags splits a comma-separated tags string into a slice.
+func parseTags(s string) []string {
+	var tags []string
+	for _, t := range strings.Split(s, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			tags = append(tags, t)
+		}
+	}
+	return tags
+}
+
+// paginate returns the current page, total pages, and the slice for that page.
+func paginate(posts []*Post, r *http.Request, size int) (page, totalPages int, result []*Post) {
+	page, _ = strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	totalPages = (len(posts) + size - 1) / size
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	start := (page - 1) * size
+	end := start + size
+	if start >= len(posts) {
+		return page, totalPages, nil
+	}
+	if end > len(posts) {
+		end = len(posts)
+	}
+	return page, totalPages, posts[start:end]
+}
+
+// copyQuery returns a shallow copy of url.Values.
+func copyQuery(q url.Values) url.Values {
+	nq := make(url.Values)
+	for k, v := range q {
+		nq[k] = v
+	}
+	return nq
+}
+
+// buildPagination builds a pagination map for template rendering.
+func buildPagination(page, totalPages int, base string, q url.Values) map[string]any {
+	nextURL := ""
+	prevURL := ""
+	if page < totalPages {
+		nq := copyQuery(q)
+		nq.Set("page", strconv.Itoa(page+1))
+		nextURL = base + "?" + nq.Encode()
+	}
+	if page > 1 {
+		pq := copyQuery(q)
+		pq.Set("page", strconv.Itoa(page-1))
+		prevURL = base + "?" + pq.Encode()
+	}
+	return map[string]any{
+		"Page":       page,
+		"TotalPages": totalPages,
+		"NextURL":    nextURL,
+		"PrevURL":    prevURL,
+	}
+}
+
 // ── Public handlers ──────────────────────────────────────────────────────────
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	posts := s.store.ListPublished()
+	page, totalPages, paginated := paginate(posts, r, 10)
 	s.renderPage(w, "IndexPage", map[string]any{
-		"siteTitle": s.cfg.SiteTitle,
-		"posts":     postsToSlice(posts),
+		"siteTitle":  s.cfg.SiteTitle,
+		"posts":      postsToSlice(paginated),
+		"pagination": buildPagination(page, totalPages, "/", r.URL.Query()),
 	})
 }
 
 func (s *Server) handlePost(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(r.PathValue("id"))
-	if err != nil {
-		http.NotFound(w, r)
-		return
+	slug := r.PathValue("slug")
+	var post *Post
+	var ok bool
+	// Try numeric ID first for backwards compat
+	if id, err := strconv.Atoi(slug); err == nil {
+		post, ok = s.store.Get(id)
+		if ok && post.Published && post.Slug != "" {
+			http.Redirect(w, r, "/posts/"+post.Slug, http.StatusMovedPermanently)
+			return
+		}
 	}
-	post, ok := s.store.Get(id)
+	post, ok = s.store.GetBySlug(slug)
 	if !ok || !post.Published {
 		http.NotFound(w, r)
 		return
 	}
-	s.store.RecordImpression(id)
+	s.store.RecordImpression(post.ID)
 	s.renderPage(w, "PostPage", map[string]any{
 		"siteTitle": s.cfg.SiteTitle,
 		"post":      postToMap(post),
+	})
+}
+
+func (s *Server) handleTag(w http.ResponseWriter, r *http.Request) {
+	tag := r.PathValue("tag")
+	posts := s.store.ListByTag(tag)
+	page, totalPages, paginated := paginate(posts, r, 10)
+	s.renderPage(w, "TagPage", map[string]any{
+		"siteTitle":  s.cfg.SiteTitle,
+		"tag":        tag,
+		"posts":      postsToSlice(paginated),
+		"pagination": buildPagination(page, totalPages, "/tags/"+tag, r.URL.Query()),
+	})
+}
+
+func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
+	groups := s.store.ListArchive()
+	var archiveData []any
+	for _, g := range groups {
+		archiveData = append(archiveData, map[string]any{
+			"Label": g.Label,
+			"Posts": postsToSlice(g.Posts),
+		})
+	}
+	s.renderPage(w, "ArchivePage", map[string]any{
+		"siteTitle": s.cfg.SiteTitle,
+		"groups":    archiveData,
+	})
+}
+
+func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
+	content := s.cfg.AboutHTML
+	if s.cfg.AboutFile != "" {
+		if data, err := os.ReadFile(s.cfg.AboutFile); err == nil {
+			content = string(data)
+		}
+	}
+	if content == "" {
+		content = `<p>This blog is powered by <a href="https://github.com/dhamidi/htmlc">htmlc</a>.</p>`
+	}
+	s.renderPage(w, "AboutPage", map[string]any{
+		"siteTitle": s.cfg.SiteTitle,
+		"content":   content,
 	})
 }
 
@@ -177,7 +335,7 @@ type atomEntry struct {
 	Link    atomLink `xml:"link"`
 	ID      string   `xml:"id"`
 	Updated string   `xml:"updated"`
-	Content string   `xml:"content"`
+	Summary string   `xml:"summary"`
 }
 
 func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
@@ -188,19 +346,25 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	base := scheme + "://" + r.Host
 
+	updated := time.Now().UTC().Format(time.RFC3339)
+	if len(posts) > 0 {
+		updated = posts[0].PublishedAt.UTC().Format(time.RFC3339)
+	}
+
 	feed := atomFeed{
 		NS:      "http://www.w3.org/2005/Atom",
 		Title:   s.cfg.SiteTitle,
 		Link:    atomLink{Href: base + "/feed.atom", Rel: "self"},
-		Updated: time.Now().UTC().Format(time.RFC3339),
+		Updated: updated,
 	}
 	for _, p := range posts {
+		postURL := fmt.Sprintf("%s/posts/%s", base, p.Slug)
 		feed.Entries = append(feed.Entries, atomEntry{
 			Title:   p.Title,
-			Link:    atomLink{Href: fmt.Sprintf("%s/posts/%d", base, p.ID)},
-			ID:      fmt.Sprintf("%s/posts/%d", base, p.ID),
+			Link:    atomLink{Href: postURL},
+			ID:      postURL,
 			Updated: p.PublishedAt.UTC().Format(time.RFC3339),
-			Content: p.Body,
+			Summary: renderExcerptHTML(p.Body),
 		})
 	}
 
@@ -253,10 +417,10 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.sessions.Delete(c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:    "session",
-		Value:   "",
-		Path:    "/",
-		MaxAge:  -1,
+		Name:     "session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
 		HttpOnly: true,
 	})
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
@@ -292,7 +456,7 @@ func (s *Server) handleNewPostForm(w http.ResponseWriter, r *http.Request) {
 		"pageTitle":   "New Post",
 		"action":      "/admin/posts/new",
 		"submitLabel": "Create Draft",
-		"post":        map[string]any{"Title": "", "Body": "", "Published": false},
+		"post":        map[string]any{"Title": "", "Slug": "", "Tags": []string{}, "Body": "", "Published": false},
 	})
 }
 
@@ -301,8 +465,39 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	s.store.Create(r.FormValue("title"), r.FormValue("body"))
+	title := r.FormValue("title")
+	body := r.FormValue("body")
+	slug := r.FormValue("slug")
+	tags := parseTags(r.FormValue("tags"))
+	if slug == "" {
+		slug = slugify(title)
+	}
+	post := s.store.Create(title, body, slug, tags)
+	if r.FormValue("publish") == "1" {
+		s.store.Publish(post.ID)
+	}
 	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+}
+
+func (s *Server) handlePreviewPost(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	title := r.FormValue("title")
+	body := r.FormValue("body")
+	tags := parseTags(r.FormValue("tags"))
+	fake := &Post{
+		Title:       title,
+		Body:        body,
+		Tags:        tags,
+		ReadingTime: readingTime(body),
+		PublishedAt: time.Now(),
+	}
+	s.renderPage(w, "PostPreviewPage", map[string]any{
+		"siteTitle": s.cfg.SiteTitle,
+		"post":      postToMap(fake),
+	})
 }
 
 func (s *Server) handleEditPostForm(w http.ResponseWriter, r *http.Request) {
@@ -335,9 +530,16 @@ func (s *Server) handleUpdatePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if !s.store.Update(id, r.FormValue("title"), r.FormValue("body")) {
+	title := r.FormValue("title")
+	body := r.FormValue("body")
+	slug := r.FormValue("slug")
+	tags := parseTags(r.FormValue("tags"))
+	if !s.store.Update(id, title, body, slug, tags) {
 		http.NotFound(w, r)
 		return
+	}
+	if r.FormValue("publish") == "1" {
+		s.store.Publish(id)
 	}
 	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
 }
