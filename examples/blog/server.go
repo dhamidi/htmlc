@@ -42,36 +42,19 @@ func NewServer(store *Store, cfg Config) (*Server, error) {
 	return &Server{store: store, engine: engine, cfg: cfg}, nil
 }
 
-// statusResponseWriter captures the HTTP status code written by a handler.
-type statusResponseWriter struct {
-	http.ResponseWriter
-	status int
-}
-
-func (rw *statusResponseWriter) WriteHeader(code int) {
-	rw.status = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-func (rw *statusResponseWriter) Write(b []byte) (int, error) {
-	if rw.status == 0 {
-		rw.status = http.StatusOK
-	}
-	return rw.ResponseWriter.Write(b)
-}
-
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	rw := &statusResponseWriter{ResponseWriter: w}
-	s.routes().ServeHTTP(rw, r)
-	if rw.status == http.StatusNotFound {
-		s.renderNotFound(w, r)
-	}
+	s.routes().ServeHTTP(w, r)
 }
 
 // routes builds and returns the HTTP mux.
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
+
+	// Catch-all for 404
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		s.renderNotFound(w, r)
+	})
 
 	// Public routes
 	mux.HandleFunc("GET /{$}", s.handleIndex)
