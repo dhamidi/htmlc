@@ -41,6 +41,8 @@ body {
   color: #1a1a1a;
   font-family: Georgia, "Times New Roman", serif;
   line-height: 1.7;
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
@@ -60,6 +62,7 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  border-bottom: 3px solid #000;
 }
 
 .site-logo {
@@ -68,6 +71,7 @@ a:hover {
   font-weight: bold;
   text-decoration: none;
   font-family: Georgia, serif;
+  letter-spacing: 0.02em;
 }
 
 .site-logo:hover {
@@ -85,25 +89,37 @@ a:hover {
   font-family: "SF Mono", "Fira Code", monospace;
   font-size: 0.8rem;
   text-decoration: none;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
 }
 
 .nav-link:hover {
   color: #ffd43b;
   text-decoration: none;
+  border-bottom-color: #ffd43b;
 }
 
 .site-main {
   max-width: 760px;
   margin: 0 auto;
   padding: 3rem 2rem 5rem;
+  flex: 1;
+  width: 100%;
 }
 
 .site-footer {
   background: #1a1a1a;
-  color: #666;
+  color: #888;
   padding: 1rem 2rem;
   font-size: 0.8rem;
   font-family: "SF Mono", "Fira Code", monospace;
   text-align: center;
+  border-top: 3px solid #000;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 </style>

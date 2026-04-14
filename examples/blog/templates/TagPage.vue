@@ -19,10 +19,13 @@
 <style>
 .page-title {
   font-family: Georgia, serif;
-  font-size: 1.6rem;
+  font-size: 1.8rem;
+  font-weight: 700;
   margin-bottom: 2rem;
-  border-bottom: 2px solid #1a1a1a;
+  border-bottom: 3px solid #1a1a1a;
   padding-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .empty {
@@ -36,21 +39,39 @@
   gap: 1rem;
   margin-top: 2.5rem;
   padding-top: 1.5rem;
-  border-top: 1px solid #e0ddd8;
+  border-top: 3px solid #1a1a1a;
   font-family: "SF Mono", "Fira Code", monospace;
   font-size: 0.8rem;
 }
 
 .page-link {
-  color: #b5451b;
+  color: #1a1a1a;
   text-decoration: none;
-  padding: 0.3rem 0.6rem;
-  border: 1px solid currentColor;
-  border-radius: 3px;
+  padding: 0.35rem 0.8rem;
+  border: 2px solid #1a1a1a;
+  font-weight: 700;
+  box-shadow: 3px 3px 0 #1a1a1a;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.1s ease;
+}
+
+.page-link:hover {
+  text-decoration: none;
+  background: #ffd43b;
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 #1a1a1a;
 }
 
 .page-disabled {
-  color: #ccc;
-  border-color: #e0ddd8;
+  color: #bbb;
+  border-color: #ccc;
+  box-shadow: 3px 3px 0 #ccc;
+  cursor: default;
+}
+
+.page-disabled:hover {
+  background: none;
+  color: #bbb;
+  transform: none;
+  box-shadow: 3px 3px 0 #ccc;
 }
 </style>

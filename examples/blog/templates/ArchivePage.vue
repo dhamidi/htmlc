@@ -21,10 +21,13 @@
 <style>
 .page-title {
   font-family: Georgia, serif;
-  font-size: 1.6rem;
+  font-size: 1.8rem;
+  font-weight: 700;
   margin-bottom: 2rem;
-  border-bottom: 2px solid #1a1a1a;
+  border-bottom: 3px solid #1a1a1a;
   padding-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .empty {
@@ -37,17 +40,22 @@
 }
 
 .group-label {
-  font-family: Georgia, serif;
-  font-size: 1.15rem;
-  color: #888;
-  font-weight: normal;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   margin-bottom: 0.75rem;
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid #e0ddd8;
+  padding: 0.3rem 0.6rem;
+  background: #ffd43b;
+  border: 2px solid #1a1a1a;
+  display: inline-block;
 }
 
 .post-list {
   list-style: none;
+  border: 2px solid #1a1a1a;
 }
 
 .post-item {
@@ -55,30 +63,38 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.6rem 0;
-  border-bottom: 1px solid #f0ede8;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 2px solid #1a1a1a;
+  transition: background 0.1s ease;
 }
 
 .post-item:last-child {
   border-bottom: none;
 }
 
+.post-item:hover {
+  background: #ffd43b;
+}
+
 .post-title {
   font-family: Georgia, serif;
   font-size: 1rem;
+  font-weight: 700;
   color: #1a1a1a;
   text-decoration: none;
   flex: 1;
 }
 
 .post-title:hover {
-  color: #b5451b;
+  text-decoration: underline;
+  color: #1a1a1a;
 }
 
 .post-meta {
   font-family: "SF Mono", "Fira Code", monospace;
   font-size: 0.75rem;
-  color: #888;
+  font-weight: 700;
+  color: #555;
   white-space: nowrap;
 }
 </style>

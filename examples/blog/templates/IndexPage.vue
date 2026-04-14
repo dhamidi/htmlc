@@ -14,10 +14,13 @@
 <style>
 .page-title {
   font-family: Georgia, serif;
-  font-size: 1.6rem;
+  font-size: 1.8rem;
+  font-weight: 700;
   margin-bottom: 2rem;
-  border-bottom: 2px solid #1a1a1a;
+  border-bottom: 3px solid #1a1a1a;
   padding-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .empty {

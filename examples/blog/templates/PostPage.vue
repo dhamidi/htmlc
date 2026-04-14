@@ -32,13 +32,17 @@
 
 .post-header {
   margin-bottom: 2rem;
+  padding: 1.5rem;
   padding-bottom: 1.5rem;
-  border-bottom: 2px solid #1a1a1a;
+  border: 3px solid #1a1a1a;
+  box-shadow: 5px 5px 0 #1a1a1a;
+  background: #fff;
 }
 
 .post-title {
   font-family: Georgia, serif;
   font-size: 2rem;
+  font-weight: 700;
   line-height: 1.25;
   margin-bottom: 0.75rem;
 }
@@ -47,6 +51,7 @@
   font-family: "SF Mono", "Fira Code", monospace;
   font-size: 0.78rem;
   color: #888;
+  font-weight: 700;
   margin-bottom: 0.5rem;
 }
 
@@ -54,7 +59,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
 }
 
 .post-body {
@@ -69,22 +74,35 @@
 .post-body h2,
 .post-body h3 {
   font-family: Georgia, serif;
+  font-weight: 700;
   margin: 2rem 0 0.75rem;
+  border-bottom: 2px solid #1a1a1a;
+  padding-bottom: 0.25rem;
 }
 
 .post-footer {
   margin-top: 3rem;
   padding-top: 1.5rem;
-  border-top: 1px solid #e0ddd8;
+  border-top: 3px solid #1a1a1a;
 }
 
 .back-link {
   font-family: "SF Mono", "Fira Code", monospace;
   font-size: 0.85rem;
-  color: #888;
+  font-weight: 700;
+  color: #1a1a1a;
+  text-decoration: none;
+  border: 2px solid #1a1a1a;
+  padding: 0.3rem 0.7rem;
+  box-shadow: 3px 3px 0 #1a1a1a;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.1s ease;
+  display: inline-block;
 }
 
 .back-link:hover {
-  color: #b5451b;
+  text-decoration: none;
+  background: #ffd43b;
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 #1a1a1a;
 }
 </style>
