@@ -1,0 +1,4 @@
+slot = "shapes"
+dockerfile = "examples/shape-canvas/Dockerfile.deploy"
+context = "."
+port = 9000
