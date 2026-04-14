@@ -1,5 +1,14 @@
-FROM ubuntu:22.04
+FROM golang:1.24-alpine AS builder
+WORKDIR /build
+COPY . .
+RUN go build -o shape-canvas .
+
+FROM alpine:3.19
 WORKDIR /app
-COPY shape-canvas /usr/local/bin/shape-canvas
-COPY components /app/components
-CMD ["shape-canvas"]
+COPY --from=builder /build/shape-canvas .
+COPY --from=builder /build/components ./components
+COPY --from=builder /build/pages ./pages
+ENV PORT=9000
+ENV HOST=0.0.0.0
+EXPOSE 9000
+CMD ["./shape-canvas"]
