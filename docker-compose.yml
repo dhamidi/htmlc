@@ -1,0 +1,24 @@
+services:
+  shapes:
+    build:
+      context: .
+      dockerfile: examples/shape-canvas/Dockerfile.deploy
+    container_name: shapes
+    ports:
+      - "9000:9000"
+    environment:
+      PORT: "9000"
+      HOST: "0.0.0.0"
+    restart: unless-stopped
+
+  blog:
+    build:
+      context: .
+      dockerfile: examples/blog/Dockerfile.deploy
+    container_name: blog
+    ports:
+      - "9001:9001"
+    environment:
+      PORT: "9001"
+      HOST: "0.0.0.0"
+    restart: unless-stopped
