@@ -1,0 +1,4 @@
+slot = "blog"
+dockerfile = "examples/blog/Dockerfile.deploy"
+context = "."
+port = 9001
