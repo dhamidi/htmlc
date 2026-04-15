@@ -40,3 +40,39 @@ engine.RenderPage(w, "HomePage", map[string]any{"title": "Hello"})
 // Fragment (prepends <style> block)
 engine.RenderFragment(ctx, w, "Card", map[string]any{"title": "Card"})
 ```
+
+```go
+// Render a component with a scalar prop
+engine.RenderFragment(ctx, w, "Greeting", map[string]any{
+    "name": "Alice",
+})
+```
+
+```html
+<!-- templates/Greeting.vue -->
+<template>
+  <p>Hello, {{ name }}!</p>
+</template>
+```
+
+```go
+// Render a component with a struct prop
+welcomePost := map[string]any{
+    "title": "Welcome",
+    "body":  "Thanks for reading.",
+}
+
+engine.RenderFragment(ctx, w, "PostCard", map[string]any{
+    "post": welcomePost,
+})
+```
+
+```html
+<!-- templates/PostCard.vue -->
+<template>
+  <article>
+    <h2>{{ post.title }}</h2>
+    <p>{{ post.body }}</p>
+  </article>
+</template>
+```
