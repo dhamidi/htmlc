@@ -15,6 +15,7 @@
       {href: '#slog', label: 'Structured logging (slog)'},
       {label: 'Customization'},
       {href: '#custom-directive', label: 'Custom directive'},
+      {href: '#go-method-bindings', label: 'Call Go methods from templates'},
       {href: '#missing-props', label: 'Missing prop handling'},
       {label: 'Static sites'},
       {href: '#static-site', label: 'Static site with layout'},
@@ -404,6 +405,88 @@ func main() {
 &lt;!-- renders: &lt;p&gt;HELLO WORLD&lt;/p&gt; --&gt;</code></pre>
 
     <p>See <a href="/docs/go-api.html#directive-types"><code v-pre>DirectiveBinding</code> and <code>DirectiveContext</code></a> in the Go API reference for the full set of fields available to directive implementations.</p>
+
+    <!-- ═══════════════════════════════════════════════ Go method bindings -->
+    <h2 id="go-method-bindings">Call Go methods from templates</h2>
+    <p class="howto-goal">You want to call methods on Go values already in the render scope, without registering each one individually as a function.</p>
+
+    <h3>When to use this instead of RegisterFunc</h3>
+
+    <p>Use bound methods when the behaviour is naturally attached to a type already in scope — models, routers, formatters. Use <code>RegisterFunc</code> for standalone helper functions that are independent of any scope value (e.g., <code>formatDate</code>, <code>truncate</code>).</p>
+
+    <h3>Zero-argument accessor — step by step</h3>
+
+    <p>1. Define a Go struct with an exported method:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>type Post struct {
+    Title string
+    Body  string
+}
+
+func (p Post) Summary() string {
+    if len(p.Body) &lt; 100 {
+        return p.Body
+    }
+    return p.Body[:100]
+}</code></pre>
+
+    <p>2. Pass an instance into the render scope under a key:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>ctx := context.Background()
+html, err := engine.RenderPage(ctx, "ArticlePage", map[string]any{
+    "post": Post{Title: "Hello", Body: "..."},
+})</code></pre>
+
+    <p>3. Access it from the template with dot notation — no parentheses required:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;p&gt;{{ post.Summary }}&lt;/p&gt;
+&lt;!-- or with explicit parentheses: --&gt;
+&lt;p&gt;{{ post.Summary() }}&lt;/p&gt;</code></pre>
+
+    <h3>Method with arguments</h3>
+
+    <p>Methods with parameters use normal call syntax. Define the type and register it in scope:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>type Router struct{ routes map[string]string }
+
+func (r *Router) LinkFor(route string) string {
+    return r.routes[route]
+}
+
+// In handler:
+html, err := engine.RenderPage(ctx, "Nav", map[string]any{
+    "router": &amp;Router{routes: map[string]string{"home": "/"}},
+})</code></pre>
+
+    <p>Template call:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;a :href="router.LinkFor('home')"&gt;Home&lt;/a&gt;</code></pre>
+
+    <h3>Error-returning methods</h3>
+
+    <p>Methods with the signature <code>func (T) Method() (string, error)</code> are fully supported. A non-nil error stops rendering and surfaces as a <code>*RenderError</code>. For example, a currency formatter that validates its input:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>type Money struct{ Amount float64; Currency string }
+
+func (m Money) Format() (string, error) {
+    if m.Currency == "" {
+        return "", fmt.Errorf("Format: currency is required")
+    }
+    return fmt.Sprintf("%.2f %s", m.Amount, m.Currency), nil
+}</code></pre>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;span&gt;{{ price.Format() }}&lt;/span&gt;</code></pre>
+
+    <p>If <code>Currency</code> is empty the render aborts with the error from <code>Format</code>.</p>
+
+    <Callout type="info">
+      <strong>Limitations:</strong>
+      <ul>
+        <li>Unexported methods are not accessible from templates.</li>
+        <li>The method must be exported (uppercase first letter) on a concrete or pointer receiver.</li>
+        <li>Interface values work if the underlying concrete type exposes the method.</li>
+      </ul>
+    </Callout>
 
     <!-- ═══════════════════════════════════════════════ Missing props -->
     <h2 id="missing-props">Handle missing props gracefully</h2>

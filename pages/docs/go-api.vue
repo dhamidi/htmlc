@@ -397,7 +397,7 @@ func (e *Engine) RenderFragmentContext(ctx context.Context, w io.Writer, name st
 
     <h3 id="register-func">RegisterFunc</h3>
     <pre v-syntax-highlight="'go'"><code v-pre>func (e *Engine) RegisterFunc(name string, fn func(...any) (any, error)) *Engine</code></pre>
-    <p>Adds a per-engine function available in all template expressions. The function is callable from templates as <code>name()</code>. Engine functions have lower priority than user-provided data keys. They are propagated automatically into every child component's scope.</p>
+    <p>Adds a per-engine function available in all template expressions. The function is callable from templates as <code>name()</code>. Engine functions have lower priority than user-provided data keys. They are propagated automatically into every child component's scope. For behaviour attached to a Go type already in the render scope, exported methods are callable directly from expressions without registration — see <a href="/docs/concepts.html#go-method-bindings">Calling methods on scope values</a> in the Concepts guide.</p>
     <pre v-syntax-highlight="'go'"><code v-pre>engine.RegisterFunc("formatDate", func(args ...any) (any, error) {
     t, ok := args[0].(time.Time)
     if !ok {

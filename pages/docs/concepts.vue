@@ -89,6 +89,7 @@
         <tr><td>Optional chaining</td><td><code v-pre>user?.address?.city</code></td></tr>
         <tr><td>Array / object literals</td><td><code v-pre>[1, 2, 3]</code>, <code>{ "k": v }</code></td></tr>
         <tr><td>Function calls</td><td><code v-pre>formatDate(post.createdAt)</code></td></tr>
+        <tr><td>Method calls</td><td><code v-pre>post.Summary()</code>, <code v-pre>router.LinkFor('home')</code>, <code v-pre>post.summary</code> (zero-arg implicit)</td></tr>
         <tr><td>String concatenation</td><td><code v-pre>'Hello, ' + name + '!'</code></td></tr>
         <tr><td><code v-pre>in</code> operator</td><td><code v-pre>"key" in obj</code></td></tr>
         <tr><td>Typeof</td><td><code v-pre>typeof value === 'string'</code></td></tr>
@@ -135,8 +136,53 @@
     <p>Functions registered via <code>RegisterFunc</code> are scoped to a single engine instance. For truly global functions (available to all engines in a process), use <code>expr.RegisterBuiltin</code> from the <code>htmlc/expr</code> package directly — but note that it modifies global state and must be called before any concurrent evaluation begins.</p>
 
     <Callout type="info">
-      <strong>Identifiers and scope resolution:</strong> When the evaluator encounters an identifier, it checks the scope map first, then the engine's registered functions, then the global built-in table. If the name is absent from all three, it evaluates to <code>undefined</code> (a Go sentinel value, <code>expr.UndefinedValue</code>), not to an error. Missing props surface as <code>undefined</code> values and are handled by the configured <code>MissingPropHandler</code>.
+      <strong>Identifiers and scope resolution:</strong> When the evaluator encounters an identifier or member expression, it resolves in this order:
+      <ol>
+        <li>Scope map field (or map key)</li>
+        <li>Exported method on the scope value (field-first; methods only checked when field lookup misses)</li>
+        <li>Engine-registered functions (<code>RegisterFunc</code>)</li>
+        <li>Global built-ins (<code>expr.RegisterBuiltin</code>)</li>
+      </ol>
+      If the name is absent from all four, it evaluates to <code>undefined</code> (<code>expr.UndefinedValue</code>), not to an error.
     </Callout>
+
+    <h3>Calling methods on scope values</h3>
+
+    <p>Exported methods on Go values placed in the render scope are callable directly from expressions without any registration. Unlike <code>RegisterFunc</code> — which requires you to wrap a standalone function — methods work automatically by reflection on any value already in the scope.</p>
+
+    <h4>Zero-argument methods</h4>
+
+    <p>A zero-argument method is invoked without parentheses via dot access. Both <code v-pre>post.Summary</code> and <code v-pre>post.Summary()</code> work identically:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>type Post struct { Title string }
+func (p Post) Summary() string { return p.Body[:100] }</code></pre>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;p&gt;{{ post.Summary }}&lt;/p&gt;   &lt;!-- calls p.Summary() --&gt;
+&lt;p&gt;{{ post.Summary() }}&lt;/p&gt; &lt;!-- explicit form, same result --&gt;</code></pre>
+
+    <h4>Methods with arguments</h4>
+
+    <p>Methods with parameters use normal call syntax. Given a <code>*Router</code> in scope:</p>
+
+    <pre v-syntax-highlight="'go'"><code v-pre>func (r *Router) LinkFor(route string) string { ... }</code></pre>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>&lt;a :href="router.LinkFor('home')"&gt;Home&lt;/a&gt;</code></pre>
+
+    <h4>Lowercase aliases</h4>
+
+    <p>A lowercase-initial identifier resolves to the exported method of the same name with an uppercase first letter, mirroring the existing field-alias rule:</p>
+
+    <pre v-syntax-highlight="'html'"><code v-pre>{{ post.summary }}  &lt;!-- resolves to post.Summary() --&gt;</code></pre>
+
+    <h4>Behavior rules</h4>
+
+    <ul>
+      <li>Fields take priority over methods of the same name (field-first).</li>
+      <li>Pointer receivers are supported when the scope value is a pointer.</li>
+      <li>Methods returning <code>(T, error)</code> — a non-nil error surfaces as a render error.</li>
+      <li>Variadic methods are supported.</li>
+      <li>Optional chaining works: <code v-pre>post?.Summary</code> returns <code>undefined</code> when the receiver is nil.</li>
+    </ul>
 
     <!-- ═══════════════════════════════════════════════ Scoped Styles -->
     <h2 id="scoped-styles">Scoped Styles</h2>
