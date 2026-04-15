@@ -99,21 +99,18 @@ once but the template author must rewrite.
 
 ## 3. Non-Goals
 
-1. **Methods with variadic parameters.** `func (f Formatter) Join(sep string,
-   parts ...string) string` is out of scope for this RFC. Variadic handling
-   adds complexity to the type-coercion step that is better addressed separately.
-2. **Pointer-receiver promotion on value types.** If a value `v` of type `T` is
+1. **Pointer-receiver promotion on value types.** If a value `v` of type `T` is
    stored in scope and a method is defined on `*T` only, that method is not
    accessible unless the value is already addressable. This RFC accepts the Go
    reflect rule without special-casing: callers can store `&v` if pointer-receiver
    methods are required.
-3. **Calling methods on maps.** Maps do not have methods in Go. Map keys continue
+2. **Calling methods on maps.** Maps do not have methods in Go. Map keys continue
    to use the existing `reflect.Map` branch.
-4. **Multiple return values beyond `(value, error)`.** Methods returning two
+3. **Multiple return values beyond `(value, error)`.** Methods returning two
    non-error values or three or more values are not supported. Templates are
    display-oriented; functions returning multiple data values should be
    restructured to return a struct.
-5. **Exposing `reflect.Method` or `reflect.Value` in the public API.** The
+4. **Exposing `reflect.Method` or `reflect.Value` in the public API.** The
    `expr` package public surface does not change type signatures.
 
 ---
@@ -210,9 +207,10 @@ func accessMethod(rv reflect.Value, name string) (any, error) {
 ```go
 // pseudo-code — not implementation
 type boundMethod struct {
-    fn      reflect.Value  // reflect.Value with Kind == Func, already bound to receiver
-    numIn   int            // number of parameters (excluding receiver; already bound)
-    numOut  int            // 1 or 2
+    fn       reflect.Value  // reflect.Value with Kind == Func, already bound to receiver
+    numIn    int            // number of fixed parameters (excluding receiver; already bound)
+    numOut   int            // 1 or 2
+    variadic bool           // true if the method has a variadic final parameter
 }
 ```
 
@@ -405,16 +403,48 @@ func evalCall(n *CallExpr, scope map[string]any) (any, error) {
 }
 ```
 
-`invokeMethod` handles type coercion and invocation:
+`invokeMethod` handles type coercion and invocation, including the variadic case:
 
 ```go
 // pseudo-code — not implementation
 func invokeMethod(bm boundMethod, args []any) (any, error) {
+    mt := bm.fn.Type()
+    if bm.variadic {
+        fixedCount := bm.numIn - 1 // last param is the variadic slice
+        if len(args) < fixedCount {
+            return nil, fmt.Errorf("method expects at least %d argument(s), got %d",
+                fixedCount, len(args))
+        }
+        in := make([]reflect.Value, bm.numIn)
+        // Coerce fixed arguments normally.
+        for i := 0; i < fixedCount; i++ {
+            paramType := mt.In(i)
+            coerced, err := coerceToType(args[i], paramType)
+            if err != nil {
+                return nil, fmt.Errorf("argument %d: %w", i+1, err)
+            }
+            in[i] = coerced
+        }
+        // Gather remaining arguments into a slice of the variadic element type.
+        varType := mt.In(fixedCount).Elem()
+        varSlice := reflect.MakeSlice(reflect.SliceOf(varType), len(args)-fixedCount, len(args)-fixedCount)
+        for j, arg := range args[fixedCount:] {
+            coerced, err := coerceToType(arg, varType)
+            if err != nil {
+                return nil, fmt.Errorf("argument %d: %w", fixedCount+j+1, err)
+            }
+            varSlice.Index(j).Set(coerced)
+        }
+        in[fixedCount] = varSlice
+        out := bm.fn.Call(in)
+        return normaliseMethodResult(out, bm.numOut)
+    }
+
+    // Non-variadic path.
     if len(args) != bm.numIn {
         return nil, fmt.Errorf("method expects %d argument(s), got %d",
             bm.numIn, len(args))
     }
-    mt := bm.fn.Type()
     in := make([]reflect.Value, bm.numIn)
     for i, arg := range args {
         paramType := mt.In(i)
@@ -496,6 +526,9 @@ unsupported arities immediately:
 func wrapMethod(m reflect.Value) (boundMethod, error) {
     mt := m.Type()
     numOut := mt.NumOut()
+    // Zero-return-value methods are a hard error at both evaluation time (here)
+    // and compile time (see §7). A method that returns nothing cannot be used
+    // in an expression context.
     if numOut == 0 {
         return boundMethod{}, fmt.Errorf(
             "method returns no values; use a func(...any)(any,error) wrapper instead")
@@ -511,16 +544,44 @@ func wrapMethod(m reflect.Value) (boundMethod, error) {
                 "method second return value must implement error, got %s", mt.Out(1))
         }
     }
-    // Variadic methods are rejected in this RFC (Non-Goal §3.1).
-    if mt.IsVariadic() {
-        return boundMethod{}, fmt.Errorf("variadic methods are not supported")
-    }
-    return boundMethod{fn: m, numIn: mt.NumIn(), numOut: numOut}, nil
+    return boundMethod{
+        fn:       m,
+        numIn:    mt.NumIn(),
+        numOut:   numOut,
+        variadic: mt.IsVariadic(),
+    }, nil
 }
 ```
 
 Errors from `wrapMethod` are returned as the error from `accessMember`; they
 surface as expression evaluation errors that the template renderer reports.
+
+#### Panic recovery scope
+
+Panic recovery must **not** be placed inside `invokeMethod`. Doing so would
+add overhead to every method invocation and would be too granular to catch
+panics that originate elsewhere in expression evaluation.
+
+Instead, a single `recover` is added at the top of the `Eval` function (and
+the compiled-eval entry point, if separate). Any unexpected panic anywhere in
+expression evaluation — including inside `invokeMethod`, `coerceToType`, or the
+reflect call — is caught there and converted to an error, so it never reaches
+the caller. This is consistent with the principle: "evaluating expr expressions
+(whether compiled or not) should never panic in production."
+
+```go
+// pseudo-code — not implementation
+func Eval(expr string, scope map[string]any) (_ any, retErr error) {
+    defer func() {
+        if r := recover(); r != nil {
+            retErr = fmt.Errorf("expr: internal panic: %v", r)
+        }
+    }()
+    // ... normal evaluation ...
+}
+```
+
+The same deferred recover is added to the compiled-eval entry point.
 
 **Verdict**: a `boundMethod` sentinel type keeps the change contained within
 `evalCall` and `evalMember`; it does not alter the public API. Rejecting
@@ -561,6 +622,8 @@ This ensures `post?.Summary` and `post?.Summary()` are both valid.
 | `obj.zeroArgMethod`                 | Implicit call via lowercase alias.                                                    |
 | `obj?.Method(arg)`                  | Optional chaining: if `obj` is null/undefined, evaluates to `undefined`.             |
 | `obj?.ZeroArgMethod`                | Optional chaining with implicit zero-arg call.                                        |
+| `typeof obj.ZeroArgMethod`          | Returns the type of the method's **return value** (e.g. `"string"`). Zero-parameter methods behave like computed properties: `evalMember` invokes them immediately, so `typeof` sees the result, not the method. |
+| `typeof obj.NonZeroArgMethod`       | Returns `"function"`. Methods with one or more parameters are returned as a `boundMethod` value without being called; `typeofValue` returns `"function"` for any `boundMethod`. |
 
 **No new operators or parser changes are required.** The existing `MemberExpr`,
 `OptionalMemberExpr`, and `CallExpr` AST nodes are sufficient. All syntax in the
@@ -715,11 +778,12 @@ in the same way as `evalMember`.
 ### `expr/eval.go`
 
 1. **New type `boundMethod`** (4 fields: `fn reflect.Value`, `numIn int`,
-   `numOut int`). This is a private type. Approximately 6 lines.
+   `numOut int`, `variadic bool`). This is a private type. Approximately 8 lines.
 
 2. **New function `wrapMethod(m reflect.Value) (boundMethod, error)`**: validates
-   return arity, checks that the second return (if present) implements `error`,
-   rejects variadic methods. Approximately 20 lines.
+   return arity (zero-return is a hard error), checks that the second return (if
+   present) implements `error`, sets `variadic: mt.IsVariadic()`. Variadic methods
+   are accepted. Approximately 20 lines.
 
 3. **New function `accessMethod(rv reflect.Value, name string) (any, error)`**:
    two-pass lookup (exact then uppercase-alias). Calls `wrapMethod`. Returns
@@ -744,13 +808,29 @@ in the same way as `evalMember`.
    handles 1-return and 2-return cases. Approximately 15 lines.
 
 9. **New function `invokeMethod(bm boundMethod, args []any) (any, error)`**:
-   arity check, `coerceToType` per argument, `bm.fn.Call(in)`,
-   `normaliseMethodResult`. Approximately 20 lines.
+   arity check (at least `numIn-1` args for variadic, exactly `numIn` for
+   non-variadic), `coerceToType` for fixed arguments, variadic-tail gathering
+   into a `reflect.SliceOf` the element type, `bm.fn.Call(in)`,
+   `normaliseMethodResult`. Approximately 40 lines.
 
 10. **Modified `evalCall`**: add `case boundMethod:` branch before `default`.
     Approximately +3 lines.
 
-Total estimated net additions: approximately 120 lines.
+11. **Modified `typeofValue`** (or equivalent): add `case boundMethod:` returning
+    `"function"`. Approximately +2 lines.
+
+12. **Modified `Eval` (and compiled-eval entry point)**: add a top-level
+    `defer`/`recover` that converts any unexpected panic in expression evaluation
+    to an error. This is the sole panic-recovery point; `invokeMethod` does not
+    have its own recovery. Approximately +5 lines per entry point.
+
+13. **`expr/compile.go` (compile-time check)**: the compiled-expression path must
+    detect methods with zero return values at compile time and return a compile
+    error rather than generating code that would panic or silently produce no
+    value. Add a check analogous to the `wrapMethod` runtime check in the
+    method-resolution step of the compiler. Approximately +10 lines.
+
+Total estimated net additions: approximately 155 lines.
 
 The `reflect` package is already imported. No new imports are required.
 
@@ -874,9 +954,13 @@ resolution order already makes the choice deterministic without new syntax.
    because variadic parameter mapping requires knowing the boundary between the
    fixed and variadic arguments at call time. Should variadic support be added in
    a follow-up RFC, or deferred indefinitely?
-   *Tentative recommendation*: defer to a follow-up. Callers who need variadic
-   methods can register a `func(...any)(any, error)` wrapper via
-   `RegisterBuiltin` in the meantime. Non-blocking.
+
+   **Resolved.** Variadic methods are supported in this RFC. `wrapMethod` accepts
+   variadic methods and sets `variadic: true` on the `boundMethod`. `invokeMethod`
+   coerces the fixed arguments normally and gathers any remaining arguments into a
+   slice of the variadic element type via `reflect.SliceOf`. See the updated §4.4
+   pseudocode and §7 item 9 for details. Variadic methods from §3 Non-Goals have
+   been removed.
 
 2. **Pointer-receiver methods on non-addressable values.** `reflect.Value.MethodByName`
    on a non-addressable value of type `T` does not find methods defined on `*T`.
@@ -888,32 +972,46 @@ resolution order already makes the choice deterministic without new syntax.
    that callers should store `&value` when pointer-receiver methods are required.
    Non-blocking.
 
+   **Status**: still open / non-blocking. The tentative recommendation stands:
+   do not auto-address scope values.
+
 3. **Error messages for unsupported method signatures.** Currently `wrapMethod`
    returns an error for zero-return-value methods and methods with more than two
    return values. Should these be surfaced as `UndefinedValue` (silently skipped)
    or as hard errors?
-   *Tentative recommendation*: hard errors. A method that exists but cannot be
-   called is more likely a programmer mistake than an intentional sentinel.
-   Returning `UndefinedValue` would hide the error. **Blocking** — this choice
-   affects observable template behaviour and must be resolved before
-   implementation.
+
+   **Resolved.** Hard errors at both evaluation time and compile time.
+   - At evaluation time: `wrapMethod` returns an error for zero-return-value
+     methods; this error propagates from `accessMember` and surfaces as a template
+     evaluation error. This behaviour is kept and must not be silenced.
+   - At compile time: the compiled-expression path (`expr/compile.go`) must also
+     detect a method with zero return values and return a compile error rather than
+     generating code that would panic or produce no value silently. See §7 item 13.
 
 4. **`boundMethod` nil-safety in `invokeMethod`.** If the receiver stored in
    `boundMethod.fn` becomes invalid between `accessMember` and `evalCall` (e.g.,
    the scope was mutated concurrently), `reflect.Value.Call` panics. Should
    `invokeMethod` recover from panics and return an error?
-   *Tentative recommendation*: yes, add a deferred `recover` in `invokeMethod`
-   that converts a panic to an `error`. This is a defensive measure; the
-   expression evaluator should never panic in production. Non-blocking; can be
-   added during implementation.
+
+   **Resolved.** Panic recovery must not be placed inside `invokeMethod`. Adding a
+   deferred `recover` to every method invocation is too granular and too costly.
+   Instead, a single `recover` is added at the top of the `Eval` function (and
+   the compiled-eval entry point), so any unexpected panic anywhere in expression
+   evaluation — including inside `invokeMethod` — is converted to an error and
+   never reaches the caller. This is consistent with the principle: "evaluating
+   expr expressions (whether compiled or not) should never panic in production."
+   See §4.4 "Panic recovery scope" and §7 item 12.
 
 5. **`typeof` for `boundMethod` values.** Currently `typeofValue` returns
    `"object"` for any unknown type. Should `boundMethod` return `"function"`
    so that `typeof post.Summary === "function"` is `true` before the implicit
    call in `evalMember`?
-   *Tentative recommendation*: yes, for consistency with JavaScript. After the
-   implicit-call change, `typeof post.Summary` evaluates the full member
-   expression (including the implicit call), so the `typeof` of the *result*
-   — not the method — is returned. This question only matters if a template
-   applies `typeof` to an expression that itself uses a `CallExpr` node as the
-   operand without parentheses — an unlikely scenario. Non-blocking.
+
+   **Resolved.** `typeof` reflects the evaluation result:
+   - `typeof post.Summary` — `Summary` takes no arguments, so `evalMember`
+     invokes it immediately (implicit zero-arg call). `typeof` sees the *return
+     value* (e.g. a `string`), and returns `"string"`. Zero-parameter methods
+     behave like computed properties: `typeof` returns the type of their result.
+   - `typeof router.LinkFor` — `LinkFor` takes an argument, so `evalMember`
+     returns the `boundMethod` value without calling it. `typeofValue` returns
+     `"function"` for any `boundMethod`. See §5 Syntax Summary and §7 item 11.
