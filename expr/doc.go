@@ -184,11 +184,56 @@ the result is UndefinedValue.
 
 Accessing a member of null or UndefinedValue is a runtime error.
 
+## Go Method Bindings
+
+Exported Go methods on scope values are callable directly from expressions.
+
+Rules:
+
+  - Zero-argument methods are invoked implicitly via dot access (no parentheses
+    needed). Parentheses are also accepted.
+  - Methods with parameters must be called with explicit arguments.
+  - Field access takes priority over a method with the same name (field-first).
+  - Lowercase aliases work: post.summary resolves to func (Post) Summary(),
+    mirroring the existing field-alias rule.
+  - Pointer receivers are supported when the scope value is a pointer to the type.
+  - Methods that return (value, error) are supported; a non-nil error surfaces as
+    a template evaluation error.
+  - Variadic methods are supported.
+  - Optional chaining works with methods: post?.Summary on a nil pointer returns
+    UndefinedValue.
+
+	// Given these Go types in scope:
+	//   type Post struct { Title string }
+	//   func (p Post) Summary() string { ... }
+	//   func (r *Router) LinkFor(route string) string { ... }
+
+	// Zero-arg method — implicit call:
+	//   post.Summary         → result of p.Summary()
+	//   post.Summary()       → same, explicit form also works
+	//   post.summary         → lowercase alias, same result
+
+	// Method with arguments:
+	//   router.LinkFor("home")   → result of r.LinkFor("home")
+
+	// Field wins over method of the same name:
+	//   post.Title           → struct field (not a method)
+
+	// Error-returning method:
+	//   formatter.FormatCurrency(9.99)  → string result, or error if method errors
+
+	// Variadic method:
+	//   v.Join(",", "a", "b", "c")  → "a,b,c"
+
+	// Optional chaining:
+	//   post?.Summary        → UndefinedValue if post is nil
+
 # Function Calls
 
 	callee(arg1, arg2)
 
-The callee must evaluate to a Go value of type func(...any) (any, error).
+The callee must evaluate to a Go value of type func(...any) (any, error), or be
+a bound Go method on a scope value (see Go Method Bindings above).
 Arguments are evaluated left-to-right before the function is called. Scope
 values of the correct function type can be called directly.
 
@@ -248,7 +293,7 @@ typeof returns:
   - "boolean"    for bool
   - "number"     for float64
   - "string"     for string
-  - "function"   for func(...any)(any,error)
+  - "function"   for func(...any)(any,error) and for bound Go methods
   - "object"     for nil (mirrors typeof null in JavaScript)
   - "object"     for all other types
 
