@@ -69,6 +69,7 @@ Multiple interpolations in a single text node are supported.
 | Ternary | `condition ? then : else` |
 | Member access | `obj.key`, `arr[i]`, `arr.length` |
 | Function calls | `fn(args)` (via `expr.RegisterBuiltin` or `engine.RegisterFunc`) |
+| Method calls | `obj.Method()`, `obj.Method(args)`, `obj.method` (zero-arg implicit) |
 | Array literals | `[a, b, c]` |
 | Object literals | `{ key: value }` |
 
@@ -83,6 +84,21 @@ The engine ships with no pre-registered built-in functions. Use `expr.RegisterBu
 <!-- number of bytes in a string -->
 <span>{{ name.length }}</span>
 ```
+
+**Go method bindings** — Exported methods on Go values placed in the render scope are callable directly from expressions without any registration. Zero-argument methods are called implicitly via dot access; methods with parameters use the normal call syntax:
+
+```html
+<!-- Zero-arg method called implicitly -->
+<p>{{ post.Summary }}</p>
+
+<!-- Method with arguments -->
+<a :href="router.LinkFor('home')">Home</a>
+
+<!-- Lowercase alias works too -->
+<p>{{ post.summary }}</p>
+```
+
+Fields take priority over methods of the same name. Pointer receivers are supported. Methods returning `(value, error)` propagate errors as render errors. Optional chaining (`post?.Summary`) returns `undefined` when the receiver is nil.
 
 ### Not supported
 
