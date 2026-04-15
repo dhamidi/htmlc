@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -873,6 +874,133 @@ func TestEval_Builtins(t *testing.T) {
 		_, err := Eval("notABuiltin()", nil)
 		if err == nil {
 			t.Error("notABuiltin(): expected error for non-callable undefined, got nil")
+		}
+	})
+}
+
+// mbPost is a helper type for TestMethodBindings.
+type mbPost struct {
+	Title string
+	Body  string
+}
+
+func (p mbPost) Summary() string { return p.Body }
+
+// mbRouter is a helper type for TestMethodBindings.
+type mbRouter struct{}
+
+func (r *mbRouter) LinkFor(route string) string { return "/routes/" + route }
+
+// mbFormatter is a helper type for TestMethodBindings.
+type mbFormatter struct{}
+
+func (f mbFormatter) FormatCurrency(amount float64) (string, error) {
+	if amount < 0 {
+		return "", fmt.Errorf("negative amount")
+	}
+	return fmt.Sprintf("$%.2f", amount), nil
+}
+
+// mbVariadic is a helper type for TestMethodBindings.
+type mbVariadic struct{}
+
+func (v mbVariadic) Join(sep string, parts ...string) string {
+	result := ""
+	for i, p := range parts {
+		if i > 0 {
+			result += sep
+		}
+		result += p
+	}
+	return result
+}
+
+// TestMethodBindings verifies that exported Go methods on scope values are
+// callable from template expressions (RFC 013).
+func TestMethodBindings(t *testing.T) {
+	t.Run("zero-arg method via implicit call", func(t *testing.T) {
+		scope := map[string]any{"post": mbPost{Body: "hello"}}
+		if val := eval(t, `post.Summary`, scope); val != "hello" {
+			t.Errorf(`post.Summary: got %v, want "hello"`, val)
+		}
+	})
+
+	t.Run("zero-arg method via explicit call", func(t *testing.T) {
+		scope := map[string]any{"post": mbPost{Body: "hello"}}
+		if val := eval(t, `post.Summary()`, scope); val != "hello" {
+			t.Errorf(`post.Summary(): got %v, want "hello"`, val)
+		}
+	})
+
+	t.Run("zero-arg method via lowercase alias", func(t *testing.T) {
+		scope := map[string]any{"post": mbPost{Body: "hello"}}
+		if val := eval(t, `post.summary`, scope); val != "hello" {
+			t.Errorf(`post.summary: got %v, want "hello"`, val)
+		}
+	})
+
+	t.Run("pointer receiver method", func(t *testing.T) {
+		router := &mbRouter{}
+		scope := map[string]any{"router": router}
+		if val := eval(t, `router.LinkFor("admin.dashboard")`, scope); val != "/routes/admin.dashboard" {
+			t.Errorf(`router.LinkFor: got %v, want /routes/admin.dashboard`, val)
+		}
+	})
+
+	t.Run("pointer receiver method lowercase alias", func(t *testing.T) {
+		router := &mbRouter{}
+		scope := map[string]any{"router": router}
+		if val := eval(t, `router.linkFor("home")`, scope); val != "/routes/home" {
+			t.Errorf(`router.linkFor: got %v, want /routes/home`, val)
+		}
+	})
+
+	t.Run("method with (value, error) return", func(t *testing.T) {
+		scope := map[string]any{"formatter": mbFormatter{}}
+		if val := eval(t, `formatter.FormatCurrency(9.99)`, scope); val != "$9.99" {
+			t.Errorf(`formatter.FormatCurrency(9.99): got %v, want "$9.99"`, val)
+		}
+	})
+
+	t.Run("method error propagated", func(t *testing.T) {
+		scope := map[string]any{"formatter": mbFormatter{}}
+		_, err := Eval(`formatter.FormatCurrency(-1)`, scope)
+		if err == nil {
+			t.Error(`formatter.FormatCurrency(-1): expected error, got nil`)
+		}
+	})
+
+	t.Run("optional chaining on nil pointer returns Undefined", func(t *testing.T) {
+		var p *mbPost
+		scope := map[string]any{"obj": p}
+		val, err := Eval(`obj?.Summary`, scope)
+		if err != nil {
+			t.Fatalf(`obj?.Summary: unexpected error: %v`, err)
+		}
+		if val != Undefined {
+			t.Errorf(`obj?.Summary (nil): got %v, want Undefined`, val)
+		}
+	})
+
+	t.Run("optional chaining on valid pointer returns method result", func(t *testing.T) {
+		p := &mbPost{Body: "content"}
+		scope := map[string]any{"obj": p}
+		if val := eval(t, `obj?.Summary`, scope); val != "content" {
+			t.Errorf(`obj?.Summary (valid): got %v, want "content"`, val)
+		}
+	})
+
+	t.Run("field access wins over method when both exist", func(t *testing.T) {
+		scope := map[string]any{"post": mbPost{Title: "t"}}
+		if val := eval(t, `post.Title`, scope); val != "t" {
+			t.Errorf(`post.Title: got %v, want "t"`, val)
+		}
+	})
+
+	t.Run("variadic method", func(t *testing.T) {
+		scope := map[string]any{"v": mbVariadic{}}
+		if val := eval(t, `v.Join(",", "a", "b", "c")`, scope); val != "a,b,c" {
+			t.Errorf(`v.Join: got %v, want a,b,c`, val)
 		}
 	})
 }

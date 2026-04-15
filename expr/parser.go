@@ -38,7 +38,12 @@ type compiledExpr struct {
 }
 
 // Eval satisfies the Expr interface by delegating to evalNode in eval.go.
-func (c *compiledExpr) Eval(scope map[string]any) (any, error) {
+func (c *compiledExpr) Eval(scope map[string]any) (retVal any, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = fmt.Errorf("expr: internal panic: %v", r)
+		}
+	}()
 	return evalNode(c.node, scope)
 }
 

@@ -16,6 +16,16 @@ type UndefinedValue struct{}
 // Undefined is the Go representation of the JavaScript `undefined` value.
 var Undefined = UndefinedValue{}
 
+// boundMethod wraps a reflect.Value of kind Func (already bound to its receiver)
+// so that evalCall and the implicit-zero-arg path in evalMember can detect and
+// invoke Go methods.
+type boundMethod struct {
+	fn       reflect.Value // bound method, Kind == Func
+	numIn    int           // number of parameters (receiver already bound)
+	numOut   int           // 1 or 2
+	variadic bool          // true if last parameter is variadic
+}
+
 // builtins contains built-in functions always available in expression scope.
 var builtins = map[string]any{}
 
@@ -26,7 +36,12 @@ func RegisterBuiltin(name string, fn func(...any) (any, error)) {
 }
 
 // Eval is a convenience wrapper: it compiles src and evaluates it against scope.
-func Eval(src string, scope map[string]any) (any, error) {
+func Eval(src string, scope map[string]any) (retVal any, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = fmt.Errorf("expr: internal panic: %v", r)
+		}
+	}()
 	e, err := Compile(src)
 	if err != nil {
 		return nil, err
@@ -298,7 +313,14 @@ func evalMember(n *MemberExpr, scope map[string]any) (any, error) {
 	} else {
 		key = n.Property.(*Identifier).Name
 	}
-	return accessMember(obj, key)
+	val, err := accessMember(obj, key)
+	if err != nil {
+		return nil, err
+	}
+	if bm, ok := val.(boundMethod); ok && bm.numIn == 0 {
+		return invokeMethod(bm, nil)
+	}
+	return val, nil
 }
 
 // evalOptionalMember handles optional chaining (obj?.prop, obj?.[expr]).
@@ -312,6 +334,10 @@ func evalOptionalMember(n *OptionalMemberExpr, scope map[string]any) (any, error
 	if isNullish(obj) {
 		return Undefined, nil
 	}
+	// Also treat typed nil pointers as nullish for optional chaining.
+	if rv := reflect.ValueOf(obj); rv.Kind() == reflect.Ptr && rv.IsNil() {
+		return Undefined, nil
+	}
 	var key any
 	if n.Computed {
 		key, err = evalNode(n.Property, scope)
@@ -321,7 +347,14 @@ func evalOptionalMember(n *OptionalMemberExpr, scope map[string]any) (any, error
 	} else {
 		key = n.Property.(*Identifier).Name
 	}
-	return accessMember(obj, key)
+	val, err := accessMember(obj, key)
+	if err != nil {
+		return nil, err
+	}
+	if bm, ok := val.(boundMethod); ok && bm.numIn == 0 {
+		return invokeMethod(bm, nil)
+	}
+	return val, nil
 }
 
 func accessMember(obj, key any) (any, error) {
@@ -332,7 +365,8 @@ func accessMember(obj, key any) (any, error) {
 		return nil, fmt.Errorf("cannot access property %q of undefined", fmt.Sprint(key))
 	}
 
-	rv := reflect.ValueOf(obj)
+	rvForMethod := reflect.ValueOf(obj)
+	rv := rvForMethod
 	// Unwrap pointers
 	for rv.Kind() == reflect.Ptr {
 		if rv.IsNil() {
@@ -366,7 +400,14 @@ func accessMember(obj, key any) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf("struct field access requires string key, got %T", key)
 		}
-		return accessStructField(rv, keyStr)
+		val, err := accessStructField(rv, keyStr)
+		if err != nil {
+			return nil, err
+		}
+		if _, isUndef := val.(UndefinedValue); isUndef {
+			return accessMethod(rvForMethod, keyStr)
+		}
+		return val, nil
 
 	case reflect.Slice, reflect.Array:
 		// Special property: "length" maps to Go's len().
@@ -386,6 +427,15 @@ func accessMember(obj, key any) (any, error) {
 		return rv.Index(idx).Interface(), nil
 
 	default:
+		if keyStr, ok := key.(string); ok {
+			val, err := accessMethod(rvForMethod, keyStr)
+			if err != nil {
+				return nil, err
+			}
+			if _, isUndef := val.(UndefinedValue); !isUndef {
+				return val, nil
+			}
+		}
 		return nil, fmt.Errorf("cannot access member of %T", obj)
 	}
 }
@@ -468,13 +518,32 @@ func accessStructField(rv reflect.Value, name string) (any, error) {
 // --- Call ---
 
 func evalCall(n *CallExpr, scope map[string]any) (any, error) {
-	callee, err := evalNode(n.Callee, scope)
+	// Evaluate the callee. When the callee is a MemberExpr, bypass the
+	// implicit zero-arg invocation so that a boundMethod is passed here
+	// directly for explicit calls like obj.Method().
+	var callee any
+	var err error
+	switch calleeNode := n.Callee.(type) {
+	case *MemberExpr:
+		obj, e := evalNode(calleeNode.Object, scope)
+		if e != nil {
+			return nil, e
+		}
+		var key any
+		if calleeNode.Computed {
+			key, e = evalNode(calleeNode.Property, scope)
+			if e != nil {
+				return nil, e
+			}
+		} else {
+			key = calleeNode.Property.(*Identifier).Name
+		}
+		callee, err = accessMember(obj, key)
+	default:
+		callee, err = evalNode(n.Callee, scope)
+	}
 	if err != nil {
 		return nil, err
-	}
-	fn, ok := callee.(func(...any) (any, error))
-	if !ok {
-		return nil, fmt.Errorf("value of type %T is not callable", callee)
 	}
 	args := make([]any, len(n.Args))
 	for i, arg := range n.Args {
@@ -483,7 +552,14 @@ func evalCall(n *CallExpr, scope map[string]any) (any, error) {
 			return nil, err
 		}
 	}
-	return fn(args...)
+	switch fn := callee.(type) {
+	case func(...any) (any, error):
+		return fn(args...)
+	case boundMethod:
+		return invokeMethod(fn, args)
+	default:
+		return nil, fmt.Errorf("value of type %T is not callable", callee)
+	}
 }
 
 // --- Array / Object literals ---
@@ -510,6 +586,148 @@ func evalObjectLit(n *ObjectLit, scope map[string]any) (any, error) {
 		result[prop.Key] = val
 	}
 	return result, nil
+}
+
+// --- Method bindings ---
+
+var errorType = reflect.TypeOf((*error)(nil)).Elem()
+
+// wrapMethod validates a method's return arity and wraps it as a boundMethod.
+func wrapMethod(m reflect.Value) (boundMethod, error) {
+	mt := m.Type()
+	switch mt.NumOut() {
+	case 0:
+		return boundMethod{}, fmt.Errorf("method returns no values; use a func(...any)(any,error) wrapper instead")
+	case 1:
+		// ok
+	case 2:
+		if !mt.Out(1).Implements(errorType) {
+			return boundMethod{}, fmt.Errorf("method second return value must implement error")
+		}
+	default:
+		return boundMethod{}, fmt.Errorf("method returns %d values; only 1 or (value, error) is supported", mt.NumOut())
+	}
+	return boundMethod{
+		fn:       m,
+		numIn:    mt.NumIn(),
+		numOut:   mt.NumOut(),
+		variadic: mt.IsVariadic(),
+	}, nil
+}
+
+// accessMethod does a two-pass method lookup on rv by name.
+func accessMethod(rv reflect.Value, name string) (any, error) {
+	m := rv.MethodByName(name)
+	if !m.IsValid() {
+		// Try capitalising the first rune.
+		runes := []rune(name)
+		if len(runes) > 0 {
+			alias := string(unicode.ToUpper(runes[0])) + string(runes[1:])
+			m = rv.MethodByName(alias)
+		}
+	}
+	if !m.IsValid() {
+		return UndefinedValue{}, nil
+	}
+	bm, err := wrapMethod(m)
+	if err != nil {
+		return nil, err
+	}
+	return bm, nil
+}
+
+// coerceToType converts an expression-language value to a required reflect.Type.
+func coerceToType(v any, t reflect.Type) (reflect.Value, error) {
+	if v == nil {
+		if t.Kind() == reflect.Interface {
+			return reflect.Zero(t), nil
+		}
+		return reflect.Value{}, fmt.Errorf("cannot coerce nil to %s", t)
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Type().AssignableTo(t) {
+		return rv, nil
+	}
+	// float64 → numeric kinds
+	if rv.Kind() == reflect.Float64 {
+		switch t.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+			reflect.Float32, reflect.Float64:
+			if rv.Type().ConvertibleTo(t) {
+				return rv.Convert(t), nil
+			}
+		}
+	}
+	if t.Kind() == reflect.Interface {
+		if rv.Type().Implements(t) {
+			return rv, nil
+		}
+		return reflect.Zero(t), nil
+	}
+	return reflect.Value{}, fmt.Errorf("cannot coerce %T to %s", v, t)
+}
+
+// normaliseMethodResult converts []reflect.Value from a method call to (any, error).
+func normaliseMethodResult(out []reflect.Value, numOut int) (any, error) {
+	switch numOut {
+	case 1:
+		return out[0].Interface(), nil
+	case 2:
+		if !out[1].IsNil() {
+			return nil, out[1].Interface().(error)
+		}
+		return out[0].Interface(), nil
+	default:
+		return nil, fmt.Errorf("unexpected method output count %d", numOut)
+	}
+}
+
+// invokeMethod calls a bound method with the given arguments.
+func invokeMethod(bm boundMethod, args []any) (any, error) {
+	if !bm.variadic {
+		if len(args) != bm.numIn {
+			return nil, fmt.Errorf("method expects %d argument(s), got %d", bm.numIn, len(args))
+		}
+		mt := bm.fn.Type()
+		in := make([]reflect.Value, bm.numIn)
+		for i, arg := range args {
+			rv, err := coerceToType(arg, mt.In(i))
+			if err != nil {
+				return nil, fmt.Errorf("argument %d: %w", i, err)
+			}
+			in[i] = rv
+		}
+		out := bm.fn.Call(in)
+		return normaliseMethodResult(out, bm.numOut)
+	}
+	// Variadic path.
+	fixedCount := bm.numIn - 1
+	if len(args) < fixedCount {
+		return nil, fmt.Errorf("method expects at least %d argument(s), got %d", fixedCount, len(args))
+	}
+	mt := bm.fn.Type()
+	in := make([]reflect.Value, fixedCount+1)
+	for i := 0; i < fixedCount; i++ {
+		rv, err := coerceToType(args[i], mt.In(i))
+		if err != nil {
+			return nil, fmt.Errorf("argument %d: %w", i, err)
+		}
+		in[i] = rv
+	}
+	varElemType := mt.In(fixedCount).Elem()
+	varArgs := args[fixedCount:]
+	varSlice := reflect.MakeSlice(reflect.SliceOf(varElemType), len(varArgs), len(varArgs))
+	for i, arg := range varArgs {
+		rv, err := coerceToType(arg, varElemType)
+		if err != nil {
+			return nil, fmt.Errorf("variadic argument %d: %w", i, err)
+		}
+		varSlice.Index(i).Set(rv)
+	}
+	in[fixedCount] = varSlice
+	out := bm.fn.CallSlice(in)
+	return normaliseMethodResult(out, bm.numOut)
 }
 
 // --- Helpers ---
@@ -572,6 +790,8 @@ func typeofValue(v any) string {
 	case string:
 		return "string"
 	case func(...any) (any, error):
+		return "function"
+	case boundMethod:
 		return "function"
 	default:
 		return "object"
