@@ -119,8 +119,8 @@ Fields take priority over methods of the same name. Pointer receivers are suppor
 | `v-html` | Yes | Sets element inner HTML (not escaped). Replaces all children. Use with trusted content only. |
 | `v-show` | Yes | Adds `style="display:none"` when the expression is falsy. Merges with any existing `style` attribute. |
 | `v-if` | Yes | Renders the element only when the expression is truthy. |
-| `v-else-if` | Yes | Must immediately follow a `v-if` or `v-else-if` element (whitespace between is allowed). |
-| `v-else` | Yes | Must immediately follow a `v-if` or `v-else-if` element. |
+| `v-else-if` | Yes | Must immediately follow a `v-if` or `v-else-if` element (whitespace and HTML comments between are allowed; inter-branch comments are dropped). |
+| `v-else` | Yes | Must immediately follow a `v-if` or `v-else-if` element (whitespace and HTML comments between are allowed; inter-branch comments are dropped). |
 | `v-switch` | Yes | See [v-switch syntax](#v-switch-syntax) below. Must be on a `<template>` element. |
 | `v-case` | Yes | Child of `<template v-switch>`. Renders when its expression equals the switch value. |
 | `v-default` | Yes | Child of `<template v-switch>`. Renders when no preceding `v-case` matched. |

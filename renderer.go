@@ -588,10 +588,18 @@ func attrValue(n *html.Node, key string) (string, bool) {
 	return "", false
 }
 
-// nextSignificantSibling returns the next sibling that is not a whitespace-only text node.
+// nextSignificantSibling returns the next sibling that is significant when
+// matching the branches of a v-if/v-else-if/v-else chain. Whitespace-only text
+// nodes and HTML comment nodes are skipped, so a comment placed between branches
+// (e.g. <div v-if>…</div><!-- note --><div v-else>…</div>) does not break the
+// chain. This mirrors Vue, which tolerates comments between conditional branches;
+// such inter-branch comments are dropped from the output.
 func nextSignificantSibling(n *html.Node) *html.Node {
 	for sib := n.NextSibling; sib != nil; sib = sib.NextSibling {
 		if sib.Type == html.TextNode && strings.TrimSpace(sib.Data) == "" {
+			continue
+		}
+		if sib.Type == html.CommentNode {
 			continue
 		}
 		return sib

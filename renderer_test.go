@@ -194,6 +194,76 @@ func TestRender_VElseRendersWhenAllFalsy(t *testing.T) {
 	}
 }
 
+func TestRender_VIfElseChainWithComments(t *testing.T) {
+	// HTML comments placed between the branches of a v-if/v-else-if/v-else
+	// chain must not break the chain. Inter-branch comments are dropped, the
+	// same way Vue tolerates and removes them.
+	tmpl := `<span v-if="a">A</span>` +
+		`<!-- between if and else-if -->` +
+		`<span v-else-if="b">B</span>` +
+		`<!-- between else-if and else -->` +
+		`<span v-else>C</span>`
+
+	cases := []struct {
+		name   string
+		scope  map[string]any
+		want   string // the single branch text expected
+		absent []string
+	}{
+		{"if branch", map[string]any{"a": true, "b": true}, ">A<", []string{">B<", ">C<"}},
+		{"else-if branch", map[string]any{"a": false, "b": true}, ">B<", []string{">A<", ">C<"}},
+		{"else branch", map[string]any{"a": false, "b": false}, ">C<", []string{">A<", ">B<"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := renderTemplate(t, tmpl, tc.scope)
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("got %q, want it to contain %q", out, tc.want)
+			}
+			for _, a := range tc.absent {
+				if strings.Contains(out, a) {
+					t.Errorf("got %q, did not want %q", out, a)
+				}
+			}
+			// Inter-branch comments must not survive in the output.
+			if strings.Contains(out, "<!--") {
+				t.Errorf("got %q, inter-branch comments should be dropped", out)
+			}
+		})
+	}
+}
+
+func TestRender_VIfWithWhitespaceCommentMix(t *testing.T) {
+	// Whitespace and comments interleaved between branches must still chain.
+	scope := map[string]any{"x": false}
+	tmpl := "<div v-if=\"x\">A</div>\n  <!-- note -->\n  <div v-else>B</div>"
+	out := renderTemplate(t, tmpl, scope)
+	if !strings.Contains(out, ">B<") || strings.Contains(out, ">A<") {
+		t.Errorf("got %q, want only the v-else branch (B)", out)
+	}
+}
+
+func TestRender_CommentAfterLoneVIfIsPreserved(t *testing.T) {
+	// A comment that follows a v-if WITHOUT a following v-else/v-else-if is a
+	// normal sibling and must be preserved in the output, not swallowed.
+	tmplTrue := renderTemplate(t, `<div v-if="x">A</div><!-- keep --><p>after</p>`, map[string]any{"x": true})
+	if !strings.Contains(tmplTrue, "<!-- keep -->") {
+		t.Errorf("got %q, want standalone comment preserved", tmplTrue)
+	}
+	if !strings.Contains(tmplTrue, "<div>A</div>") || !strings.Contains(tmplTrue, "<p>after</p>") {
+		t.Errorf("got %q, want both the v-if content and the trailing <p>", tmplTrue)
+	}
+
+	// When the v-if is false, the comment and trailing sibling still render.
+	tmplFalse := renderTemplate(t, `<div v-if="x">A</div><!-- keep --><p>after</p>`, map[string]any{"x": false})
+	if !strings.Contains(tmplFalse, "<!-- keep -->") || !strings.Contains(tmplFalse, "<p>after</p>") {
+		t.Errorf("got %q, want comment and trailing <p> preserved when v-if false", tmplFalse)
+	}
+	if strings.Contains(tmplFalse, ">A<") {
+		t.Errorf("got %q, did not want the v-if branch", tmplFalse)
+	}
+}
+
 func TestRender_VIfTemplateWrapper(t *testing.T) {
 	// <template v-if="show"> renders children only, not a <template> element.
 	scope := map[string]any{"show": true}
@@ -727,6 +797,34 @@ func TestRender_ComponentSlotVIfVElse(t *testing.T) {
 	}
 	if !strings.Contains(outFull, "<ul") {
 		t.Errorf("full case: got %q, want <ul>", outFull)
+	}
+}
+
+func TestRender_ComponentSlotVIfVElseWithComment(t *testing.T) {
+	// A v-if/v-else chain inside slot content, separated by an HTML comment,
+	// must chain correctly through the slot rendering path too.
+	layout := mustParseComponent(t, "layout.vue", `<div><slot /></div>`)
+	page := mustParseComponent(t, "page.vue",
+		`<Layout><p v-if="items.length === 0">empty</p><!-- divider --><ul v-else><li v-for="x in items">{{ x }}</li></ul></Layout>`)
+	reg := Registry{"Layout": layout}
+
+	outEmpty, err := NewRenderer(page).WithComponents(reg).RenderString(map[string]any{"items": []any{}})
+	if err != nil {
+		t.Fatalf("Render (empty): %v", err)
+	}
+	if !strings.Contains(outEmpty, "empty") || strings.Contains(outEmpty, "<ul") {
+		t.Errorf("empty case: got %q, want 'empty' and no <ul>", outEmpty)
+	}
+	if strings.Contains(outEmpty, "<!--") {
+		t.Errorf("empty case: got %q, inter-branch comment should be dropped", outEmpty)
+	}
+
+	outFull, err := NewRenderer(page).WithComponents(reg).RenderString(map[string]any{"items": []any{"a", "b"}})
+	if err != nil {
+		t.Fatalf("Render (full): %v", err)
+	}
+	if strings.Contains(outFull, "empty") || !strings.Contains(outFull, "<ul") {
+		t.Errorf("full case: got %q, want <ul> and no 'empty'", outFull)
 	}
 }
 
@@ -2115,12 +2213,12 @@ type vbindUser struct {
 }
 
 type vbindEmbedded struct {
-	Name string
+	Name         string
 	vbindAddress // anonymous embedded
 }
 
 type vbindEmbeddedNamed struct {
-	Name    string
+	Name         string
 	vbindAddress `json:"addr"` // embedded but with explicit json name — not promoted
 }
 
