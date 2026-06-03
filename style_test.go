@@ -461,19 +461,21 @@ func TestRenderer_ScopedFontFaceStyleVerbatim(t *testing.T) {
 	}
 }
 
-// TestScopeCSS_PseudoSelectors verifies that pseudo-class and pseudo-element
-// selectors are preserved and the scope attribute is appended after them.
-// This is a useful edge case because pseudo-selectors include special characters
-// like ':', '::', and '(' that must not confuse the selector rewriter.
+// TestScopeCSS_PseudoSelectors verifies scope-attribute placement around
+// pseudo-classes and pseudo-elements. The attribute is appended after
+// pseudo-classes (which can co-exist with the scoped element) but inserted
+// BEFORE pseudo-elements (e.g. ::before), matching Vue: a scope attribute on a
+// pseudo-element selector would never match. The rewriter must also not be
+// confused by ':', '::', and '(' inside these selectors.
 func TestScopeCSS_PseudoSelectors(t *testing.T) {
 	cases := []struct {
 		selector string
 		want     string
 	}{
-		// Pseudo-elements use :: and must retain both colons.
-		{"p::before", "p::before[data-v-abc]"},
-		{"p::after", "p::after[data-v-abc]"},
-		// Pseudo-classes use a single colon.
+		// Pseudo-elements use :: — the scope attr goes before them.
+		{"p::before", "p[data-v-abc]::before"},
+		{"p::after", "p[data-v-abc]::after"},
+		// Pseudo-classes use a single colon — the scope attr goes after them.
 		{"a:hover", "a:hover[data-v-abc]"},
 		{"input:focus", "input:focus[data-v-abc]"},
 		// Functional pseudo-class with parenthesised argument.
