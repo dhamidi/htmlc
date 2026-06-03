@@ -534,7 +534,9 @@ Slot content is stamped with the **authoring component's** scope attribute, not 
 | Parent slot content | `data-v-parent` |
 | Fallback children of `<slot>` | `data-v-child` (fallback belongs to the child) |
 
-CSS content is extracted verbatim from `<style>` blocks — quoted string values, `@font-face` declarations, data URIs, and special characters (`&`, `<`, `>`) are preserved exactly as written and are never HTML-escaped. Only non-`@`-rule selectors are rewritten for scoping.
+CSS content is extracted verbatim from `<style>` blocks — quoted string values, `@font-face` declarations, data URIs, and special characters (`&`, `<`, `>`) are preserved exactly as written and are never HTML-escaped.
+
+Selector scoping reaches into conditional group at-rules: style rules nested inside `@media`, `@supports`, and `@container` are scoped too (so styles inside a media query still match the component's elements). Other at-rules whose contents are not element selectors — `@keyframes`, `@font-face`, `@page`, `@import` — are passed through verbatim.
 
 #### Nested composition
 

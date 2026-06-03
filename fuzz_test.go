@@ -19,8 +19,13 @@ func FuzzScopeCSS(f *testing.F) {
 	f.Add("h1 h2 h3 { font-weight: bold }", "[data-v-abcdef01]")
 	f.Add(".a .b > .c + .d ~ .e { }", "[data-v-abcdef01]")
 	f.Add("/* comment */ p { color: blue }", "[data-v-abcdef01]")
-	f.Add("p { color: red", "[data-v-abcdef01]") // unclosed brace
-	f.Add("{{{", "[data-v-abcdef01]")            // malformed CSS
+	f.Add("p { color: red", "[data-v-abcdef01]")                         // unclosed brace
+	f.Add("{{{", "[data-v-abcdef01]")                                    // malformed CSS
+	f.Add("@media screen { .a, .b { x: 1 } }", "[data-v-abcdef01]")      // group rule with commas
+	f.Add("@supports (x:y) { @media a { .c {} } }", "[data-v-abcdef01]") // nested group rules
+	f.Add("@media screen { @keyframes k { from{} } }", "[data-v-abc]")   // keyframes inside group
+	f.Add("@media (max-width:1px) { ", "[data-v-abcdef01]")              // unclosed group body
+	f.Add("@media", "[data-v-abcdef01]")                                 // bare keyword, no body
 	f.Add("p { color: red }", "")
 	f.Add("", "")
 
@@ -45,8 +50,8 @@ func FuzzParseFile(f *testing.F) {
 	f.Add("<template></template><script>export default { props: ['name'] }</script><style scoped>.x{}</style>")
 	f.Add("<template><div v-show=\"visible\">shown</div></template>")
 	f.Add("not a vue file at all")
-	f.Add("<template><")        // truncated
-	f.Add("<<>>{{")            // malformed
+	f.Add("<template><")            // truncated
+	f.Add("<<>>{{")                 // malformed
 	f.Add("<style scoped></style>") // missing template
 
 	f.Fuzz(func(t *testing.T, src string) {
@@ -69,9 +74,9 @@ func FuzzRenderString(f *testing.F) {
 	f.Add("<div>{{ items.length }}</div>", `{"items":[1,2,3]}`)
 	f.Add("<div v-if=\"x\">a</div><div v-else>b</div>", `{"x":false}`)
 	f.Add("", `{}`)
-	f.Add("<div>{{ </div>", `{}`)            // broken expression
-	f.Add("<div v-for=\"\">x</div>", `{}`)   // empty v-for
-	f.Add("{{ a.b.c.d.e }}", `{}`)          // deep missing prop
+	f.Add("<div>{{ </div>", `{}`)          // broken expression
+	f.Add("<div v-for=\"\">x</div>", `{}`) // empty v-for
+	f.Add("{{ a.b.c.d.e }}", `{}`)         // deep missing prop
 
 	f.Fuzz(func(t *testing.T, tmpl, scopeJSON string) {
 		var scope map[string]any

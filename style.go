@@ -19,8 +19,11 @@ func ScopeID(path string) string {
 // scopeAttr appended to its last compound selector. scopeAttr should be a full
 // attribute selector string, e.g. "[data-v-a1b2c3d4]".
 //
-// @-rules (such as @media or @keyframes) are passed through verbatim, including
-// their nested blocks.
+// Conditional group @-rules (@media, @supports and @container) wrap ordinary
+// style rules; ScopeCSS recurses into their bodies so the nested selectors are
+// scoped too. All other @-rules (@keyframes, @font-face, @page, …) are passed
+// through verbatim, including their nested blocks, because their inner contents
+// are not element selectors.
 func ScopeCSS(css, scopeAttr string) string {
 	var out strings.Builder
 	i, n := 0, len(css)
@@ -42,7 +45,7 @@ func ScopeCSS(css, scopeAttr string) string {
 		i++ // consume '{'
 
 		if strings.HasPrefix(strings.TrimSpace(selectorText), "@") {
-			// @-rule: emit verbatim, tracking nested braces to find the end.
+			// @-rule: track nested braces to find the matching close.
 			out.WriteString(selectorText)
 			out.WriteByte('{')
 			depth := 1
@@ -57,7 +60,16 @@ func ScopeCSS(css, scopeAttr string) string {
 				i++
 			}
 			// css[bodyStart:i] includes all nested content and the final '}'.
-			out.WriteString(css[bodyStart:i])
+			inner := css[bodyStart:i]
+			if isScopableGroupRule(selectorText) && strings.HasSuffix(inner, "}") {
+				// Conditional group rule: recurse into the body (without the
+				// closing brace) so nested style selectors are scoped, then
+				// re-emit the brace.
+				out.WriteString(ScopeCSS(inner[:len(inner)-1], scopeAttr))
+				out.WriteByte('}')
+			} else {
+				out.WriteString(inner)
+			}
 		} else {
 			// Regular rule: find closing '}' and rewrite the selector.
 			bodyStart := i
@@ -76,6 +88,20 @@ func ScopeCSS(css, scopeAttr string) string {
 	}
 
 	return out.String()
+}
+
+// isScopableGroupRule reports whether prelude introduces a conditional group
+// @-rule whose body contains ordinary style rules that should be scoped.
+// These are @media, @supports and @container. Other @-rules (@keyframes,
+// @font-face, @page, @import, …) hold non-selector content and are not scoped.
+func isScopableGroupRule(prelude string) bool {
+	p := strings.ToLower(strings.TrimSpace(prelude))
+	for _, name := range []string{"@media", "@supports", "@container"} {
+		if p == name || strings.HasPrefix(p, name+" ") || strings.HasPrefix(p, name+"(") {
+			return true
+		}
+	}
+	return false
 }
 
 // rewriteSelectors appends scopeAttr to the last compound selector of each
