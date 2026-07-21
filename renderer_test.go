@@ -319,6 +319,26 @@ func TestRender_VIfOnlyFirstTruthyBranchRenders(t *testing.T) {
 	}
 }
 
+// TestRender_VIfNamedScalarTypeHonoursZeroValue is the render-level regression
+// for a named type over a JS-primitive kind (a spec-generated value object,
+// e.g. `type BookingID string`) being unconditionally truthy in v-if. Before
+// the isTruthy fix, `v-if="id"` rendered its branch even when id held the
+// zero value, because the type reaching the expression evaluator was distinct
+// from the bare `string` isTruthy special-cased.
+func TestRender_VIfNamedScalarTypeHonoursZeroValue(t *testing.T) {
+	type bookingID string
+
+	out := renderTemplate(t, `<span v-if="id">has id</span><span v-else>no id</span>`, map[string]any{"id": bookingID("")})
+	if !strings.Contains(out, "no id") || strings.Contains(out, "has id") {
+		t.Errorf("empty named string: got %q, want the v-else branch only", out)
+	}
+
+	out = renderTemplate(t, `<span v-if="id">has id</span><span v-else>no id</span>`, map[string]any{"id": bookingID("abc123")})
+	if !strings.Contains(out, "has id") || strings.Contains(out, "no id") {
+		t.Errorf("non-empty named string: got %q, want the v-if branch only", out)
+	}
+}
+
 // --- v-for tests ---
 
 func TestRender_VForSimpleArray(t *testing.T) {

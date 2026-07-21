@@ -538,6 +538,20 @@ CSS content is extracted verbatim from `<style>` blocks — quoted string values
 
 Selector scoping reaches into conditional group at-rules: style rules nested inside `@media`, `@supports`, and `@container` are scoped too (so styles inside a media query still match the component's elements). Other at-rules whose contents are not element selectors — `@keyframes`, `@font-face`, `@page`, `@import` — are passed through verbatim.
 
+##### Reaching into a child component with `:deep()`
+
+Ordinary scoped selectors can only ever match elements the authoring component itself renders. `.card .title { }` in Page.vue's `<style scoped>` compiles to `.card[data-v-page] .title[data-v-page]` — a `.title` that `<Card>` renders inside `.card` never carries Page.vue's scope attribute, so the rule silently never matches it, even though the element is right there in the rendered HTML.
+
+`:deep()` is the escape hatch:
+
+```vue
+<style scoped>
+.card :deep(.title) { color: hotpink; }
+</style>
+```
+
+compiles to `.card[data-v-page] .title { color: hotpink; }`: the scope attribute is still added to `.card`, but `:deep(.title)` unwraps to a plain `.title` with no attribute requirement at all, so it matches a `.title` regardless of which component rendered it. Everything from `:deep(` onward in the selector — its argument and anything chained after — is left unscoped; only the compound selector immediately before it is scoped as usual.
+
 #### Nested composition
 
 Components can freely use other components registered in the same engine.
@@ -1499,6 +1513,8 @@ guaranteed to match insertion order. Vue.js preserves insertion order for
 htmlc supports `<style scoped>` with the same semantics as Vue.js SFCs: a
 unique `data-v-XXXXXXXX` attribute is added to all elements rendered by the
 component, and CSS selectors are rewritten to target that attribute.
+`:deep(...)` is supported for reaching into an element a child component
+renders (see [Reaching into a child component with `:deep()`](#reaching-into-a-child-component-with-deep)); the legacy `::v-deep` and `>>>` spellings are not.
 
 ### No reactivity
 

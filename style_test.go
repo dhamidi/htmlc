@@ -526,6 +526,64 @@ func TestScopeCSS_CombinatorSelectors(t *testing.T) {
 	}
 }
 
+// TestScopeCSS_DeepCombinator is the regression for scoped styles having no
+// way to reach an element another component renders. `.card .title { }`
+// scopes to the *authoring* component's own `.title`; a `.title` a child
+// component renders inside `.card` never carries that attribute, so the rule
+// silently never matches it. `:deep()` is the escape hatch: it scopes
+// everything before it as usual, then unwraps and leaves everything from
+// `:deep(` on left completely unscoped, because it names an element outside
+// this component's own scope.
+func TestScopeCSS_DeepCombinator(t *testing.T) {
+	cases := []struct {
+		name     string
+		selector string
+		want     string
+	}{
+		{"ancestor deep", ".card :deep(.title)", ".card[data-v-abc] .title"},
+		{"deep alone, nothing to scope", ":deep(.title)", ".title"},
+		{"deep mid-chain, compound before it", ".card:hover :deep(.title)", ".card:hover[data-v-abc] .title"},
+		{"deep with descendant inside its argument", ".card :deep(.header .title)", ".card[data-v-abc] .header .title"},
+		{"deep followed by more selector, all left unscoped", ".card :deep(.header) .title", ".card[data-v-abc] .header .title"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			css := tc.selector + " { color: red; }"
+			got := ScopeCSS(css, "[data-v-abc]")
+			want := tc.want + " { color: red; }"
+			if got != want {
+				t.Errorf("ScopeCSS(%q):\ngot  %q\nwant %q", css, got, want)
+			}
+		})
+	}
+}
+
+// TestScopeCSS_DeepCombinatorCommaSeparated checks that a `:deep()` selector
+// mixed into a comma-separated list only affects the segment it appears in.
+func TestScopeCSS_DeepCombinatorCommaSeparated(t *testing.T) {
+	css := ".plain, .card :deep(.title) { color: red; }"
+	got := ScopeCSS(css, "[data-v-abc]")
+	want := ".plain[data-v-abc], .card[data-v-abc] .title { color: red; }"
+	if got != want {
+		t.Errorf("ScopeCSS(%q):\ngot  %q\nwant %q", css, got, want)
+	}
+}
+
+// TestScopeCSS_DeepCombinatorUnterminatedLeftAsIs verifies that an
+// unterminated `:deep(` - a spec author's typo - does not corrupt the output.
+// scanPrelude counts the unbalanced '(' as open depth, so it never finds a
+// depth-0 '{' to terminate the prelude on; the whole remainder is consumed as
+// unterminated trailing content and passed through byte-for-byte, the same
+// verbatim fallback ScopeCSS already takes for any other unbalanced input.
+func TestScopeCSS_DeepCombinatorUnterminatedLeftAsIs(t *testing.T) {
+	css := ".card :deep(.title { color: red; }"
+	got := ScopeCSS(css, "[data-v-abc]")
+	if got != css {
+		t.Errorf("ScopeCSS(%q) = %q, want it passed through verbatim like other unbalanced input", css, got)
+	}
+}
+
 // TestScopeCSS_TenRules verifies that a stylesheet with many rules has all of
 // them rewritten and none are lost.  This exercises the loop in ScopeCSS for
 // more than one or two rules.

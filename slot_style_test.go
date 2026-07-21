@@ -237,3 +237,62 @@ func TestScopedSlot_StyleCollector_SlotCSS(t *testing.T) {
 		t.Errorf("expected CSS contribution with .msg%s from Page.vue, got: %v", scopeAttr, contribs)
 	}
 }
+
+// TestDeepCombinator_ReachesElementChildComponentRenders is the integration
+// regression for scoped styles having no way to reach an element another
+// component renders. Card.vue renders its own ".title" - not through a slot,
+// so it never carries Page.vue's scope attribute. Without `:deep()`,
+// "`.card .title`" compiles to "`.card[data-v-page] .title[data-v-page]`",
+// which can never match an element Card.vue itself stamped with its own,
+// different scope attribute. `:deep()` is the only way Page.vue's stylesheet
+// can name that element at all.
+func TestDeepCombinator_ReachesElementChildComponentRenders(t *testing.T) {
+	childSrc := `<template><div class="title">Card title</div></template>
+<style scoped>.title { font-weight: bold; }</style>`
+	parentSrc := `<template><div class="card"><Card></Card></div></template>
+<style scoped>.card :deep(.title) { color: hotpink; }</style>`
+
+	child, _ := ParseFile("Card.vue", childSrc)
+	parent, _ := ParseFile("Page.vue", parentSrc)
+
+	reg := Registry{"Card": child}
+	sc := &StyleCollector{}
+	out, err := NewRenderer(parent).WithStyles(sc).WithComponents(reg).RenderString(nil)
+	if err != nil {
+		t.Fatalf("RenderString: %v", err)
+	}
+
+	parentScope := ScopeID("Page.vue")
+	childScope := ScopeID("Card.vue")
+
+	// The rendered <div class="title"> carries only Card.vue's own scope
+	// attribute - it was authored there, not passed in through a slot.
+	titleIdx := strings.Index(out, `class="title"`)
+	if titleIdx < 0 {
+		t.Fatalf("expected a title element in output:\n%s", out)
+	}
+	tagStart := strings.LastIndex(out[:titleIdx], "<")
+	tagEnd := titleIdx + strings.Index(out[titleIdx:], ">") + 1
+	titleTag := out[tagStart:tagEnd]
+	if !strings.Contains(titleTag, childScope) {
+		t.Errorf("title element should carry its own component's scope attr %q:\n%s", childScope, titleTag)
+	}
+	if strings.Contains(titleTag, parentScope) {
+		t.Errorf("title element should not carry the parent's scope attr %q, it was not authored there:\n%s", parentScope, titleTag)
+	}
+
+	// The emitted stylesheet has to name that same element without requiring
+	// the parent's scope attribute on it - that is what :deep() buys.
+	contribs := sc.All()
+	found := false
+	want := ".card[" + parentScope + "] .title {"
+	for _, c := range contribs {
+		if strings.Contains(c.CSS, want) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a style contribution containing %q, got: %v", want, contribs)
+	}
+}

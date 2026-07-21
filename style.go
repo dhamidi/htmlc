@@ -266,6 +266,17 @@ func rewriteSelectorList(sel, scopeAttr string) string {
 // scopeOneSelector inserts scopeAttr into a single selector, after its last
 // compound selector's simple selectors but before any trailing pseudo-element.
 // Leading and trailing whitespace (and comments) are preserved.
+//
+// A selector containing `:deep(...)` is scoped differently: everything before
+// `:deep(` is an ordinary scoped compound - normal element of the authoring
+// component - and gets scopeAttr appended the same way an unqualified
+// selector would. `:deep(...)` itself unwraps to its argument, and it plus
+// everything after it in the selector is left completely unscoped, because it
+// names an element a descendant component renders, which never carries this
+// component's scope attribute. This is the escape hatch a scoped style has no
+// other way to reach across a component boundary: without it, `.card .title`
+// can only ever match a `.title` this component renders directly, never one a
+// child component renders inside `.card`.
 func scopeOneSelector(part, scopeAttr string) string {
 	end := len(part)
 	for end > 0 && isCSSSpace(part[end-1]) {
@@ -275,9 +286,74 @@ func scopeOneSelector(part, scopeAttr string) string {
 		return part // empty or whitespace-only segment
 	}
 	work := part[:end]
+	trailing := part[end:]
+	if colon, argStart, argEnd, after, ok := findDeepPseudo(work); ok {
+		prefix := work[:colon]
+		arg := work[argStart:argEnd]
+		suffix := work[after:]
+		scopedPrefix := prefix
+		if strings.TrimFunc(prefix, isCSSSpaceRune) != "" {
+			insertAt := len(prefix)
+			for insertAt > 0 && isCSSSpace(prefix[insertAt-1]) {
+				insertAt--
+			}
+			scopedPrefix = prefix[:insertAt] + scopeAttr + prefix[insertAt:]
+		}
+		return scopedPrefix + arg + suffix + trailing
+	}
 	cs := lastCompoundStart(work)
 	insertAt := cs + pseudoElementOffset(work[cs:])
 	return part[:insertAt] + scopeAttr + part[insertAt:]
+}
+
+// findDeepPseudo locates the first top-level `:deep(...)` pseudo-class in a
+// selector, honouring CSS comments and quoted strings so that neither can be
+// mistaken for the literal text. It reports the index of the leading ':', the
+// bounds of the argument between the parens, and the index just past the
+// matching ')'. ok is false if no `:deep(` is present, or if one starts but
+// its parenthesis is never closed - an unterminated `:deep(` is left for the
+// unscoped-selector rules elsewhere to reject rather than silently swallowed.
+func findDeepPseudo(s string) (colon, argStart, argEnd, after int, ok bool) {
+	i := 0
+	for i < len(s) {
+		if j := skipCSSAtom(s, i); j != i {
+			i = j
+			continue
+		}
+		if s[i] == ':' && strings.HasPrefix(s[i:], ":deep(") {
+			open := i + len(":deep(")
+			depth := 1
+			k := open
+			for k < len(s) && depth > 0 {
+				if j := skipCSSAtom(s, k); j != k {
+					k = j
+					continue
+				}
+				switch s[k] {
+				case '(':
+					depth++
+				case ')':
+					depth--
+				}
+				k++
+			}
+			if depth != 0 {
+				return 0, 0, 0, 0, false
+			}
+			return i, open, k - 1, k, true
+		}
+		i++
+	}
+	return 0, 0, 0, 0, false
+}
+
+// isCSSSpaceRune is isCSSSpace with the rune-predicate signature
+// strings.TrimFunc requires. It only has to recognise whitespace here: the
+// prefix it is applied to still carries any CSS comments verbatim, so an
+// all-comment prefix such as "/* nothing here */" is (correctly) treated as
+// non-empty rather than trimmed away.
+func isCSSSpaceRune(r rune) bool {
+	return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\f'
 }
 
 // lastCompoundStart returns the index in s where the last compound selector

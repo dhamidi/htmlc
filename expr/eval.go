@@ -760,6 +760,21 @@ func isTruthy(v any) bool {
 		switch rv.Kind() {
 		case reflect.Slice, reflect.Array:
 			return true
+		case reflect.Bool, reflect.String,
+			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+			reflect.Float32, reflect.Float64:
+			// A named type over a JS-primitive kind - a value object such as
+			// `type BookingID string` - was falling all the way through to the
+			// unconditional `return true` below, because the earlier type
+			// switch only matches the exact types bool/float64/string, not a
+			// distinct named type with the same underlying kind. That made
+			// every such value truthy regardless of content, so `v-if="id"`
+			// could never tell an empty BookingID from a real one. Zero-value
+			// is the correct JS-style falsy answer for these kinds, the same
+			// answer the bool/float64/string cases above already give their
+			// unnamed counterparts.
+			return !rv.IsZero()
 		}
 		return true
 	}

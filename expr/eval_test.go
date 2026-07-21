@@ -294,6 +294,45 @@ func TestIsTruthy_SliceAndArray(t *testing.T) {
 	}
 }
 
+// TestIsTruthy_NamedScalarType is the regression for a named type over a
+// JS-primitive kind - the shape a value object generated from a spec takes,
+// e.g. `type BookingID string` - being unconditionally truthy regardless of
+// its content. Before the fix, the zero value of any such type reached the
+// unconditional `return true` at the end of isTruthy's reflect fallback,
+// because the type switch above only matches the literal bool/float64/string
+// types, never a distinct named type sharing their underlying kind.
+func TestIsTruthy_NamedScalarType(t *testing.T) {
+	type bookingID string
+	type guestCount int
+	type nightlyRate float64
+	type confirmed bool
+
+	if got := IsTruthy(bookingID("")); got {
+		t.Error("IsTruthy(bookingID(\"\")): got true, want false")
+	}
+	if got := IsTruthy(bookingID("abc123")); !got {
+		t.Error("IsTruthy(bookingID(\"abc123\")): got false, want true")
+	}
+	if got := IsTruthy(guestCount(0)); got {
+		t.Error("IsTruthy(guestCount(0)): got true, want false")
+	}
+	if got := IsTruthy(guestCount(2)); !got {
+		t.Error("IsTruthy(guestCount(2)): got false, want true")
+	}
+	if got := IsTruthy(nightlyRate(0)); got {
+		t.Error("IsTruthy(nightlyRate(0)): got true, want false")
+	}
+	if got := IsTruthy(nightlyRate(129.5)); !got {
+		t.Error("IsTruthy(nightlyRate(129.5)): got false, want true")
+	}
+	if got := IsTruthy(confirmed(false)); got {
+		t.Error("IsTruthy(confirmed(false)): got true, want false")
+	}
+	if got := IsTruthy(confirmed(true)); !got {
+		t.Error("IsTruthy(confirmed(true)): got false, want true")
+	}
+}
+
 // TestTypeof verifies the typeof operator returns correct type strings.
 func TestTypeof(t *testing.T) {
 	cases := []struct {
