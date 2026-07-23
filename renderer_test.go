@@ -2761,6 +2761,29 @@ func TestRender_WhitespaceOnlyNodesPreservedInDebugMode(t *testing.T) {
 	}
 }
 
+func TestRender_SingleSpaceBetweenInlineElementsPreserved(t *testing.T) {
+	// A literal single space sitting between two elements on the same source
+	// line is a meaningful word-separator, not indentation, and must survive
+	// non-debug rendering even though it is itself a whitespace-only text node.
+	out := renderTemplate(t, "<span>A</span> <em>B</em>", nil)
+	if !strings.Contains(out, "<span>A</span> <em>B</em>") {
+		t.Errorf("expected the space between <span> and <em> to be preserved, got: %q", out)
+	}
+}
+
+func TestRender_IndentationWhitespaceStillDroppedInNonDebugMode(t *testing.T) {
+	// Guards against a fix for the single-space case regressing the original
+	// behaviour: a text node that is whitespace-only *and* carries a newline is
+	// still source indentation, not a word-separator, and stays dropped.
+	out := renderTemplate(t, "<div>\n  <span>hi</span>\n  <span>bye</span>\n</div>", nil)
+	if strings.Contains(out, "\n") {
+		t.Errorf("non-debug output should not contain indentation whitespace, got: %q", out)
+	}
+	if !strings.Contains(out, "<span>hi</span><span>bye</span>") {
+		t.Errorf("expected adjacent spans with no whitespace between them, got: %q", out)
+	}
+}
+
 func TestRender_WhitespaceInStylePreserved(t *testing.T) {
 	// Whitespace inside <style> blocks must be preserved in both modes.
 	tmpl := "<style>\nbody { color: red; }\n</style>"

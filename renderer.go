@@ -463,8 +463,14 @@ func (r *Renderer) renderNode(w io.Writer, n *html.Node, scope map[string]any) e
 			io.WriteString(w, n.Data)
 			return nil
 		}
-		// In non-debug mode, drop whitespace-only text nodes to keep output clean.
-		if !r.debug && strings.TrimSpace(n.Data) == "" {
+		// In non-debug mode, drop whitespace-only text nodes that carry a
+		// newline to keep output clean: that shape is source indentation
+		// between elements on separate lines, never a word-separator a reader
+		// could see. A whitespace-only node with no newline — a single literal
+		// space between two elements written on one line, e.g.
+		// `<span>A</span> <em>B</em>` — is a meaningful separator and must
+		// survive, or the words on either side of it run together.
+		if !r.debug && strings.TrimSpace(n.Data) == "" && strings.ContainsAny(n.Data, "\n\r") {
 			return nil
 		}
 		if err := r.interpolate(w, n.Data, scope); err != nil {
