@@ -326,6 +326,78 @@ documented convention, e.g. an exported `func FS() fs.FS`) is a complete
 component package, exactly as the prototype's `vendor-radix-htmlc` module
 demonstrated.
 
+#### Automatic mount aliases
+
+When there is no name collision, an unqualified `<Accordion>` already works
+correctly with no further design needed: proximity resolution tries the
+local tree first (RFC 001, unchanged), then the flat-registry fallback
+reaches the mounted `Accordion`, since it is the only one registered anywhere
+(`renderer.go:1472-1507`). The explicit-path form,
+`<component is="radix/Accordion">`, exists only to **disambiguate** when a
+name genuinely collides (§4.2) — and forcing every disambiguated reference
+through that syntax is needlessly heavy: it abandons ordinary tag syntax for
+something a plain, aliased tag name can express just as unambiguously.
+
+`New` therefore also auto-registers, for every component a `Mount` provides,
+two additional flat-registry entries derived from `Mount.Prefix` and the
+component's local name — at **lower priority than any exact local
+registration**, so an alias never shadows a project's own file of the same
+name (mirroring the priority rule RFC 001 §4.6 already recommends for its
+own, narrower Nuxt-style alias proposal):
+
+```go
+// pseudo-code — not implementation
+func mountAliases(prefix, localName string) (pascalAlias, kebabAlias string) {
+    pascalAlias = toPascalCase(prefix) + localName                   // "radix" + "Accordion" -> "RadixAccordion"
+    kebabAlias  = toKebabCase(prefix) + "-" + toKebabCase(localName) // -> "radix-accordion"
+    return
+}
+```
+
+`toKebabCase` here is the same conversion `deriveCustomElementTag`
+(`component.go:453-469`) already uses, so a mounted component's
+template-reference alias and the tag it would render as if it opted into
+`<script customelement>` are, by construction, the same string —
+`<radix-accordion>` reads naturally as a tag name for exactly the reason
+`<turbo-frame>` does, reusing an existing name-folding strategy
+(`resolveComponent` already tries kebab-to-Pascal folding per directory
+level, `renderer.go:1482-1507`) against a mount-qualified name instead of a
+local one.
+
+**Naming-scheme evaluation:**
+
+- **PascalCase concatenation (`RadixAccordion`)**
+  - ✅ Matches Vue/Nuxt convention for component tags; directly realizes RFC
+    001 §4.6's previously-deferred, opt-in `PrefixedAliases` idea for the
+    exact cross-package scenario that idea was motivated by.
+  - ⚠️ For a mount whose own tree has internal subdirectories (e.g.
+    `radix/dialog/Trigger.vue`), the alias needs a convention for
+    multi-segment concatenation (`RadixDialogTrigger`) — the same ambiguity
+    RFC 001 §4.6 already flagged for its own nested-directory case, not new
+    here (see Open Question 10).
+- **kebab-case (`radix-accordion`)**
+  - ✅ Identical derivation to the existing custom-element tag algorithm —
+    one mental model for "what do I call this thing," whether it is used as
+    a template reference or rendered as a custom element.
+  - ✅ Always contains a hyphen, so it is unambiguously component-like
+    (`isComponentLike`, `renderer.go:1458-1460`) with no interaction with
+    §4.3's native-element allowlist.
+- **Verdict**: register both, unconditionally, for every mounted component.
+  They are two names for the same registry entry, cost nothing when unused,
+  and the choice between them is a matter of template style, not
+  correctness — there is no reason to force one convention and make the
+  other require extra `Options` configuration to unlock.
+
+Both aliases participate in the same collision-detection machinery as bare
+names (§4.2): an alias is just another flat-registry entry carrying the
+underlying mount's identity, so the (exceedingly rare) case of an alias
+colliding with an unrelated local component of the identical name is caught
+by the same `ValidateAll()` check, not a special case. `<component
+is="mount/Name">` remains available as a third, fully-qualified form —
+primarily useful when a caller is constructing a component reference
+dynamically (`<component :is="expr">`), where a *string value* is more
+natural to build than a *tag name*. See Example 2 and Example 3.
+
 #### Evaluation
 
 - **Option A — `Options.Mounts []Mount` (proposed above)**
@@ -415,6 +487,21 @@ behavior or performance cost. A collision does not have to be a hard startup
 error — see Open Question 2 (§10) for whether it should default to a
 returned validation error (matching `ValidateAll`'s existing contract, which
 already returns `[]error` for the caller to act on) or a `Logger` warning.
+
+Reporting a collision is only half the job — the error message itself
+should point the author at a fix that does not require restructuring their
+project. Since §4.1 auto-registers a `RadixAccordion`/`radix-accordion`
+alias for every mounted component regardless of whether its bare name
+collides, a `checkMountCollisions` error for `"Accordion"` can always be
+resolved immediately by switching the ambiguous call sites to the alias (or
+to `<component is="radix/Accordion">`) without waiting on a design change —
+the disambiguation mechanism already exists by the time the error is ever
+seen. `New` additionally validates `Mount.Prefix` uniqueness eagerly (a
+duplicate `Prefix` across two `Mounts` entries is rejected at construction
+time with a plain `error`, not deferred to `ValidateAll()`), since two mounts
+sharing a prefix would make their own aliases collide with each other — a
+narrower, purely-authoring-time mistake that does not need `ValidateAll`'s
+full-registry-scan treatment to catch.
 
 ### 4.3 Foreign/native custom element passthrough
 
@@ -692,8 +779,11 @@ prerequisites rather than deferred cleanup:
 
 | Syntax | Meaning |
 |---|---|
-| `Options.Mounts = []Mount{{Prefix: "radix", FS: radixlib.FS(), Dir: "components"}}` | Registers a second, independently-sourced component tree, addressable under the `radix/` prefix alongside the primary `ComponentDir` |
-| `<component is="radix/Accordion">...</component>` | Explicit reference into a specific mount, unaffected by proximity or naming collisions with the local tree (existing syntax; behavior fixed per §4.7 item 1) |
+| `Options.Mounts = []Mount{{Prefix: "radix", FS: radixlib.FS(), Dir: "components"}}` | Registers a second, independently-sourced component tree. Its components resolve as `<Accordion>` (unqualified) whenever the bare name is unambiguous, plus two always-available aliases (below) for disambiguation |
+| `<Accordion>...</Accordion>` (component sourced from a mount) | Works exactly like any other component reference — proximity, then flat-registry fallback — with no mount-specific syntax needed, as long as the bare name is unambiguous |
+| `<RadixAccordion>...</RadixAccordion>` | Auto-registered PascalCase alias (`Mount.Prefix` + local name) for a mounted component; resolves reliably even when the bare `Accordion` name collides with a local component |
+| `<radix-accordion>...</radix-accordion>` | Auto-registered kebab-case alias for the same mounted component — identical derivation to the custom-element tag algorithm (`deriveCustomElementTag`); always unambiguously component-like due to its hyphen |
+| `<component is="radix/Accordion">...</component>` | Explicit, fully-qualified reference into a specific mount; primarily useful when constructing a reference dynamically (`<component :is="expr">`) rather than as a literal tag (existing syntax; behavior fixed per §4.7 item 1) |
 | `Options.NativeElements = []string{"turbo-frame", "turbo-stream"}` | Declares specific hyphenated tags as native HTML, never resolved against the component registry |
 | `<turbo-frame id="todos">...</turbo-frame>` | Renders as a plain native element (attributes/children evaluated normally) when `turbo-frame` is declared in `NativeElements`; otherwise fails with `unknown component` as today |
 | `:hx-swap-oob="isOOB"` | Omits the `hx-swap-oob` attribute entirely when `isOOB` is `false`/`nil`/`undefined`; renders `hx-swap-oob="true"` otherwise — works for any attribute name, not just the eight native HTML boolean attributes |
@@ -722,7 +812,7 @@ engine, _ := htmlc.New(htmlc.Options{ComponentDir: "templates/"})
 
 No `Mounts`, no `NativeElements`, no behavior change.
 
-### Example 2 — Vendoring the library, with collision-free namespacing
+### Example 2 — Vendoring the library, referenced directly, no special syntax needed
 
 ```
 // third-party module: github.com/example/radix-htmlc
@@ -747,19 +837,22 @@ engine, err := htmlc.New(htmlc.Options{
 ```vue
 <!-- templates/HomePage.vue -->
 <template>
-  <component is="radix/Accordion" :items="faqItems" />
+  <Accordion :items="faqItems" />
 </template>
 ```
 
-If `templates/` also happens to define its own `Accordion.vue`, an
-unqualified `<Accordion>` anywhere in `templates/` still resolves to the
-*local* one via proximity (RFC 001 behavior, unchanged); only the explicit
-`<component is="radix/Accordion">` reaches the vendored one. `ValidateAll()`
-reports no conflict here because the two `Accordion` names are only ever
-reached through disambiguated, mount-qualified paths in this example — see
-Example 3 for the case where a genuine ambiguity exists.
+`templates/` has no `Accordion.vue` of its own, so the bare `<Accordion>` tag
+resolves unambiguously to the vendored one — exactly the same resolution
+that already happens today for any single-source project (§4.1's mounts add
+a second source to search, they do not change how an unqualified tag is
+looked up). `<RadixAccordion :items="faqItems" />`,
+`<radix-accordion :items="faqItems" />`, and
+`<component is="radix/Accordion" :items="faqItems" />` all resolve to the
+exact same component in this example too — an author is free to use one of
+the qualified forms to make a vendored dependency visually explicit in a
+template, but nothing about this example *requires* it.
 
-### Example 3 — A genuine collision, caught at validation time
+### Example 3 — A genuine collision, caught at validation time and resolved via an alias
 
 ```
 templates/
@@ -776,11 +869,25 @@ engine, _ := htmlc.New(htmlc.Options{
 })
 if errs := engine.ValidateAll(); len(errs) > 0 {
     // reports: component name "Accordion" is ambiguous across mounts ""
-    // and "radix" — no conflict today, since templates/Accordion.vue
-    // shadows the vendored one via proximity for every caller in
-    // templates/. Only truly unreachable-except-by-flat-fallback
-    // collisions are reported (see §4.2).
+    // and "radix" — no *resolution* conflict exists for the callers in this
+    // example specifically, since templates/Accordion.vue shadows the
+    // vendored one via proximity for every caller in templates/, but the
+    // flat-registry entry itself is still ambiguous (see §4.2) — a future
+    // template added outside templates/'s own proximity reach would
+    // silently fall through to whichever one lexical order visits last.
 }
+```
+
+Once the collision is reported, fixing every genuinely ambiguous call site
+is immediate — no design work required, since the aliases already exist:
+
+```vue
+<!-- templates/HomePage.vue — was <Accordion>, now unambiguous -->
+<template>
+  <RadixAccordion :items="faqItems" />
+  <!-- or: <radix-accordion :items="faqItems" />
+       or: <component is="radix/Accordion" :items="faqItems" /> -->
+</template>
 ```
 
 ### Example 4 — htmx: fragment vs. full page, with an out-of-band swap and no duplicate styles
@@ -859,21 +966,28 @@ High-level Go-level changes only, grouped by file:
 1. **`Options`**: add `Mounts []Mount` (§4.1) and `NativeElements []string`
    (§4.3).
 2. **`Mount` type**: new exported struct (`Prefix`, `FS`, `Dir`).
-3. **`New`**: when `Mounts` is non-empty, build an internal union `fs.FS`
-   (new file, `unionfs.go`) wrapping `Options.FS`/`ComponentDir` at `""` and
-   each mount at `Prefix + "/"`; use the union as the effective `opts.FS`,
-   `""` as the effective `ComponentDir`. Track each registered entry's mount
-   identity (extend `engineEntry` with a `mountID string` field) for §4.2.
-4. **`ValidateAll`**: add the cross-mount collision check from §4.2 when
+3. **`New`**: when `Mounts` is non-empty, first validate all `Mount.Prefix`
+   values are unique (return a plain `error` immediately if not, per §4.2);
+   then build an internal union `fs.FS` (new file, `unionfs.go`) wrapping
+   `Options.FS`/`ComponentDir` at `""` and each mount at `Prefix + "/"`; use
+   the union as the effective `opts.FS`, `""` as the effective
+   `ComponentDir`. Track each registered entry's mount identity (extend
+   `engineEntry` with a `mountID string` field) for §4.2.
+4. **`registerPathLocked`/`discoverInto`**: after registering a component
+   discovered under a mount prefix, also register its two aliases (§4.1
+   "Automatic mount aliases") into `entries`, each carrying the same
+   `mountID` as the primary entry, at lower priority than an exact local
+   registration (i.e. never overwrite an existing entry of the same name).
+5. **`ValidateAll`**: add the cross-mount collision check from §4.2 when
    `Mounts` is non-empty; unaffected otherwise.
-5. **`NewStyleCollector`** (new method, §4.5): constructs and returns a
+6. **`NewStyleCollector`** (new method, §4.5): constructs and returns a
    `*StyleCollector` for reuse across calls.
-6. **`RenderFragmentWithStyles`** (new method, §4.5): parallels
+7. **`RenderFragmentWithStyles`** (new method, §4.5): parallels
    `RenderFragment` but threads a caller-supplied `*StyleCollector` through
    instead of allocating a fresh one, and skips already-emitted style blocks
    the same way `CustomElementCollector.Add` (`customelement_collector.go:61-76`)
    already dedups scripts by content hash.
-7. **`component.go:133-140` hyphen check**: move (or duplicate) this check
+8. **`component.go:133-140` hyphen check**: move (or duplicate) this check
    to run against the final tag computed in `discoverInto`
    (`engine.go:305-317`) / `registerPathLocked` (`engine.go:395-407`) — §4.7
    item 2.
@@ -951,6 +1065,19 @@ Unchanged signature and semantics. Still resolves through the engine's own
 change is needed here at all; `Register` automatically gains the ability to
 reach mounted paths once `Mounts` is set, at no cost to callers who never set
 it.
+
+### Automatic mount aliases (§4.1)
+
+New flat-registry entries (`RadixAccordion`, `radix-accordion`, …) are only
+ever created when `Options.Mounts` is non-empty, and only ever inserted at
+lower priority than an exact local registration (§4.1). A project with no
+`Mounts` sees zero new registry entries and zero change to any existing
+name's resolution. A project that *does* set `Mounts` could, in principle,
+already have a local component whose name happens to match a newly
+auto-generated alias (e.g. a local `RadixAccordion.vue` that is entirely
+unrelated to the vendored library) — this is caught by the same collision
+check as any other name collision (§4.2) rather than silently overwritten,
+since aliases never take priority over an exact local registration.
 
 ### `RenderFragment`/`RenderPage`
 
@@ -1031,6 +1158,30 @@ reasonable **complementary** option for projects that specifically want a
 single frozen tree with no runtime `fs.FS` composition (e.g. producing a
 fully static, dependency-free build artifact) — worth a narrower follow-up
 RFC if there's demand, but not needed to solve the problem this RFC targets.
+
+### Relying solely on `<component is="mount/Name">` for disambiguation, no aliases
+
+An earlier version of this design treated the explicit-path form as the only
+supported way to reference a mounted component, on the theory that it is
+unambiguous and already exists. **Rejected**: it makes the disambiguated case
+(which, in practice, is exactly the case an author is most likely to hit
+while composing a template by hand) markedly worse to author than an
+ordinary component reference, for no benefit — a plain aliased tag name
+(§4.1) is exactly as unambiguous and reads like every other component tag in
+the template. `<component is="...">` remains supported and useful for
+dynamically-constructed references, but is no longer the primary mechanism.
+
+### Picking a single alias naming convention instead of registering both
+
+Considered generating only a PascalCase alias (matching Nuxt) or only a
+kebab-case alias (matching the existing custom-element tag convention), not
+both. **Rejected**: there is no correctness reason to prefer one over the
+other — they are both derived deterministically from `Mount.Prefix` and the
+local name, cost nothing to register when unused, and different authors
+reasonably prefer different tag conventions in different parts of a
+template (PascalCase alongside other components; kebab-case alongside
+literal custom-element tags). Registering both avoids forcing a house style
+that this RFC has no principled basis for choosing.
 
 ### `Registry` as a first-class interface
 
@@ -1116,14 +1267,18 @@ hypermedia library isn't blocked on an `htmlc` release.
    subsumed entirely. Left open for implementation-time design rather than
    fixed here, since it doesn't change any of this RFC's public
    compatibility guarantees either way.
-6. **Should a component-package author be able to express an intentional
-   same-name override** (non-blocking) — e.g. "yes, I know `radix/Accordion`
-   and my local `Accordion` share a name; prefer the local one by default
-   without requiring every call site to use `<component is="/Accordion">`
-   explicitly"? Not addressed by this RFC; explicit-path addressing (already
-   existing syntax, fixed per §4.7) is the only disambiguation mechanism
-   proposed. A convenience default-preference mechanism could be a narrow
-   follow-up if this proves to be common friction in practice.
+6. **Same-name override** (resolved by §4.1's alias mechanism): an earlier
+   draft of this RFC left open whether an author needs a way to say "yes, I
+   know `radix/Accordion` and my local `Accordion` share a name; prefer the
+   local one by default without requiring every ambiguous call site to use
+   `<component is="/Accordion">` explicitly." The proximity walk already
+   gives local components priority for any caller within the local tree
+   (RFC 001, unchanged) — an unqualified `<Accordion>` never needs an
+   override to prefer the local file — and every ambiguous, non-local call
+   site now has three ordinary-looking alternatives (`<RadixAccordion>`,
+   `<radix-accordion>`, `<component is="radix/Accordion">`) rather than
+   needing a "prefer local" override at all. No further mechanism is
+   proposed.
 7. **Should external directives (the NDJSON subprocess protocol) gain a
    request-time, not just build-time, story** (blocking scope decision, but
    deferred to a follow-up RFC rather than blocking this one): §1.1 notes
@@ -1158,3 +1313,18 @@ hypermedia library isn't blocked on an `htmlc` release.
    `hypermedia/datastar.go` as documentation/example code only (as shown in
    §6 Example 6) rather than a dependency-carrying package, until there's
    clear demand for a maintained wrapper.
+10. **Multi-segment mount subdirectories and alias derivation** (non-blocking,
+    §4.1): how should the PascalCase/kebab aliases be derived for a component
+    nested inside subdirectories of a mount (e.g. `radix/dialog/Trigger.vue`,
+    not `radix/Trigger.vue`)? Two options: (a) concatenate every path
+    segment (`RadixDialogTrigger`/`radix-dialog-trigger`), or (b) use only
+    `Prefix + localName`, ignoring intermediate directories
+    (`RadixTrigger`/`radix-trigger`), which risks a second collision — this
+    time between the aliases themselves — if the same mount also has
+    `radix/menu/Trigger.vue`. Recommendation: (a), full-path concatenation —
+    this is the same open concern RFC 001 §4.6 already flagged for its own,
+    narrower nested-directory aliasing case, and resolving it consistently
+    in both places is preferable to two different conventions. The common
+    case — a mount with no internal subdirectories — is unaffected either
+    way, since `Prefix + localName` and the full-path form coincide when
+    there are no intermediate segments.
