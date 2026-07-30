@@ -1078,3 +1078,178 @@ func TestRenderPage_InspectorFallback_NoBodyTag(t *testing.T) {
 		t.Errorf("expected 'htmlc-inspector' in fallback output, got: %q", out)
 	}
 }
+
+// --- Options.NativeElements / v-native (RFC 014 §4.3) ---
+
+func TestEngine_NativeElements_Allowlist(t *testing.T) {
+	// A hyphenated tag declared in Options.NativeElements renders as plain
+	// HTML: attributes/children are evaluated normally and v-if is honored,
+	// with no registry lookup and no "unknown component" error.
+	memFS := fstest.MapFS{
+		"Page.vue": &fstest.MapFile{Data: []byte(
+			`<template><div><turbo-frame :id="id" v-if="show">{{ label }}</turbo-frame></div></template>`,
+		)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: ".", NativeElements: []string{"turbo-frame"}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString(context.Background(), "Page", map[string]any{"id": "todos", "label": "Todos", "show": true})
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, `<turbo-frame id="todos">Todos</turbo-frame>`) {
+		t.Errorf("got %q, want literal <turbo-frame> with evaluated attribute/content", out)
+	}
+
+	// v-if honored: false hides the element entirely.
+	out, err = e.RenderFragmentString(context.Background(), "Page", map[string]any{"id": "todos", "label": "Todos", "show": false})
+	if err != nil {
+		t.Fatalf("RenderFragmentString (show=false): %v", err)
+	}
+	if strings.Contains(out, "turbo-frame") {
+		t.Errorf("got %q, want turbo-frame omitted when v-if is false", out)
+	}
+}
+
+func TestEngine_NativeElements_UnlistedHyphenatedTagStillErrors(t *testing.T) {
+	// A hyphenated tag that is neither in Options.NativeElements nor marked
+	// v-native must still fail exactly as today: this guards against
+	// silently widening the passthrough into inert markup for what is
+	// probably a typo'd/missing component reference (RFC 014 §4.3 Option B).
+	memFS := fstest.MapFS{
+		"Page.vue": &fstest.MapFile{Data: []byte(`<template><my-crad></my-crad></template>`)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = e.RenderFragmentString(context.Background(), "Page", nil)
+	if err == nil {
+		t.Fatal("expected error for unlisted hyphenated tag, got nil")
+	}
+	if !strings.Contains(err.Error(), `unknown component: "my-crad"`) {
+		t.Errorf("got error %q, want it to mention unknown component \"my-crad\"", err.Error())
+	}
+}
+
+func TestEngine_VNative_PerElementEscapeHatch(t *testing.T) {
+	// v-native marks a single element as native HTML without any project-wide
+	// Options.NativeElements entry; the attribute itself must not leak into
+	// the rendered output, while ordinary attributes still do.
+	memFS := fstest.MapFS{
+		"Page.vue": &fstest.MapFile{Data: []byte(
+			`<template><my-one-off-widget v-native data-config="x">{{ msg }}</my-one-off-widget></template>`,
+		)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := e.RenderFragmentString(context.Background(), "Page", map[string]any{"msg": "hi"})
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if strings.Contains(out, "v-native") {
+		t.Errorf("got %q, want v-native stripped from output", out)
+	}
+	if !strings.Contains(out, `data-config="x"`) {
+		t.Errorf("got %q, want data-config attribute preserved", out)
+	}
+	if !strings.Contains(out, "<my-one-off-widget") || !strings.Contains(out, "hi") {
+		t.Errorf("got %q, want element rendered as plain HTML with evaluated content", out)
+	}
+}
+
+func TestEngine_NativeElements_CaseInsensitive(t *testing.T) {
+	// Options.NativeElements entries are matched case-insensitively so a
+	// mixed-case config value ("Turbo-Frame") still matches the lowercase
+	// tag name the HTML parser produces for a literal <turbo-frame>.
+	memFS := fstest.MapFS{
+		"Page.vue": &fstest.MapFile{Data: []byte(`<template><turbo-frame id="todos"></turbo-frame></template>`)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: ".", NativeElements: []string{"Turbo-Frame"}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, `<turbo-frame id="todos"></turbo-frame>`) {
+		t.Errorf("got %q, want literal turbo-frame element despite mixed-case allowlist entry", out)
+	}
+}
+
+func TestEngine_NativeElements_ChildComponentsStillResolve(t *testing.T) {
+	// Native-element passthrough only affects the element's own tag
+	// resolution; a real component nested inside a native element must still
+	// resolve normally through the registry.
+	memFS := fstest.MapFS{
+		"Badge.vue": &fstest.MapFile{Data: []byte(`<template><span>{{ text }}</span></template>`)},
+		"Page.vue": &fstest.MapFile{Data: []byte(
+			`<template><turbo-frame id="todos"><Badge :text="'new'" /></turbo-frame></template>`,
+		)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: ".", NativeElements: []string{"turbo-frame"}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, "<span>new</span>") {
+		t.Errorf("got %q, want child component Badge rendered inside native element", out)
+	}
+	if !strings.Contains(out, "<turbo-frame") {
+		t.Errorf("got %q, want turbo-frame wrapper preserved", out)
+	}
+}
+
+func TestEngine_VNative_WithVPre(t *testing.T) {
+	// v-native combined with v-pre on the same element: v-pre's verbatim
+	// rendering path must still strip v-native (and v-pre itself) from the
+	// emitted attributes, while leaving the rest of the element (including
+	// un-evaluated interpolation syntax) untouched.
+	memFS := fstest.MapFS{
+		"Page.vue": &fstest.MapFile{Data: []byte(
+			`<template><my-widget v-native v-pre data-x="{{ notEvaluated }}"></my-widget></template>`,
+		)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if strings.Contains(out, "v-native") || strings.Contains(out, "v-pre") {
+		t.Errorf("got %q, want both v-native and v-pre stripped from output", out)
+	}
+	if !strings.Contains(out, `data-x="{{ notEvaluated }}"`) {
+		t.Errorf("got %q, want v-pre to leave interpolation syntax unevaluated verbatim", out)
+	}
+}
+
+func TestEngine_NativeElements_NoConfigNoBehaviorChange(t *testing.T) {
+	// A project that sets neither NativeElements nor ever uses v-native sees
+	// zero behavior change: a hyphenated tag not in the registry still fails
+	// with "unknown component", matching pre-existing behavior exactly.
+	memFS := fstest.MapFS{
+		"Page.vue": &fstest.MapFile{Data: []byte(`<template><some-widget></some-widget></template>`)},
+	}
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = e.RenderFragmentString(context.Background(), "Page", nil)
+	if err == nil {
+		t.Fatal("expected error for unresolved hyphenated tag with no NativeElements configured, got nil")
+	}
+	if !strings.Contains(err.Error(), `unknown component: "some-widget"`) {
+		t.Errorf("got error %q, want it to mention unknown component \"some-widget\"", err.Error())
+	}
+}

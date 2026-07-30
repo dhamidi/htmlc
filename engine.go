@@ -115,6 +115,20 @@ type Options struct {
 	// detection (erroring instead of silently picking a winner) is not
 	// implemented yet.
 	Mounts []Mount
+	// NativeElements lists hyphenated tag names that must never be resolved
+	// against the component registry, even though they contain a hyphen.
+	// Their attributes and children render exactly as a normal HTML element's
+	// would (expressions evaluated, v-if/v-for honored, no component lookup).
+	// Unlisted hyphenated tags retain today's behavior: resolve against the
+	// registry, or fail with "unknown component" if not found.
+	//
+	// Matching is case-insensitive; the HTML parser already lowercases tag
+	// names, but entries here are lowercased defensively too.
+	//
+	// For a one-off foreign tag that doesn't warrant a permanent, project-wide
+	// entry here, use the per-element v-native attribute instead (see the
+	// README/RFC for details); the two mechanisms are complementary.
+	NativeElements []string
 }
 
 // Mount registers an additional, independently-sourced component tree
@@ -1401,6 +1415,9 @@ func (e *Engine) renderComponentWithCollector(ctx context.Context, w io.Writer, 
 	}
 	if len(e.mountPrefixes) > 0 {
 		renderer = renderer.WithMountPrefixes(e.mountPrefixes)
+	}
+	if len(e.opts.NativeElements) > 0 {
+		renderer = renderer.WithNativeElements(e.opts.NativeElements)
 	}
 
 	scope := e.applyScope(data, renderFuncs)

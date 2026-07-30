@@ -156,6 +156,7 @@ type Renderer struct {
 	nsRegistry            map[string]map[string]*Component // nil = NS resolution disabled
 	componentDir          string                           // ComponentDir for NS relative-path computation
 	mountPrefixes         []string                         // registered Mount.Prefix values; lets callerDir root a mount-sourced component at its own mount instead of componentDir
+	nativeElements        map[string]bool                  // lowercased Options.NativeElements tag names; nil/empty = no project-wide allowlist
 	missingPropHandler    MissingPropFunc
 	slotDefs              map[string]*SlotDefinition
 	directives            DirectiveRegistry
@@ -228,6 +229,28 @@ func (r *Renderer) WithNSComponents(ns map[string]map[string]*Component, compone
 func (r *Renderer) WithMountPrefixes(prefixes []string) *Renderer {
 	r.mountPrefixes = prefixes
 	return r
+}
+
+// WithNativeElements attaches the set of hyphenated tag names (from
+// Options.NativeElements) that must never be resolved against the component
+// registry. Names are lowercased when stored so that a mixed-case entry
+// (e.g. "Turbo-Frame") still matches the lowercase tag names the HTML parser
+// produces. Returns the Renderer for chaining.
+func (r *Renderer) WithNativeElements(names []string) *Renderer {
+	m := make(map[string]bool, len(names))
+	for _, name := range names {
+		m[strings.ToLower(name)] = true
+	}
+	r.nativeElements = m
+	return r
+}
+
+// isNativeElement reports whether tagName is declared native via
+// Options.NativeElements, i.e. it must never be resolved against the
+// component registry even though it contains a hyphen. Matching is
+// case-insensitive.
+func (r *Renderer) isNativeElement(tagName string) bool {
+	return r.nativeElements[strings.ToLower(tagName)]
 }
 
 // WithMissingPropHandler sets a handler that is called when a prop referenced
@@ -762,8 +785,8 @@ type outAttr struct {
 }
 
 // renderRaw serializes n and its descendants verbatim, without any directive
-// processing or interpolation. The v-pre attribute itself is stripped from the
-// root element's output. Used by v-pre.
+// processing or interpolation. The v-pre and v-native attributes themselves
+// are stripped from output wherever they appear in the subtree. Used by v-pre.
 func (r *Renderer) renderRaw(w io.Writer, n *html.Node) {
 	switch n.Type {
 	case html.TextNode:
@@ -777,8 +800,8 @@ func (r *Renderer) renderRaw(w io.Writer, n *html.Node) {
 		w.Write([]byte{'<'})
 		io.WriteString(w, n.Data)
 		for _, attr := range n.Attr {
-			if attr.Key == "v-pre" {
-				continue // strip v-pre directive from output
+			if attr.Key == "v-pre" || attr.Key == "v-native" {
+				continue // strip v-pre/v-native directives from output
 			}
 			w.Write([]byte{' '})
 			io.WriteString(w, attr.Key)
@@ -1184,7 +1207,12 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		return r.renderComponentElement(w, working, scope, comp)
 	}
 	// Unknown component-like tag (kebab-case with hyphen, not in registry).
-	if r.registry != nil && isComponentLike(working.Data) {
+	// A tag declared native via Options.NativeElements, or marked v-native on
+	// this element, is explicitly opted out of component resolution and falls
+	// through to the normal element-rendering path below instead of erroring.
+	_, hasVNative := attrValue(working, "v-native")
+	if r.registry != nil && isComponentLike(working.Data) &&
+		!r.isNativeElement(working.Data) && !hasVNative {
 		return fmt.Errorf("unknown component: %q", working.Data)
 	}
 
@@ -1210,6 +1238,10 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 			vShowExpr = attr.Val
 		case "v-once":
 			// server-side: render normally; consume directive, don't emit
+		case "v-native":
+			// consumed by the native-element check above; never emitted as a
+			// literal attribute, regardless of whether it (or the project-wide
+			// Options.NativeElements allowlist) is what let this element through
 		case "v-model":
 			// strip: no meaning in server-side rendering
 		case "v-bind":
@@ -1696,7 +1728,7 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		// Directives that have already been consumed or don't apply to components.
 		switch attr.Key {
 		case "v-if", "v-else-if", "v-else", "v-for",
-			"v-pre", "v-once", "v-show", "v-text", "v-html",
+			"v-pre", "v-once", "v-show", "v-text", "v-html", "v-native",
 			"v-model", "v-bind", "v-switch", "v-case", "v-default":
 			continue
 		}

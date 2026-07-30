@@ -761,6 +761,63 @@ func TestRender_ComponentUnknown(t *testing.T) {
 	}
 }
 
+func TestRender_WithNativeElements_AllowlistedTagPassesThrough(t *testing.T) {
+	// A hyphenated tag declared via WithNativeElements renders as plain HTML
+	// instead of failing with "unknown component".
+	main := mustParseComponent(t, "main.vue", `<turbo-frame :id="id">{{ label }}</turbo-frame>`)
+	out, err := NewRenderer(main).WithComponents(Registry{}).WithNativeElements([]string{"turbo-frame"}).
+		RenderString(map[string]any{"id": "todos", "label": "Todos"})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, `<turbo-frame id="todos">Todos</turbo-frame>`) {
+		t.Errorf("got %q, want literal <turbo-frame> element", out)
+	}
+}
+
+func TestRender_WithNativeElements_CaseInsensitiveMatch(t *testing.T) {
+	// A mixed-case entry in WithNativeElements still matches the lowercase
+	// tag name the HTML parser produces.
+	main := mustParseComponent(t, "main.vue", `<turbo-frame></turbo-frame>`)
+	out, err := NewRenderer(main).WithComponents(Registry{}).WithNativeElements([]string{"Turbo-Frame"}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<turbo-frame></turbo-frame>") {
+		t.Errorf("got %q, want literal <turbo-frame> element", out)
+	}
+}
+
+func TestRender_VNative_StripsAttributeButNotOthers(t *testing.T) {
+	// v-native alone (no WithNativeElements) lets an unregistered hyphenated
+	// tag through, and the v-native attribute itself never appears in output.
+	main := mustParseComponent(t, "main.vue", `<my-one-off-widget v-native data-config="x"></my-one-off-widget>`)
+	out, err := NewRenderer(main).WithComponents(Registry{}).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(out, "v-native") {
+		t.Errorf("got %q, want v-native stripped from output", out)
+	}
+	if !strings.Contains(out, `data-config="x"`) {
+		t.Errorf("got %q, want data-config preserved", out)
+	}
+}
+
+func TestRender_VNative_WithoutRegistry_UnaffectedByAllowlistedTagCheck(t *testing.T) {
+	// Sanity check: when no registry is attached at all (r.registry == nil),
+	// the isComponentLike check never fires and hyphenated tags already pass
+	// through today; WithNativeElements/v-native must not change that.
+	main := mustParseComponent(t, "main.vue", `<turbo-frame></turbo-frame>`)
+	out, err := NewRenderer(main).RenderString(nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "<turbo-frame></turbo-frame>") {
+		t.Errorf("got %q, want literal <turbo-frame> element", out)
+	}
+}
+
 func TestRender_ComponentNested(t *testing.T) {
 	// A component's template may use other components from the same registry.
 	inner := mustParseComponent(t, "inner.vue", `<em>{{ text }}</em>`)
