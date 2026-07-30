@@ -12,12 +12,12 @@ func TestFS_ReturnsNonNil(t *testing.T) {
 	}
 }
 
-func TestFS_PlaceholderComponentReadable(t *testing.T) {
-	data, err := fs.ReadFile(FS(), "components/Placeholder.vue")
+func TestFS_AccordionComponentReadable(t *testing.T) {
+	data, err := fs.ReadFile(FS(), "components/Accordion.vue")
 	if err != nil {
-		t.Fatalf("fs.ReadFile(components/Placeholder.vue) failed: %v", err)
+		t.Fatalf("fs.ReadFile(components/Accordion.vue) failed: %v", err)
 	}
 	if len(data) == 0 {
-		t.Fatal("components/Placeholder.vue read back empty content")
+		t.Fatal("components/Accordion.vue read back empty content")
 	}
 }
