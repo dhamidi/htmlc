@@ -137,12 +137,12 @@ func TestMounts_RegisterManual_MountAddressedPath(t *testing.T) {
 
 // TestMounts_RegisterManual_TagDerivation_MatchesAutoDiscovery confirms a
 // manually Register()'d mount path derives its custom-element tag the same
-// way discoverMountInto's automatic walk would (stripped of Mount.Prefix,
-// e.g. "accordion" not "radix-accordion") — self-review finding: without
-// mountID-aware stripping in registerPathLocked, a manually registered mount
-// path would derive its tag relative to ComponentDir (which never strips
-// anything from a mount path), producing an inconsistent tag compared to the
-// same file discovered automatically.
+// way discoverMountInto's automatic walk would (including Mount.Prefix,
+// e.g. "radix-accordion" not the hyphen-less, spec-invalid "accordion") —
+// self-review finding: without mountID-aware handling in registerPathLocked,
+// a manually registered mount path would derive its tag relative to
+// ComponentDir (which never strips anything from a mount path), producing an
+// inconsistent tag compared to the same file discovered automatically.
 func TestMounts_RegisterManual_TagDerivation_MatchesAutoDiscovery(t *testing.T) {
 	primary := fstest.MapFS{
 		"templates/Page.vue": &fstest.MapFile{Data: []byte(`<template><div>page</div></template>`)},
@@ -170,8 +170,8 @@ export default {}
 	e.mu.RLock()
 	autoTag := e.entries["Accordion"].comp.CustomElementTag
 	e.mu.RUnlock()
-	if autoTag != "accordion" {
-		t.Fatalf("auto-discovered tag = %q, want %q (sanity check)", autoTag, "accordion")
+	if autoTag != "radix-accordion" {
+		t.Fatalf("auto-discovered tag = %q, want %q (sanity check)", autoTag, "radix-accordion")
 	}
 
 	// Manually registered under a different flat name, same mount path.
@@ -609,5 +609,108 @@ func TestMounts_Register_And_Reload_UnchangedForPrimary_AndWorkForMounts(t *test
 	}
 	if !strings.Contains(out, "mounted") {
 		t.Errorf("got %q, want manually-registered mount component", out)
+	}
+}
+
+// TestMounts_CustomElementTag_MatchesAlias is the end-to-end regression test
+// for the bug fixed by this commit: discoverMountInto and registerPathLocked
+// used to derive a mounted component's CustomElementTag by stripping
+// Mount.Prefix from its path, producing e.g. "accordion" for a
+// no-subdirectory mount component — a hyphen-less tag that is invalid per
+// the Custom Elements spec (customElements.define('accordion', ...) throws
+// in a real browser) and, per RFC 014 §4.1, must instead be the exact same
+// string as the component's own automatic kebab-case alias.
+//
+// This test covers both the no-subdirectory case (radix/Accordion.vue,
+// exactly the scenario that previously produced the invalid hyphen-less
+// "accordion" tag) and the nested-subdirectory case (radix/dialog/Trigger.vue),
+// confirming via a real RenderFragment round-trip that the rendered wrapper
+// tag is "prefix-name" (matching the alias), and that ValidateAll() reports
+// no hyphen-validity warning for either.
+func TestMounts_CustomElementTag_MatchesAlias(t *testing.T) {
+	const ceScript = `<script customelement>
+export default {}
+</script>
+`
+	radix := fstest.MapFS{
+		"Accordion.vue": &fstest.MapFile{Data: []byte(
+			`<template><div>accordion body</div></template>` + "\n" + ceScript)},
+		"dialog/Trigger.vue": &fstest.MapFile{Data: []byte(
+			`<template><button>trigger body</button></template>` + "\n" + ceScript)},
+	}
+
+	e, err := New(Options{
+		Mounts: []Mount{
+			{Prefix: "radix", FS: radix},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// No-subdirectory case: radix/Accordion.vue.
+	e.mu.RLock()
+	accordionEntry := e.entries["Accordion"]
+	accordionAliasEntry := e.entries["radix-accordion"]
+	e.mu.RUnlock()
+	if accordionEntry == nil || accordionAliasEntry == nil {
+		t.Fatalf("expected both bare and alias entries for Accordion to be registered")
+	}
+	if accordionEntry != accordionAliasEntry {
+		t.Fatalf("bare and alias entries for Accordion must be the same *engineEntry")
+	}
+	if got, want := accordionEntry.comp.CustomElementTag, "radix-accordion"; got != want {
+		t.Errorf("Accordion CustomElementTag = %q, want %q (matching its own alias)", got, want)
+	}
+	if accordionEntry.comp.CustomElementTag != "radix-accordion" {
+		t.Errorf("CustomElementTag must equal the kebab alias exactly: tag=%q alias=%q",
+			accordionEntry.comp.CustomElementTag, "radix-accordion")
+	}
+
+	out, err := e.RenderFragmentString(context.Background(), "Accordion", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString(Accordion): %v", err)
+	}
+	if !strings.Contains(out, "<radix-accordion>") || !strings.Contains(out, "</radix-accordion>") {
+		t.Errorf("rendered output = %q, want it wrapped in <radix-accordion>...</radix-accordion>", out)
+	}
+	if strings.Contains(out, "<accordion>") {
+		t.Errorf("rendered output = %q, must not contain the old, invalid hyphen-less <accordion> wrapper", out)
+	}
+
+	// Nested-subdirectory case: radix/dialog/Trigger.vue.
+	e.mu.RLock()
+	triggerEntry := e.entries["Trigger"]
+	triggerAliasEntry := e.entries["radix-dialog-trigger"]
+	e.mu.RUnlock()
+	if triggerEntry == nil || triggerAliasEntry == nil {
+		t.Fatalf("expected both bare and alias entries for Trigger to be registered")
+	}
+	if triggerEntry != triggerAliasEntry {
+		t.Fatalf("bare and alias entries for Trigger must be the same *engineEntry")
+	}
+	// Assert CustomElementTag == kebabAlias directly (string-equal, not just
+	// "also has a hyphen").
+	kebabAlias := "radix-dialog-trigger"
+	if triggerEntry.comp.CustomElementTag != kebabAlias {
+		t.Errorf("Trigger CustomElementTag = %q, want it to equal its own alias %q exactly",
+			triggerEntry.comp.CustomElementTag, kebabAlias)
+	}
+
+	out, err = e.RenderFragmentString(context.Background(), "Trigger", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString(Trigger): %v", err)
+	}
+	if !strings.Contains(out, "<radix-dialog-trigger>") || !strings.Contains(out, "</radix-dialog-trigger>") {
+		t.Errorf("rendered output = %q, want it wrapped in <radix-dialog-trigger>...</radix-dialog-trigger>", out)
+	}
+
+	// ValidateAll() must report no hyphen-validity warning for either
+	// component — the old bug's stripped "accordion" tag would have tripped
+	// customElementHyphenWarning (added by an earlier commit in this series).
+	for _, ve := range e.ValidateAll() {
+		if strings.Contains(ve.Message, "no hyphen") {
+			t.Errorf("ValidateAll() reported an unexpected hyphen-validity warning: %+v", ve)
+		}
 	}
 }

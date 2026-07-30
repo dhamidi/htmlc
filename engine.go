@@ -696,12 +696,16 @@ func mountRelDirFor(prefixes []string, path string) (string, bool) {
 // exactly like the explicit-path form's target `radix/dialog/Trigger` is
 // keyed in nsEntries by its own directory rather than by the alias.
 //
-// Custom-element tag derivation uses mount.Prefix as the effective
-// "ComponentDir", mirroring registerInto's own ComponentDir-relative
-// derivation exactly — so a mounted "radix/dialog/Trigger.vue" derives the
-// same tag a local "dialog/Trigger.vue" would relative to its own
-// ComponentDir (i.e. mount.Prefix itself is stripped and never appears in
-// the tag).
+// Custom-element tag derivation deliberately does NOT strip mount.Prefix,
+// unlike registerInto's own ComponentDir-relative derivation for the primary
+// source. RFC 014 §4.1 requires a mounted component's CustomElementTag to be
+// the exact same string as its automatic kebab-case alias (below) — "a
+// mounted component's template-reference alias and the tag it would render
+// as if it opted into <script customelement> are, by construction, the same
+// string." So a mounted "radix/Accordion.vue" derives the tag
+// "radix-accordion" (matching its "radix-accordion" alias), not the
+// hyphen-less, spec-invalid "accordion" that stripping mount.Prefix would
+// produce.
 //
 // nsEntries keying is intentionally *not* stripped of mount.Prefix — see
 // mountRelDirFor's doc comment for why the union-relative directory (e.g.
@@ -711,7 +715,6 @@ func mountRelDirFor(prefixes []string, path string) (string, bool) {
 // overwritten if Mount.Prefix happens to collide with a real top-level
 // directory name already present under ComponentDir.
 func (e *Engine) discoverMountInto(mount Mount, entries map[string]*engineEntry, nsEntries map[string]map[string]*engineEntry, mountIDs map[string][]string) error {
-	prefix := mount.Prefix + "/"
 	return fs.WalkDir(e.opts.FS, mount.Prefix, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -735,11 +738,10 @@ func (e *Engine) discoverMountInto(mount Mount, entries map[string]*engineEntry,
 			return err
 		}
 		if comp.CustomElementTag != "" {
-			relPath := path
-			if strings.HasPrefix(path, prefix) {
-				relPath = path[len(prefix):]
-			}
-			reviseCustomElementTagWarning(comp, path, deriveCustomElementTag(relPath))
+			// Deliberately called against the *unstripped* path (including
+			// mount.Prefix), exactly like the kebabAlias derivation below —
+			// see this function's doc comment for why the two must match.
+			reviseCustomElementTagWarning(comp, path, deriveCustomElementTag(path))
 		}
 
 		var modTime time.Time
@@ -833,22 +835,27 @@ func (e *Engine) registerPathLocked(name, path string) error {
 	// which reaches this same code path as any other registration.
 	mountID := mountIDForPath(e.mountPrefixes, path)
 
-	// Re-derive the custom-element tag using the path relative to its
-	// effective source root, so the directory name is not included in the
-	// tag (e.g. "templates/Button.vue" with ComponentDir="templates" yields
-	// "button", not "templates-button"). For a mount-owned path, that root
-	// is the owning Mount.Prefix (mirroring discoverMountInto's own
-	// derivation, e.g. "radix/Accordion.vue" yields "accordion", not
-	// "radix-accordion") rather than ComponentDir, which would never strip
-	// anything from a mount path (they never share ComponentDir's prefix).
+	// Re-derive the custom-element tag. For the primary/local case
+	// (mountID == ""), this uses the path relative to ComponentDir, so the
+	// directory name is not included in the tag (e.g. "templates/Button.vue"
+	// with ComponentDir="templates" yields "button", not "templates-button").
+	//
+	// For a mount-owned path (mountID != ""), Mount.Prefix is deliberately
+	// NOT stripped — mirroring discoverMountInto's own derivation exactly —
+	// since RFC 014 §4.1 requires a mounted component's CustomElementTag to
+	// equal its automatic kebab-case alias, which does carry the prefix
+	// (e.g. "radix/Accordion.vue" yields "radix-accordion", the same string
+	// as its "radix-accordion" alias, not the hyphen-less, spec-invalid
+	// "accordion" that stripping the prefix would produce). This applies
+	// even when the path arrives via a manual Register call rather than the
+	// normal discovery walk.
 	if comp.CustomElementTag != "" {
-		base := e.opts.ComponentDir
 		if mountID != "" {
-			base = mountID
-		}
-		if base != "" {
 			compSlash := filepath.ToSlash(filepath.Clean(path))
-			dirSlash := filepath.ToSlash(filepath.Clean(base))
+			reviseCustomElementTagWarning(comp, path, deriveCustomElementTag(compSlash))
+		} else if e.opts.ComponentDir != "" {
+			compSlash := filepath.ToSlash(filepath.Clean(path))
+			dirSlash := filepath.ToSlash(filepath.Clean(e.opts.ComponentDir))
 			relPath := compSlash
 			if dirSlash != "" && dirSlash != "." {
 				prefix := dirSlash + "/"
