@@ -1138,6 +1138,15 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		}
 	}
 
+	// viaExplicitIs records whether this element started out as a literal
+	// <component is="..."> / <component :is="..."> reference (checked before
+	// working.Data is overwritten with the resolved compName below). An
+	// explicit is="..." reference is a deliberate, unambiguous request for
+	// the named registry entry, so — unlike an implicit tag name — it must
+	// always attempt resolveComponent, even when the resolved name happens to
+	// match a tag declared native via Options.NativeElements/v-native.
+	viaExplicitIs := working.Data == "component"
+
 	// --- <component is="..."> or <component :is="..."> ---
 	if working.Data == "component" {
 		isVal, isFound, isDynamic := "", false, false
@@ -1202,17 +1211,30 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 		// Fall through to resolveComponent / native element logic below.
 	}
 
-	// Component: resolve the tag name against the registry.
-	if comp := r.resolveComponent(working.Data); comp != nil {
-		return r.renderComponentElement(w, working, scope, comp)
+	// A tag declared native via Options.NativeElements, or marked v-native on
+	// this element, is explicitly opted out of component resolution. Computed
+	// once and reused below for both the resolveComponent skip and the
+	// "unknown component" error condition.
+	_, hasVNative := attrValue(working, "v-native")
+	isNative := r.isNativeElement(working.Data) || hasVNative
+
+	// Component: resolve the tag name against the registry. For an implicit
+	// tag name (the common case — a literal element in the template), a
+	// native declaration wins outright and resolveComponent is skipped
+	// entirely, so it can't be shadowed by an incidental same-named component
+	// in the registry (e.g. a component literally named Dialog auto-
+	// registers a lowercase "dialog" alias, which must not swallow a native
+	// <dialog v-native> tag). An explicit <component is="..."> reference
+	// always attempts resolution regardless of isNative — see viaExplicitIs.
+	if viaExplicitIs || !isNative {
+		if comp := r.resolveComponent(working.Data); comp != nil {
+			return r.renderComponentElement(w, working, scope, comp)
+		}
 	}
 	// Unknown component-like tag (kebab-case with hyphen, not in registry).
-	// A tag declared native via Options.NativeElements, or marked v-native on
-	// this element, is explicitly opted out of component resolution and falls
-	// through to the normal element-rendering path below instead of erroring.
-	_, hasVNative := attrValue(working, "v-native")
-	if r.registry != nil && isComponentLike(working.Data) &&
-		!r.isNativeElement(working.Data) && !hasVNative {
+	// A native declaration falls through to the normal element-rendering
+	// path below instead of erroring.
+	if r.registry != nil && isComponentLike(working.Data) && !isNative {
 		return fmt.Errorf("unknown component: %q", working.Data)
 	}
 

@@ -59,9 +59,18 @@
       <h2>Title</h2>
       <p>Body copy.</p>
     </Dialog>
+
+  v-native on the <dialog> tag below: this component's own name (Dialog)
+  auto-registers a lowercase "dialog" alias in the component registry (the
+  standard entries[lower] = entry convention). Without v-native, the literal
+  <dialog> element in this template would resolve right back to this
+  component itself, an infinite self-reference reported as "cycle
+  detected". v-native declares this tag a genuine native HTML element so
+  the component keeps working without every consumer having to add "dialog"
+  to their own Options.NativeElements just to use this library.
 -->
 <template>
-  <dialog class="radix-dialog" :open="open">
+  <dialog v-native class="radix-dialog" :open="open">
     <slot></slot>
     <form method="dialog" class="radix-dialog-close-form">
       <button type="submit" class="radix-dialog-close">Close</button>

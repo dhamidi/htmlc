@@ -29,6 +29,24 @@ func TestDialog_ContainsZeroJSBaseline(t *testing.T) {
 	}
 }
 
+// TestDialog_DialogTagDeclaredNative confirms the component's own <dialog>
+// tag carries v-native. Without it, this component's name (Dialog)
+// auto-registers a lowercase "dialog" alias in any htmlc registry it's
+// loaded into, and the literal <dialog> tag in this template would resolve
+// right back to the Dialog component itself — an infinite self-reference
+// ("cycle detected"). This module has no dependency on root htmlc (see the
+// package doc comment above), so a real render-based proof of the fix lives
+// in the root module's own regression tests instead
+// (native_before_resolve_component_test.go) and, end-to-end, in
+// examples/radix-demo.
+func TestDialog_DialogTagDeclaredNative(t *testing.T) {
+	src := readDialog(t)
+
+	if !strings.Contains(src, "<dialog v-native") {
+		t.Errorf("Dialog.vue's own <dialog> tag must carry v-native to avoid a self-reference cycle against its own auto-registered lowercase alias; got source:\n%s", src)
+	}
+}
+
 func TestDialog_ContainsCustomElementEnhancement(t *testing.T) {
 	src := readDialog(t)
 
