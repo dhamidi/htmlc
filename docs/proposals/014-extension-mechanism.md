@@ -282,6 +282,18 @@ exactly what surfaces the style-deduplication gap in §1.2.
   Frames, single-response Streams) and Datastar's SSE model are addressed;
   broadcasting the same stream to multiple already-connected clients is a
   pub/sub concern outside `htmlc`'s scope.
+- **Extending external directives (the NDJSON subprocess protocol, §1.1) to
+  request-time, library-embedded use.** That mechanism remains scoped to
+  `cmd/htmlc build` exactly as it is today. This RFC's design does not
+  preclude a future RFC addressing it, but does not need to solve it either:
+  every mechanism in §4 — mounts, aliases, native-element passthrough,
+  falsy-attribute omission, render sessions, and the hypermedia modules —
+  works entirely through the existing `Directive`/`Render*`/`ServeComponent`
+  surfaces, without requiring the build-only external-directive protocol to
+  become a request-time capability first. This is a firm scope boundary,
+  not a hedge deferred pending further discussion: the fact that a
+  mechanism happens to be wired into `cmd/htmlc` today is not, by itself, a
+  reason to extend it here.
 - **Changing RFC 001's core proximity-resolution semantics for a single,
   single-source project.** Everything in §4 is additive; a project with one
   `ComponentDir` and no vendored packages (including one that never imports
@@ -372,12 +384,33 @@ own, narrower Nuxt-style alias proposal):
 
 ```go
 // pseudo-code — not implementation
-func mountAliases(prefix, localName string) (pascalAlias, kebabAlias string) {
-    pascalAlias = toPascalCase(prefix) + localName                   // "radix" + "Accordion" -> "RadixAccordion"
-    kebabAlias  = toKebabCase(prefix) + "-" + toKebabCase(localName) // -> "radix-accordion"
+//
+// segments is Prefix followed by every intermediate directory segment and
+// the base component name within the mount, e.g. mountAliases(["radix",
+// "dialog", "Trigger"]) for radix/dialog/Trigger.vue, or
+// mountAliases(["radix", "Accordion"]) for the common no-subdirectory case.
+func mountAliases(segments []string) (pascalAlias, kebabAlias string) {
+    for _, s := range segments {
+        pascalAlias += toPascalCase(s)                  // ["radix","Accordion"] -> "RadixAccordion"
+    }
+    kebabParts := make([]string, len(segments))
+    for i, s := range segments {
+        kebabParts[i] = toKebabCase(s)
+    }
+    kebabAlias = strings.Join(kebabParts, "-")          // -> "radix-accordion" / "radix-dialog-trigger"
     return
 }
 ```
+
+Aliases are derived from every path segment within the mount, not just
+`Prefix` and the base file name — resolved: a component nested inside a
+mount's own subdirectories (`radix/dialog/Trigger.vue`) aliases to
+`RadixDialogTrigger`/`radix-dialog-trigger`, not the shorter, collision-prone
+`RadixTrigger`/`radix-trigger` (which would clash with a sibling
+`radix/menu/Trigger.vue`). A mount with no internal subdirectories is
+unaffected either way, since the full-path form and `Prefix + baseName`
+coincide when there are no intermediate segments — this is the common case
+and needs no special handling.
 
 `toKebabCase` here is the same conversion `deriveCustomElementTag`
 (`component.go:453-469`) already uses, so a mounted component's
@@ -399,7 +432,7 @@ local one.
     `radix/dialog/Trigger.vue`), the alias needs a convention for
     multi-segment concatenation (`RadixDialogTrigger`) — the same ambiguity
     RFC 001 §4.6 already flagged for its own nested-directory case, not new
-    here (see Open Question 10).
+    here. Resolved above: concatenate every path segment.
 - **kebab-case (`radix-accordion`)**
   - ✅ Identical derivation to the existing custom-element tag algorithm —
     one mental model for "what do I call this thing," whether it is used as
@@ -569,10 +602,19 @@ func (e *Engine) checkMountCollisions() []componentConflict {
 
 This runs as part of `ValidateAll()` whenever `Options.Mounts` is non-empty,
 so single-source projects (the overwhelming majority today) see no new
-behavior or performance cost. A collision does not have to be a hard startup
-error — see Open Question 2 (§10) for whether it should default to a
-returned validation error (matching `ValidateAll`'s existing contract, which
-already returns `[]error` for the caller to act on) or a `Logger` warning.
+behavior or performance cost. **Resolved: a detected collision is always a
+hard `error` returned from `ValidateAll()` — there is no warning-only mode.**
+This matches `ValidateAll`'s existing "startup-time fail fast" contract
+exactly (README's "Validate components at startup" section already treats
+its returned `[]error` as something a caller typically checks and exits on),
+and — more importantly — a silent-by-default or warn-only posture here would
+simply reproduce, one layer up, the exact silent-corruption failure mode
+this whole RFC exists to close (§1.2): a cross-mount name collision is
+precisely the kind of thing that must surface loudly and immediately, not
+be logged and left for a request-time surprise. A caller that genuinely
+wants to proceed anyway can always choose to log `ValidateAll()`'s errors
+and continue rather than exit; `htmlc` does not make that choice silently
+on the caller's behalf.
 
 Reporting a collision is only half the job — the error message itself
 should point the author at a fix that does not require restructuring their
@@ -620,14 +662,30 @@ type Options struct {
 ```
 
 At the `isComponentLike` check site (`renderer.go:1172`), consult the
-allowlist before treating the tag as component-like:
+allowlist before treating the tag as component-like. **Resolved: alongside
+the project-wide `Options.NativeElements` allowlist, also add a per-element
+`v-native` attribute** as a template-level escape hatch for a one-off
+foreign tag that doesn't warrant a permanent `Options` entry — the attribute
+is stripped from the rendered output, exactly like `v-pre`:
 
 ```go
 // pseudo-code — not implementation
-if r.registry != nil && isComponentLike(working.Data) && !r.isNativeElement(working.Data) {
+if r.registry != nil && isComponentLike(working.Data) &&
+    !r.isNativeElement(working.Data) && !hasAttr(working, "v-native") {
     return fmt.Errorf("unknown component: %q", working.Data)
 }
 ```
+
+```html
+<!-- one-off foreign tag, no project-wide Options.NativeElements entry needed -->
+<my-one-off-widget v-native data-config="...">...</my-one-off-widget>
+```
+
+Both mechanisms are explicit, author-written declarations — `v-native`
+carries the same "loud, not silent" property as `Options.NativeElements`
+(§4.3 Option B below is rejected for exactly this reason): a tag is only
+ever treated as native because an author said so, at the project level or
+at the element level, never because the engine guessed.
 
 #### Evaluation
 
@@ -652,15 +710,16 @@ if r.registry != nil && isComponentLike(working.Data) && !r.isNativeElement(work
     runtime bug.
   - **Verdict**: rejected — silently downgrading a real class of authoring
     mistakes is a worse failure mode than requiring an explicit allowlist.
-- **Option C — per-tag opt-out via a template-level escape hatch, e.g.
-  `v-native` attribute on the element**
+- **Option C — per-tag opt-out via a template-level escape hatch, `v-native`
+  attribute on the element**
   - ✅ Localized to the exact call site; no project-wide list to maintain.
   - ⚠️ Every occurrence of the foreign tag across every template needs the
     attribute, which is more repetitive than declaring it once in `Options`
     for a tag used dozens of times across a hypermedia-heavy project.
-  - **Verdict**: viable as a *complement* to Option A (useful for a one-off
-    foreign tag that doesn't warrant a project-wide allowlist entry), not a
-    replacement. Left as a non-blocking open question in §10.
+  - **Verdict**: adopted as a *complement* to Option A, not a replacement —
+    use `Options.NativeElements` for a tag repeated across a project (all of
+    Turbo's tags, say), `v-native` for a single one-off foreign element that
+    doesn't warrant a permanent allowlist entry. Both ship together.
 
 ### 4.4 General falsy-attribute omission
 
@@ -708,9 +767,9 @@ func attrShouldOmit(v any) bool {
     `data-turbo-*`, arbitrary `data-*`), not just a curated list.
   - ⚠️ Backward compatibility: today, `:some-attr="false"` renders
     `some-attr="false"` for any attribute outside the fixed eight. This RFC's
-    change makes that attribute disappear instead. See §8 for the specific
-    compatibility analysis and recommendation.
-  - **Verdict**: recommended, with the compatibility note in §8.
+    change makes that attribute disappear instead. See §8: resolved to ship
+    unconditionally, no compatibility flag.
+  - **Verdict**: adopted, unconditionally.
 - **Option B — extend the fixed `isBooleanAttr` list with known hypermedia
   attribute names (`hx-swap-oob`, `hx-boost`, `data-turbo-*`, …)**
   - ✅ Smaller, narrowly-scoped change; no compatibility question at all for
@@ -721,7 +780,7 @@ func attrShouldOmit(v any) bool {
   - **Verdict**: rejected as the primary fix; the general rule in Option A
     subsumes this need without the maintenance burden.
 
-### 4.5 A style collector that outlives a single render call
+### 4.5 A render session that outlives a single render call
 
 #### Current state
 
@@ -733,39 +792,55 @@ that behavior is a side effect of what the `*CustomElementCollector`
 parameter is actually documented for (script collection), not a supported
 "skip styles" mode. Reproduced over a real Datastar SSE connection: three
 successive `RenderFragmentContext` calls into the same open response repeated
-an identical `<style scoped>` block on every tick.
+an identical `<style scoped>` block on every tick. Separately,
+`RenderWithCollector` already gives a caller a way to dedup *scripts* across
+multiple calls on one `*CustomElementCollector` — but styles and scripts are
+two separate collector types a caller has to remember to thread through
+separately, for what is really one underlying need: "this connection is
+long-lived; don't repeat anything you've already sent on it."
 
 #### Proposed extension
 
-Expose `StyleCollector` as a public, reusable, cross-call object, mirroring
-the existing `*CustomElementCollector` pattern that `RenderWithCollector`
-already established:
+Introduce a single `RenderSession` type that bundles both collectors, so a
+caller managing one long-lived connection (an SSE stream) or one
+multi-fragment response (htmx OOB, several Turbo Streams actions) has exactly
+one object to create and thread through every render call on that
+connection/response, not two:
 
 ```go
 // pseudo-code — not implementation
-func (e *Engine) NewStyleCollector() *StyleCollector
+type RenderSession struct {
+    styles  *StyleCollector
+    scripts *CustomElementCollector
+}
 
-// RenderFragmentWithStyles renders name into w exactly like RenderFragment,
-// but sources style output from sc instead of a fresh per-call collector.
-// Passing the same *StyleCollector across multiple calls (e.g. across the
-// life of one SSE connection) means only styles not already emitted by an
-// earlier call on that same sc are written — sc tracks what has already
-// been sent, the same way *CustomElementCollector already dedups scripts
-// by content hash today.
-func (e *Engine) RenderFragmentWithStyles(ctx context.Context, w io.Writer, name string, data map[string]any, sc *StyleCollector) error
+func (e *Engine) NewRenderSession() *RenderSession
+
+// RenderFragmentSession renders name into w exactly like RenderFragment,
+// but sources style and custom-element-script output from sess instead of
+// fresh per-call collectors. Passing the same *RenderSession across multiple
+// calls (e.g. across the life of one SSE connection) means only styles and
+// scripts not already emitted by an earlier call on that same session are
+// written — the session tracks what has already been sent, the same way
+// *CustomElementCollector already dedups scripts by content hash today.
+func (e *Engine) RenderFragmentSession(ctx context.Context, w io.Writer, name string, data map[string]any, sess *RenderSession) error
 ```
 
 A caller driving a Datastar SSE loop, or emitting several fragments
 concatenated into one htmx/Turbo Streams response, creates one
-`*StyleCollector` for the connection/response and passes it to every
-`RenderFragmentWithStyles` call; the first call that touches a given
-component's scoped styles emits them, every subsequent call touching the same
-component does not repeat them. This directly targets the redundant-style-tag
-problem reproduced in §1.2 for Datastar, and incidentally also benefits htmx
-OOB responses and multi-action Turbo Streams responses (§6), which showed the
-identical duplication for the same underlying reason: independent
-`RenderFragment` calls concatenated into one response, each unaware of what a
-sibling call already emitted.
+`*RenderSession` for the connection/response and passes it to every
+`RenderFragmentSession` call; the first call that touches a given
+component's scoped styles (or custom-element scripts) emits them, every
+subsequent call touching the same component does not repeat them. This
+directly targets the redundant-style-tag problem reproduced in §1.2 for
+Datastar, and incidentally also benefits htmx OOB responses and multi-action
+Turbo Streams responses (§6), which showed the identical duplication for the
+same underlying reason: independent `RenderFragment` calls concatenated into
+one response, each unaware of what a sibling call already emitted.
+`RenderWithCollector`/`RenderWithCollectorString` (script-only) remain
+available unchanged for callers who genuinely only care about script
+deduplication and not styles; `RenderSession` is additive, not a
+replacement.
 
 ### 4.6 Hypermedia integrations as nested Go modules
 
@@ -797,7 +872,7 @@ hypermedia/
     go.mod       ← module github.com/dhamidi/htmlc/hypermedia/datastar
                     (depends on github.com/starfederation/datastar-go
                      AND on the root github.com/dhamidi/htmlc module, for
-                     *htmlc.Engine / *htmlc.StyleCollector from §4.5)
+                     *htmlc.Engine / *htmlc.RenderSession from §4.5)
 ```
 
 ```go
@@ -817,15 +892,15 @@ func WriteStream(w io.Writer, action, target, fragmentHTML string) error
 // package datastar (github.com/dhamidi/htmlc/hypermedia/datastar) — depends on
 // datastar-go and on the root htmlc module
 func PatchElementsFragment(sse *datastar.ServerSentEventGenerator, engine *htmlc.Engine,
-    sc *htmlc.StyleCollector, ctx context.Context, name string, data map[string]any, selector string) error
-// combines Engine.RenderFragmentWithStyles (§4.5) with datastar-go's
+    sess *htmlc.RenderSession, ctx context.Context, name string, data map[string]any, selector string) error
+// combines Engine.RenderFragmentSession (§4.5) with datastar-go's
 // PatchElements in one call, so a caller driving an SSE loop (§6 Example 6)
 // does not have to hand-wire the buffer-then-patch pattern themselves
 ```
 
 Each module's `go.mod` requires the root `github.com/dhamidi/htmlc` module
 only if it actually needs `htmlc`'s types (`datastar` does, for the
-`*htmlc.Engine`/`*htmlc.StyleCollector` parameters to `PatchElementsFragment`;
+`*htmlc.Engine`/`*htmlc.RenderSession` parameters to `PatchElementsFragment`;
 `htmx` and `turbo` do not — every function in those two operates purely on
 `*http.Request`/`http.ResponseWriter`/`io.Writer`/strings). Each is tagged
 independently (`hypermedia/htmx/v0.1.0`, etc.), matching the same
@@ -917,8 +992,9 @@ prerequisites rather than deferred cleanup:
 | `<component is="radix/Accordion">...</component>` | Explicit, fully-qualified reference into a specific mount; primarily useful when constructing a reference dynamically (`<component :is="expr">`) rather than as a literal tag (existing syntax; behavior fixed per §4.7 item 1) |
 | `Options.NativeElements = []string{"turbo-frame", "turbo-stream"}` | Declares specific hyphenated tags as native HTML, never resolved against the component registry |
 | `<turbo-frame id="todos">...</turbo-frame>` | Renders as a plain native element (attributes/children evaluated normally) when `turbo-frame` is declared in `NativeElements`; otherwise fails with `unknown component` as today |
+| `<my-one-off-widget v-native>...</my-one-off-widget>` | Marks a single element as native HTML for this occurrence only, without a project-wide `Options.NativeElements` entry; equivalent to a one-element allowlist. The attribute itself is stripped from the rendered output |
 | `:hx-swap-oob="isOOB"` | Omits the `hx-swap-oob` attribute entirely when `isOOB` is `false`/`nil`/`undefined`; renders `hx-swap-oob="true"` otherwise — works for any attribute name, not just the eight native HTML boolean attributes |
-| `sc := engine.NewStyleCollector()` then repeated `engine.RenderFragmentWithStyles(ctx, w, name, data, sc)` | Dedups `<style scoped>` output across multiple render calls sharing `sc` (one SSE connection, or several fragments concatenated into one response) |
+| `sess := engine.NewRenderSession()` then repeated `engine.RenderFragmentSession(ctx, w, name, data, sess)` | Dedups both `<style scoped>` output and custom-element scripts across multiple render calls sharing `sess` (one SSE connection, or several fragments concatenated into one response) |
 | `htmx.IsHTMXRequest(r)` / `turbo.WantsStream(r)` / `turbo.FrameID(r)` | Request-side detection helpers (from the `hypermedia/htmx` and `hypermedia/turbo` nested modules, §4.6) for branching page-vs-fragment rendering |
 | `turbo.WriteStream(w, "replace", "todo-list", fragmentHTML)` | Wraps rendered fragment HTML in a `<turbo-stream>` element with the correct `Content-Type` implications |
 
@@ -1028,7 +1104,7 @@ is immediate — no design work required, since the aliases already exist:
 ```go
 import "github.com/dhamidi/htmlc/hypermedia/htmx"
 
-func handleIncrement(w http.ResponseWriter, r *http.Request, engine *htmlc.Engine, sc *htmlc.StyleCollector) {
+func handleIncrement(w http.ResponseWriter, r *http.Request, engine *htmlc.Engine, sess *htmlc.RenderSession) {
     count := incrementCounter()
     data := map[string]any{"count": count}
 
@@ -1038,9 +1114,9 @@ func handleIncrement(w http.ResponseWriter, r *http.Request, engine *htmlc.Engin
     }
 
     htmx.SetTrigger(w, "counter-updated")
-    engine.RenderFragmentWithStyles(r.Context(), w, "Counter", data, sc)
+    engine.RenderFragmentSession(r.Context(), w, "Counter", data, sess)
     fmt.Fprintf(w, `<div id="status-badge" hx-swap-oob="true">`)
-    engine.RenderFragmentWithStyles(r.Context(), w, "StatusBadge", data, sc)
+    engine.RenderFragmentSession(r.Context(), w, "StatusBadge", data, sess)
     fmt.Fprint(w, `</div>`)
 }
 ```
@@ -1084,10 +1160,10 @@ import (
 
 func handleCounterStream(w http.ResponseWriter, r *http.Request, engine *htmlc.Engine) {
     sse := dsdatastar.NewSSE(w, r)
-    sc := engine.NewStyleCollector()
+    sess := engine.NewRenderSession()
 
     for i := 1; i <= 3; i++ {
-        htmlcdatastar.PatchElementsFragment(sse, engine, sc, r.Context(),
+        htmlcdatastar.PatchElementsFragment(sse, engine, sess, r.Context(),
             "Counter", map[string]any{"count": i}, "#ds-counter")
         time.Sleep(200 * time.Millisecond)
     }
@@ -1096,14 +1172,15 @@ func handleCounterStream(w http.ResponseWriter, r *http.Request, engine *htmlc.E
 
 `hypermedia/datastar`'s `PatchElementsFragment` (§4.6) is the only one of the
 three hypermedia modules that imports the root `htmlc` module directly — it
-combines `Engine.RenderFragmentWithStyles` (§4.5) and `datastar-go`'s
+combines `Engine.RenderFragmentSession` (§4.5) and `datastar-go`'s
 `PatchElements` in one call, so the buffer-then-patch wiring shown as
 hand-written code in earlier drafts of this example is now a single
 function call. Only the first call's `elements` payload carries the
-`<style scoped>` block; the second and third carry bare HTML — reproduced as
-a real, working pattern in the prototype using the existing
-`RenderWithCollector` accident (§1.2), and formalized here as the supported
-`RenderFragmentWithStyles` API that `PatchElementsFragment` wraps.
+`<style scoped>` block (and any new custom-element scripts); the second and
+third carry bare HTML — reproduced as a real, working pattern in the
+prototype using the existing `RenderWithCollector` accident (§1.2), and
+formalized here as the supported `RenderFragmentSession` API that
+`PatchElementsFragment` wraps.
 
 ---
 
@@ -1125,18 +1202,28 @@ High-level Go-level changes only, grouped by file:
    `engineEntry` with a `mountID string` field) for §4.2.
 4. **`registerPathLocked`/`discoverInto`**: after registering a component
    discovered under a mount prefix, also register its two aliases (§4.1
-   "Automatic mount aliases") into `entries`, each carrying the same
-   `mountID` as the primary entry, at lower priority than an exact local
-   registration (i.e. never overwrite an existing entry of the same name).
+   "Automatic mount aliases"), derived from the **full path within the
+   mount** (every intermediate directory segment concatenated, not just
+   `Prefix + baseName` — resolved: `radix/dialog/Trigger.vue` aliases to
+   `RadixDialogTrigger`/`radix-dialog-trigger`, and a mount with no internal
+   subdirectories is unaffected since the full-path form and
+   `Prefix + baseName` coincide there) into `entries`, each carrying the
+   same `mountID` as the primary entry, at lower priority than an exact
+   local registration (i.e. never overwrite an existing entry of the same
+   name).
 5. **`ValidateAll`**: add the cross-mount collision check from §4.2 when
-   `Mounts` is non-empty; unaffected otherwise.
-6. **`NewStyleCollector`** (new method, §4.5): constructs and returns a
-   `*StyleCollector` for reuse across calls.
-7. **`RenderFragmentWithStyles`** (new method, §4.5): parallels
-   `RenderFragment` but threads a caller-supplied `*StyleCollector` through
-   instead of allocating a fresh one, and skips already-emitted style blocks
-   the same way `CustomElementCollector.Add` (`customelement_collector.go:61-76`)
-   already dedups scripts by content hash.
+   `Mounts` is non-empty, always returning a hard `error` for any detected
+   collision — no warning-only mode. Unaffected when `Mounts` is empty.
+6. **`RenderSession` type + `NewRenderSession`** (new type and method,
+   §4.5): `RenderSession` bundles a `*StyleCollector` and a
+   `*CustomElementCollector`; `NewRenderSession` constructs an empty one for
+   reuse across calls.
+7. **`RenderFragmentSession`** (new method, §4.5): parallels
+   `RenderFragment` but threads a caller-supplied `*RenderSession` through
+   instead of allocating fresh collectors, and skips already-emitted style
+   blocks and scripts the same way `CustomElementCollector.Add`
+   (`customelement_collector.go:61-76`) already dedups scripts by content
+   hash today.
 8. **`component.go:133-140` hyphen check**: move (or duplicate) this check
    to run against the final tag computed in `discoverInto`
    (`engine.go:305-317`) / `registerPathLocked` (`engine.go:395-407`) — §4.7
@@ -1157,6 +1244,10 @@ High-level Go-level changes only, grouped by file:
    `Renderer.nativeElements map[string]bool` field populated from
    `Options.NativeElements` via a new `WithNativeElements` builder method,
    mirroring how `WithDirectives` (`renderer.go:226-232`) is threaded today.
+   Also check for a `v-native` attribute on the element itself at the same
+   call site (§4.3); strip it from the emitted attributes the same way
+   `v-pre` is already stripped, regardless of which of the two checks (or
+   neither) applied.
 2. **`isBooleanAttr` call sites** (`renderer.go:1241`, `renderer.go:2078`):
    replace the fixed-allowlist check with the general falsy-omission rule
    from §4.4 (`attrShouldOmit`). `isBooleanAttr` itself can remain as a
@@ -1271,11 +1362,15 @@ not a silent-gray-area bug fix, and the README's own "Spread HTMX attributes
 from a map" example (README.md:214-220, `v-bind="actions.delete.hxAttrs"`)
 shows the exact scenario this RFC's motivation is built around already being
 anticipated as a use case — strengthening the case for the change, but not
-eliminating the compatibility question. This RFC recommends making the
-change (matching real Vue.js semantics, and unblocking the hypermedia
-attribute idiom this section exists to fix) but flags it explicitly as Open
-Question 4 (§10), including whether it should ship behind a compatibility
-flag, for reviewer sign-off before implementation.
+eliminating the compatibility question. **Resolved: this ships
+unconditionally, with no compatibility flag** (no
+`Options.LegacyAttrStringify` or equivalent). The documented eight-attribute
+list was never a deliberate design boundary an author could reasonably
+depend on staying narrow — it is a straightforward gap relative to real
+Vue.js semantics — and a project relying on `some-attr="false"` rendering
+literally, for an attribute outside the original eight, in order to produce
+that exact output on purpose is not a scenario this RFC treats as a
+supported use case worth preserving behind a flag.
 
 ### `ValidateAll`
 
@@ -1415,122 +1510,102 @@ on an `htmlc` release.
 
 ## 10. Open Questions
 
-1. **`Mount` field naming and shape** (blocking): is `Prefix`/`FS`/`Dir` the
-   right shape, or should `Dir` be implied by `Prefix` (i.e. always scan the
-   whole mounted `fs.FS` from its root, with no separate `Dir` sub-path)?
-   Recommendation: keep `Dir` separate from `Prefix` — a vendored package's
-   `embed.FS` commonly embeds a directory tree with a non-trivial root (e.g.
-   `//go:embed components`), and conflating "where in the mounted FS to
-   start" with "what prefix consumers use to address it" would force every
-   package author to structure their embed exactly at FS-root.
-2. **Collision severity** (blocking): should `ValidateAll()` return a hard
-   `[]error` for a cross-mount collision (consistent with its existing
-   "startup-time fail fast" contract, per README's "Validate components at
-   startup" section), or should collisions instead be reported via
-   `Options.Logger` as warnings, leaving the (fixed, proximity-first)
-   resolution to proceed? Recommendation: hard error via `ValidateAll()` —
-   this mirrors the existing contract exactly and a caller can always choose
-   to log-and-continue rather than `os.Exit` on the returned errors, but a
-   silent-by-default posture would reproduce exactly the failure mode this
-   RFC exists to close.
-3. **`v-native` per-element escape hatch** (non-blocking): should §4.3
-   Option C (a template-level attribute marking one element as native,
-   independent of any project-wide `NativeElements` list) be added as a
-   complementary, finer-grained mechanism alongside the allowlist? Useful for
-   a one-off foreign tag that doesn't warrant a permanent `Options` entry.
-   Can be addressed in a follow-up change without disturbing this RFC's core
-   design.
-4. **Falsy-attribute-omission compatibility flag** (non-blocking, see §8):
-   should the §4.4 behavior change ship unconditionally as a bug fix, or
-   behind an `Options.LegacyAttrStringify bool` (default `false`, i.e. new
-   behavior) for the rare project that has come to depend on the current
-   stringify-everything-outside-eight-attributes behavior? Recommendation:
-   ship unconditionally — the current behavior was never documented as
-   intentional and matches no known real use case — but this is flagged
-   explicitly for reviewer sign-off before implementation, since it is this
-   RFC's only change with any observable-output difference for existing
-   templates.
-5. **Should `StyleCollector` reuse (§4.5) be unified with
-   `CustomElementCollector` reuse into one "session" object**, since a
-   long-lived SSE connection plausibly wants both style and script
-   deduplication together, and `Engine.RenderWithCollector` already threads a
-   `*CustomElementCollector` through per-call? Recommendation: yes in
-   spirit — consider a combined `RenderFragmentWithSession(ctx, w, name,
-   data, sess *RenderSession)` wrapping both collectors, with
-   `RenderFragmentWithStyles` either becoming sugar over it or being
-   subsumed entirely. Left open for implementation-time design rather than
-   fixed here, since it doesn't change any of this RFC's public
-   compatibility guarantees either way.
-6. **Same-name override** (resolved by §4.1's alias mechanism): an earlier
-   draft of this RFC left open whether an author needs a way to say "yes, I
-   know `radix/Accordion` and my local `Accordion` share a name; prefer the
-   local one by default without requiring every ambiguous call site to use
-   `<component is="/Accordion">` explicitly." The proximity walk already
-   gives local components priority for any caller within the local tree
-   (RFC 001, unchanged) — an unqualified `<Accordion>` never needs an
-   override to prefer the local file — and every ambiguous, non-local call
-   site now has three ordinary-looking alternatives (`<RadixAccordion>`,
-   `<radix-accordion>`, `<component is="radix/Accordion">`) rather than
-   needing a "prefer local" override at all. No further mechanism is
-   proposed.
-7. **Should external directives (the NDJSON subprocess protocol) gain a
-   request-time, not just build-time, story** (blocking scope decision, but
-   deferred to a follow-up RFC rather than blocking this one): §1.1 notes
-   this mechanism is wired up only inside `cmd/htmlc/build_command.go` and
-   has no path for a Go host application calling `htmlc.New` directly. This
-   RFC's §4.6 hypermedia helpers work entirely within the existing
-   `Render*`/`ServeComponent` API and do not require solving this, but a
-   future RFC extending out-of-process directive execution to
-   library-embedded, request-serving `htmlc` usage (e.g. for a third-party
-   syntax highlighter or a hypermedia-protocol directive implemented in a
-   language other than Go) is a natural next step this RFC's design does not
-   preclude.
-8. **Should `hypermedia/turbo`'s `FrameID`/`WantsStream` also validate that
-   the server's response actually contains a matching `<turbo-frame
-   id="...">`** (non-blocking) — i.e. should the helper module catch the
-   "response doesn't match Turbo Frame's expectations" class of bug at the
-   `htmlc` layer, or is that left entirely to the author, matching Turbo's
-   own "no special server validation" contract? Recommendation: leave to the
-   author for this RFC — implementing response-shape validation would
-   require buffering and re-parsing the rendered output, which conflicts
-   with the streaming-friendly design elsewhere in this RFC (§4.5, §6 Example
-   6). Revisit only if this proves to be a common source of bugs in
-   practice.
-9. ~~Should the `hypermedia` subpackage take a hard dependency on
-   `github.com/starfederation/datastar-go`, or stay documentation-only for
-   the Datastar portion specifically?~~ **Resolved** by packaging
-   `hypermedia/datastar` as its own nested module (§4.6): it takes the
-   dependency, since only projects that actually import
-   `github.com/dhamidi/htmlc/hypermedia/datastar` ever resolve
-   `datastar-go` — `hypermedia/htmx` and `hypermedia/turbo` remain
-   dependency-free, and the root `htmlc` module is untouched either way.
-10. **Multi-segment mount subdirectories and alias derivation** (non-blocking,
-    §4.1): how should the PascalCase/kebab aliases be derived for a component
-    nested inside subdirectories of a mount (e.g. `radix/dialog/Trigger.vue`,
-    not `radix/Trigger.vue`)? Two options: (a) concatenate every path
-    segment (`RadixDialogTrigger`/`radix-dialog-trigger`), or (b) use only
-    `Prefix + localName`, ignoring intermediate directories
-    (`RadixTrigger`/`radix-trigger`), which risks a second collision — this
-    time between the aliases themselves — if the same mount also has
-    `radix/menu/Trigger.vue`. Recommendation: (a), full-path concatenation —
-    this is the same open concern RFC 001 §4.6 already flagged for its own,
-    narrower nested-directory aliasing case, and resolving it consistently
-    in both places is preferable to two different conventions. The common
-    case — a mount with no internal subdirectories — is unaffected either
-    way, since `Prefix + localName` and the full-path form coincide when
-    there are no intermediate segments.
+Every question raised during design has been resolved into a firm decision,
+folded into the design sections cited below. Nothing in this RFC is left
+blocking implementation. This section is retained as a record of what was
+considered and why, per this repository's RFC convention — not as a list of
+unresolved items.
+
+1. **`Mount` field naming and shape** — **Resolved**: `Prefix`/`FS`/`Dir`, as
+   specified in §4.1. `Dir` is kept separate from `Prefix` because a
+   vendored package's `embed.FS` commonly embeds a directory tree with a
+   non-trivial root (e.g. `//go:embed components`); conflating "where in the
+   mounted FS to start" with "what prefix consumers use to address it" would
+   force every package author to structure their embed exactly at FS-root.
+2. **Collision severity** — **Resolved**: `ValidateAll()` always returns a
+   hard `error` for a cross-mount collision, never a warning-only mode (§4.2,
+   §7 `engine.go` item 5). This mirrors `ValidateAll`'s existing "startup-time
+   fail fast" contract exactly, and — in line with this RFC's general
+   preference for loud, early errors over silent corruption — a silent or
+   warn-only default here would simply reproduce, one layer up, the exact
+   failure mode (§1.2) this RFC exists to close.
+3. **`v-native` per-element escape hatch** — **Resolved**: adopted as a
+   complement to `Options.NativeElements`, not an alternative to it (§4.3).
+   Use `Options.NativeElements` for a tag repeated across a project (all of
+   Turbo's tags, say); use `v-native` for a single one-off foreign element
+   that doesn't warrant a permanent allowlist entry. Both ship together, and
+   both are explicit, author-written declarations — never an engine guess —
+   consistent with this RFC's rejection of auto-detection (§4.3 Option B,
+   §9).
+4. **Falsy-attribute-omission compatibility flag** — **Resolved**: ships
+   unconditionally, with no `Options.LegacyAttrStringify` or equivalent
+   (§4.4, §8). The current eight-attribute-only behavior was never a
+   deliberate design boundary an author could reasonably depend on staying
+   narrow, and no known use case relies on `some-attr="false"` rendering
+   literally for an attribute outside the original eight.
+5. **Unifying style and script deduplication into one session object** —
+   **Resolved**: `RenderSession` bundles both a `*StyleCollector` and a
+   `*CustomElementCollector`, with `Engine.NewRenderSession()` and
+   `Engine.RenderFragmentSession(...)` as the combined entry point (§4.5, §7
+   `engine.go` items 6-7). `RenderWithCollector`/`RenderWithCollectorString`
+   (script-only) remain available unchanged for callers who genuinely only
+   need script deduplication.
+6. **Same-name override** — **Resolved**: no override mechanism is needed
+   beyond what §4.1 already provides. The proximity walk already gives local
+   components priority for any caller within the local tree (RFC 001,
+   unchanged) — an unqualified `<Accordion>` never needs an override to
+   prefer the local file — and every ambiguous, non-local call site has
+   three ordinary-looking alternatives (`<RadixAccordion>`,
+   `<radix-accordion>`, `<component is="radix/Accordion">`, §4.1) rather
+   than needing a "prefer local" override at all.
+7. **Whether external directives should gain a request-time, not just
+   build-time, story** — **Resolved: out of scope for this RFC**, and stated
+   as a firm Non-Goal (§3), not a deferral. That the NDJSON subprocess
+   protocol happens to be wired up only inside `cmd/htmlc/build_command.go`
+   today is not, by itself, a reason to extend it here: every mechanism this
+   RFC proposes — mounts, aliases, native-element passthrough,
+   falsy-attribute omission, render sessions, and the three hypermedia
+   modules — works entirely through the existing
+   `Directive`/`Render*`/`ServeComponent` surfaces without it. A future RFC
+   remains free to extend out-of-process directive execution to
+   library-embedded, request-serving `htmlc` usage; this one does not need
+   to, and does not attempt to.
+8. **Should `hypermedia/turbo` validate that the server's response actually
+   contains a matching `<turbo-frame id="...">`** — **Resolved: no**, left
+   to the author (§4.6, §10 item 8 rationale unchanged from earlier
+   drafting): implementing response-shape validation would require
+   buffering and re-parsing the rendered output, which directly conflicts
+   with the streaming-friendly design used elsewhere in this RFC (§4.5, §6
+   Example 6). This is the one case in this RFC where the "loud errors over
+   silent corruption" preference yields to a stronger constraint —
+   buffering the entire response to validate it defeats the point of
+   `RenderSession`-based incremental delivery — so the tradeoff is decided
+   in favor of the streaming design, matching Turbo's own contract, which
+   also performs no server-side response validation.
+9. **Whether `hypermedia/datastar` should take a hard dependency on
+   `github.com/starfederation/datastar-go`** — **Resolved: yes**, exactly
+   because it is packaged as its own nested module (§4.6): only a project
+   that actually imports `github.com/dhamidi/htmlc/hypermedia/datastar` ever
+   resolves `datastar-go` as a dependency — `hypermedia/htmx` and
+   `hypermedia/turbo` remain dependency-free, and the root `htmlc` module is
+   untouched either way (§8).
+10. **Multi-segment mount subdirectories and alias derivation** —
+    **Resolved**: full-path concatenation (§4.1) — a component nested inside
+    a mount's own subdirectories (`radix/dialog/Trigger.vue`) aliases to
+    `RadixDialogTrigger`/`radix-dialog-trigger`, not the shorter,
+    collision-prone `RadixTrigger`/`radix-trigger`. This is the same
+    approach RFC 001 §4.6 already flagged as the right one for its own,
+    narrower nested-directory aliasing case; resolving both consistently is
+    preferable to two different conventions. The common case — a mount with
+    no internal subdirectories — is unaffected either way.
 11. **Scope-sequencing roadmap for `ui/radix` and `hypermedia/*` beyond v1**
-    (non-blocking): §3 deliberately scopes `ui/radix`'s first release to
-    Accordion/Tabs/Dialog and each `hypermedia/*` module to its core
-    request/response contract, not full parity with Radix's component set
-    or each framework's full feature surface. This RFC does not commit to a
-    specific order or timeline for expanding either — e.g. whether the next
-    `ui/radix` addition should be Popover/DropdownMenu (natural given the
-    Popover-API research in §1.2) or Tooltip, or whether `hypermedia/turbo`
-    should prioritize `<turbo-stream-source>` (SSE/WebSocket) support before
-    `hypermedia/datastar` gains additional patch modes. Recommendation:
-    treat both as ordinary, incremental follow-on pull requests once this
-    RFC's core mechanism lands, prioritized by actual project demand rather
-    than fixed in this document; each addition is a `.vue` file or a small
-    function addition to an already-working nested module, not a design
-    change requiring a further RFC.
+    — **Resolved: deliberately left unscheduled**, not fixed in this
+    document (§3, §4.1, §4.6). `ui/radix`'s first release covers
+    Accordion/Tabs/Dialog and each `hypermedia/*` module covers its core
+    request/response contract only; broadening either (Popover/DropdownMenu
+    or Tooltip for `ui/radix`, `<turbo-stream-source>` support or additional
+    Datastar patch modes for the hypermedia modules) is ordinary,
+    incremental follow-on work prioritized by actual project demand, not a
+    design decision this RFC needs to make in advance. Each addition is a
+    `.vue` file or a small function addition to an already-working nested
+    module, not a change requiring a further RFC.
