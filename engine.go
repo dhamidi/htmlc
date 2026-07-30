@@ -90,6 +90,15 @@ type Options struct {
 	// participate in the ordinary flat-registry fallback, so an unqualified
 	// <Accordion> resolves through it whenever the bare name is unambiguous.
 	//
+	// Every component discovered under a Mount also gets two automatic
+	// flat-registry aliases derived from Mount.Prefix plus every
+	// intermediate directory segment plus the base name: a PascalCase form
+	// (radix/dialog/Trigger.vue -> "RadixDialogTrigger") and a kebab-case
+	// form using the same conversion as custom-element tag derivation
+	// (-> "radix-dialog-trigger"), so a disambiguated reference can use
+	// ordinary tag syntax instead of always requiring the explicit
+	// "prefix/Name" form.
+	//
 	// Mounts is purely additive: setting it does not require setting
 	// FS/ComponentDir, and vice versa. Adding Mounts to an existing
 	// FS/ComponentDir configuration never changes how the primary source's
@@ -98,12 +107,13 @@ type Options struct {
 	// present under ComponentDir (the engine does not currently detect this
 	// case; it is a caller responsibility).
 	//
-	// When a mount-defined name collides with another mount's or with a
-	// locally-defined component, the local component (or the
-	// earliest-processed Mount, in Mounts order) wins the flat-registry slot;
-	// the loser is still reachable via its explicit "prefix/Name" path. This
-	// is a coarse, temporary priority rule — real alias-based disambiguation
-	// and collision detection are not implemented yet.
+	// When a mount-defined name (bare or alias) collides with another
+	// mount's or with a locally-defined component, the local component (or
+	// the earliest-processed Mount, in Mounts order) wins the flat-registry
+	// slot; the loser is still reachable via its explicit "prefix/Name"
+	// path. This is a coarse, temporary priority rule — real collision
+	// detection (erroring instead of silently picking a winner) is not
+	// implemented yet.
 	Mounts []Mount
 }
 
@@ -651,15 +661,26 @@ func mountRelDirFor(prefixes []string, path string) (string, bool) {
 
 // discoverMountInto walks mount's own subtree (reachable through the union
 // e.opts.FS at mount.Prefix) and registers every *.vue file it contains into
-// entries, nsEntries, and mountIDs.
+// entries, nsEntries, and mountIDs — the bare component name, its automatic
+// PascalCase/kebab-case mount aliases (RFC 014 §4.1 "Automatic mount
+// aliases"), and their lowercase forms.
 //
 // Unlike discoverInto's registerInto (used only for the primary source),
 // registration into the flat entries map here is insert-if-absent: an
-// existing entry at the same flat name — whether a local/primary entry or an
-// earlier-processed mount's — is never overwritten. This is a coarse,
-// temporary form of "local wins" priority; real alias-based disambiguation
-// and collision detection are later commits. Every attempted (name,
-// mount.Prefix) pairing is nonetheless recorded into mountIDs, win or lose.
+// existing entry at the same flat name — whether a local/primary entry, an
+// earlier-processed mount's bare name, or an earlier-processed alias — is
+// never overwritten. This is a coarse, temporary form of "local wins"
+// priority; real cross-mount collision detection is a later commit. Every
+// attempted (name, mount.Prefix) pairing — for the bare name and both
+// aliases alike — is nonetheless recorded into mountIDs, win or lose, since
+// that is the data the collision-detection commit needs.
+//
+// Aliases are flat-registry-only (never written to nsEntries): nsEntries
+// implements RFC 001 proximity resolution, which is meaningless for an
+// alias — "RadixDialogTrigger" is not a real path segment anywhere in the
+// union tree for proximity to walk up from, only a project-wide flat name,
+// exactly like the explicit-path form's target `radix/dialog/Trigger` is
+// keyed in nsEntries by its own directory rather than by the alias.
 //
 // Custom-element tag derivation uses mount.Prefix as the effective
 // "ComponentDir", mirroring registerInto's own ComponentDir-relative
@@ -723,6 +744,40 @@ func (e *Engine) discoverMountInto(mount Mount, entries map[string]*engineEntry,
 		}
 		insertIfAbsent(name)
 		if lower := strings.ToLower(name); lower != name {
+			insertIfAbsent(lower)
+		}
+
+		// Automatic mount aliases (RFC 014 §4.1 "Automatic mount aliases"):
+		// two additional flat-registry names derived from the *full*
+		// union-relative path (mount.Prefix plus every intermediate
+		// directory segment plus the base name), not just mount.Prefix +
+		// name — so a nested "radix/dialog/Trigger.vue" aliases to
+		// "RadixDialogTrigger"/"radix-dialog-trigger", not the shorter,
+		// collision-prone "RadixTrigger"/"radix-trigger" (§10 Open Question
+		// 10).
+		//
+		// deriveCustomElementTag is reused as-is (not reimplemented) and,
+		// unlike the CustomElementTag re-derivation above, is deliberately
+		// called against the *unstripped* path (including mount.Prefix)
+		// since the alias is meant to carry the prefix, whereas the custom
+		// element tag deliberately omits it.
+		kebabAlias := deriveCustomElementTag(path)
+		insertIfAbsent(kebabAlias)
+
+		// kebabToPascal is reused as-is against the kebab alias itself, not
+		// recomputed independently from segments, so both aliases are
+		// derived from the exact same underlying value.
+		pascalAlias := kebabToPascal(kebabAlias)
+		insertIfAbsent(pascalAlias)
+		// Mirror the existing local-component convention (registerInto,
+		// above) of also registering an automatic all-lowercase fallback
+		// for every PascalCase name whenever it differs from the name
+		// itself — e.g. a template author who forgets the exact casing and
+		// writes "<radixdialogtrigger>" still resolves. This keeps the
+		// PascalCase alias consistent with how every other PascalCase name
+		// in this registry already behaves, rather than carving out a
+		// special case for mount aliases.
+		if lower := strings.ToLower(pascalAlias); lower != pascalAlias {
 			insertIfAbsent(lower)
 		}
 
