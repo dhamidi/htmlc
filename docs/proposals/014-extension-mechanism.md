@@ -226,12 +226,19 @@ exactly what surfaces the style-deduplication gap in §1.2.
    (SSE, or several fragments concatenated into one response) can dedup
    shared `<style scoped>` output across the whole session rather than
    resending it on every call.
-6. **A thin, optional hypermedia helper layer** for htmx, Turbo (Drive,
-   Frames, Streams), and Datastar that composes with the existing
-   `Render*`/`ServeComponent` API rather than replacing it, so a project that
-   doesn't use any of these three libraries pays zero cost and sees zero API
-   surface change.
-7. **Fix the two parser bugs this design depends on** (self-closing
+6. **Ship real, in-tree hypermedia integrations**, one per framework (htmx,
+   Turbo, Datastar), each packaged as its own independently-versioned nested
+   Go module, so a project pulls in only the dependency footprint of the
+   framework(s) it actually uses and the root `htmlc` module's own `go.mod`
+   never grows a hypermedia-specific dependency.
+7. **Ship a real, in-tree Radix-inspired component-primitive library** at
+   `htmlc/ui/radix`, packaged as its own nested Go module, built entirely on
+   top of §4.1's multi-source registration mechanism and the dual-mode
+   (HTML-only baseline + `<script customelement>` enhancement) pattern from
+   §1.2 — so the extension mechanism this RFC proposes is proven out against
+   a real, non-trivial component set from day one, not left as a purely
+   hypothetical capability for some future third party to exercise.
+8. **Fix the two parser bugs this design depends on** (self-closing
    `<component>`, custom-element hyphen-check ordering) as a prerequisite,
    since both directly undermine mechanisms this RFC's design relies on.
 
@@ -239,22 +246,37 @@ exactly what surfaces the style-deduplication gap in §1.2.
 
 ## 3. Non-Goals
 
-- **Shipping actual ports of Radix/Zag/Ark/etc. as bundled `htmlc` code.**
-  This RFC makes it *possible* to distribute a Radix-style component library
-  as a `.vue`-file package; authoring that library (or porting an existing
-  one) is downstream work, not part of `htmlc` core.
+- **Porting Radix UI's full component set in `ui/radix`'s first release.**
+  Radix Primitives ships 25+ components; `ui/radix` ships a representative
+  subset — Accordion, Tabs, and Dialog/Popover, the same components
+  researched and prototyped in §1 and §6 — sufficient to prove out the
+  multi-source mechanism against real, non-trivial components. Broadening
+  coverage toward parity with the full Radix set is incremental follow-on
+  work, not a blocking requirement of this RFC (see §10 Open Question 11).
+- **Full protocol coverage in each hypermedia module's first release.**
+  `hypermedia/turbo`'s WebSocket/real-time broadcast path
+  (`<turbo-stream-source>`), Datastar's less common patch modes, and htmx's
+  full response-header surface are not required in v1 of their respective
+  modules — see §4.6 for the core contract each module ships initially, and
+  §10 Open Question 11 for scope sequencing.
 - **Implementing accessibility behavior (focus trapping, roving tabindex,
   collision-aware positioning) inside the engine.** That remains the
   responsibility of the JavaScript in `<script customelement>`, exactly as
-  today. This RFC only makes it easier to *ship and vendor* such components.
-- **A package manager or versioning system for component packages.** Go
-  modules already solve dependency resolution and versioning; a vendored
-  component package is just a Go package that exposes an `fs.FS`. This RFC
-  only needs `htmlc` to consume more than one `fs.FS`.
+  today — including inside `ui/radix` itself, whose enhancement scripts are
+  ordinary `<script customelement>` blocks, not a special engine-level
+  accessibility runtime.
+- **A package manager or versioning system for component packages in
+  general.** Go modules already solve dependency resolution and versioning
+  for `ui/radix` and the `hypermedia/*` modules, each tagged independently
+  using the standard nested-module convention (e.g. `ui/radix/v0.1.0`); a
+  *third-party* vendored component package is simply expected to do the
+  same. This RFC only needs `htmlc`'s engine to consume more than one
+  `fs.FS` (§4.1) — it does not invent any new packaging convention beyond
+  what `go mod`/nested modules already provide.
 - **A bundler or transpiler for third-party client JS.** No npm resolution,
-  no TypeScript, no tree-shaking — `<script customelement>` content remains
-  hand-authored (or externally built) raw JavaScript text, exactly as RFC 006
-  established.
+  no TypeScript, no tree-shaking — `<script customelement>` content in
+  `ui/radix` (and in any third-party component package) remains hand-authored
+  raw JavaScript text, exactly as RFC 006 established.
 - **WebSocket support for Turbo Streams' real-time broadcast path
   (`<turbo-stream-source>`).** Only the request/response shapes (Drive,
   Frames, single-response Streams) and Datastar's SSE model are addressed;
@@ -262,11 +284,14 @@ exactly what surfaces the style-deduplication gap in §1.2.
   pub/sub concern outside `htmlc`'s scope.
 - **Changing RFC 001's core proximity-resolution semantics for a single,
   single-source project.** Everything in §4 is additive; a project with one
-  `ComponentDir` and no vendored packages sees no behavioral change.
+  `ComponentDir` and no vendored packages (including one that never imports
+  `ui/radix`) sees no behavioral change.
 - **A general-purpose plugin registry, marketplace, or discovery service.**
-  This RFC solves distribution (how one engine consumes multiple sources) and
-  a specific set of parser/renderer gaps — not a `go install`-able plugin
-  ecosystem with its own tooling.
+  This RFC solves distribution (how one engine consumes multiple sources),
+  ships two concrete in-tree examples of that distribution mechanism
+  (`ui/radix`, `hypermedia/*`), and closes a specific set of parser/renderer
+  gaps — it is not a `go install`-able plugin ecosystem with its own
+  tooling or a marketplace for arbitrary third-party packages.
 
 ---
 
@@ -432,6 +457,67 @@ natural to build than a *tag name*. See Example 2 and Example 3.
     larger change than the problem in front of us requires.
   - **Verdict**: out of scope for this RFC; noted as a candidate for a
     follow-up RFC in §10 (non-blocking).
+
+#### In-tree example and first real consumer: `htmlc/ui/radix`
+
+§4.1's mechanism is not shipped as a purely hypothetical capability for some
+future third party. This RFC ships a real component package **in this
+repository**, at `ui/radix/`, packaged as its own nested Go module —
+`github.com/dhamidi/htmlc/ui/radix` — using the exact convention §4.1
+describes for any third-party package: a directory of `.vue` files plus an
+exported `func FS() fs.FS` over a `//go:embed`, with **no dependency on the
+root `htmlc` module at all** (confirmed by §4.1: "a component-package author
+needs no `htmlc` dependency"). `ui/radix` is deliberately not special-cased
+by the engine in any way — it is proof that §4.1's mechanism is sufficient
+for a real package, not a hidden extra capability.
+
+```
+ui/radix/
+  go.mod              ← module github.com/dhamidi/htmlc/ui/radix
+  radix.go            ← //go:embed components/*.vue ; func FS() fs.FS { ... }
+  components/
+    Accordion.vue      ← <details>/<summary> baseline + <script customelement>
+    Tabs.vue            ← native-tab-order baseline (§1.2) + <script customelement>
+    Dialog.vue          ← <dialog> baseline + <script customelement> (showModal, focus trap)
+```
+
+A consuming project mounts it exactly as shown in Example 2:
+
+```go
+import radixui "github.com/dhamidi/htmlc/ui/radix"
+
+engine, err := htmlc.New(htmlc.Options{
+    ComponentDir: "templates/",
+    Mounts: []htmlc.Mount{
+        {Prefix: "radix", FS: radixui.FS(), Dir: "components"},
+    },
+})
+```
+
+**Initial component scope**: Accordion, Tabs, and Dialog/Popover — chosen
+because they are the three component families this RFC's own research
+(§1.2, the "Minimum-viable HTML/CSS-only progressive enhancement per
+component" findings) already worked through in detail, and because they
+between them exercise every dual-mode pattern this RFC's design needs to
+support: `<details>`/`<summary>` exclusive-group disclosure (Accordion),
+native tab order with a `<script customelement>` upgrade to full APG
+roving-tabindex behavior (Tabs), and the `<dialog>` element's native
+top-layer/`::backdrop`/focus-containment behavior paired with a
+`showModal()`-calling enhancement script (Dialog). Broadening `ui/radix`
+toward Radix's full ~25-component set is intentionally left as incremental,
+non-blocking follow-on work (§3, §10 Open Question 11) — each additional
+component is an independent `.vue` file addition to an already-working
+package, not a design change.
+
+**Versioning**: `ui/radix` is tagged independently of the root module using
+Go's standard nested-module tag convention — `ui/radix/v0.1.0`,
+`ui/radix/v0.2.0`, etc. — so consumers can pin a `ui/radix` version without
+it being coupled to an unrelated `htmlc` core release, and `ui/radix` can
+ship a breaking change (e.g. dropping an old component API) on its own major
+version without forcing one on `htmlc` itself. This is the same pattern
+already used by large multi-module Go repositories (e.g. `golang.org/x/exp`
+submodules, `cloud.google.com/go`'s per-service modules) — not a new
+convention this RFC invents.
 
 ### 4.2 Collision detection across mounts
 
@@ -681,7 +767,7 @@ identical duplication for the same underlying reason: independent
 `RenderFragment` calls concatenated into one response, each unaware of what a
 sibling call already emitted.
 
-### 4.6 Hypermedia server helpers
+### 4.6 Hypermedia integrations as nested Go modules
 
 #### Current state
 
@@ -695,59 +781,104 @@ scratch.
 
 #### Proposed extension
 
-A new, optional subpackage — `github.com/dhamidi/htmlc/hypermedia` — with
-small, focused helpers per library. None of these change `Engine`'s core
-behavior; they are thin wrappers a caller opts into. Sketch (see §7 for the
-implementation-file breakdown):
+Ship real, working code for each of the three libraries — not just header
+constants — but as **three independent nested Go modules**, one per
+framework, rather than a single `hypermedia` package in the main module:
+
+```
+hypermedia/
+  htmx/
+    go.mod       ← module github.com/dhamidi/htmlc/hypermedia/htmx
+                    (no dependencies — request/response header helpers only)
+  turbo/
+    go.mod       ← module github.com/dhamidi/htmlc/hypermedia/turbo
+                    (no dependencies — header/content-type helpers, <turbo-stream> wrapping)
+  datastar/
+    go.mod       ← module github.com/dhamidi/htmlc/hypermedia/datastar
+                    (depends on github.com/starfederation/datastar-go
+                     AND on the root github.com/dhamidi/htmlc module, for
+                     *htmlc.Engine / *htmlc.StyleCollector from §4.5)
+```
 
 ```go
-// pseudo-code — not implementation, package hypermedia
+// pseudo-code — not implementation
 
-// htmx
-func IsHTMXRequest(r *http.Request) bool          // checks HX-Request header
-func IsBoosted(r *http.Request) bool              // checks HX-Boosted header
+// package htmx (github.com/dhamidi/htmlc/hypermedia/htmx) — zero dependencies
+func IsHTMXRequest(r *http.Request) bool             // checks HX-Request header
+func IsBoosted(r *http.Request) bool                 // checks HX-Boosted header
 func SetTrigger(w http.ResponseWriter, event string) // sets HX-Trigger
 
-// Turbo
-const TurboStreamContentType = "text/vnd.turbo-stream.html"
-func WantsTurboStream(r *http.Request) bool        // checks Accept header
-func TurboFrameID(r *http.Request) (id string, ok bool) // checks Turbo-Frame header
-func WriteTurboStream(w io.Writer, action, target, fragmentHTML string) error
+// package turbo (github.com/dhamidi/htmlc/hypermedia/turbo) — zero dependencies
+const StreamContentType = "text/vnd.turbo-stream.html"
+func WantsStream(r *http.Request) bool                    // checks Accept header
+func FrameID(r *http.Request) (id string, ok bool)        // checks Turbo-Frame header
+func WriteStream(w io.Writer, action, target, fragmentHTML string) error
 
-// Datastar
-func WriteDatastarPatchElements(w io.Writer, selector, mode, elementsHTML string) error
-// (a thinner alternative: document the pattern of combining
-// datastar-go's ServerSentEventGenerator directly with
-// Engine.RenderFragmentWithStyles from §4.5, rather than wrapping the SDK)
+// package datastar (github.com/dhamidi/htmlc/hypermedia/datastar) — depends on
+// datastar-go and on the root htmlc module
+func PatchElementsFragment(sse *datastar.ServerSentEventGenerator, engine *htmlc.Engine,
+    sc *htmlc.StyleCollector, ctx context.Context, name string, data map[string]any, selector string) error
+// combines Engine.RenderFragmentWithStyles (§4.5) with datastar-go's
+// PatchElements in one call, so a caller driving an SSE loop (§6 Example 6)
+// does not have to hand-wire the buffer-then-patch pattern themselves
 ```
+
+Each module's `go.mod` requires the root `github.com/dhamidi/htmlc` module
+only if it actually needs `htmlc`'s types (`datastar` does, for the
+`*htmlc.Engine`/`*htmlc.StyleCollector` parameters to `PatchElementsFragment`;
+`htmx` and `turbo` do not — every function in those two operates purely on
+`*http.Request`/`http.ResponseWriter`/`io.Writer`/strings). Each is tagged
+independently (`hypermedia/htmx/v0.1.0`, etc.), matching the same
+nested-module convention as `ui/radix` (§4.1).
 
 #### Evaluation
 
-- **Option A — ship a small `hypermedia` subpackage in the main module
-  (proposed above)**
-  - ✅ Gives users a tested, correct implementation of header/content-type
-    details that are easy to get subtly wrong (e.g. the exact
-    `text/vnd.turbo-stream.html` string, or which header htmx actually reads
-    for boost detection).
-  - ⚠️ Couples `htmlc`'s release cadence to three external libraries' evolving
-    protocols — if htmx changes a header name in a future major version, this
-    subpackage needs a matching update.
-  - **Verdict**: recommended, but scoped deliberately small (header/content-
-    type helpers and stream-wrapping only — no attempt to model Turbo's or
-    Datastar's client-side behavior, no bundled JS).
-- **Option B — publish this only as documentation/recipes, no shipped code**
+- **Option A — three separate nested modules, one per framework (proposed
+  above)**
+  - ✅ **Fully resolves the former dependency-coupling concern** (this RFC's
+    original draft flagged, as an open question, whether `htmlc` should take
+    a hard dependency on `datastar-go`): a project that only uses htmx or
+    Turbo never resolves `datastar-go`'s dependency graph at all, because it
+    never imports the `datastar` module in the first place. The root
+    `htmlc` module's own `go.mod` (currently just `golang.org/x/net`) is
+    completely untouched by any of this (§8).
+  - ✅ Each framework's integration can be versioned and released
+    independently — a breaking change in `hypermedia/turbo` (e.g. following
+    a hypothetical Turbo 9 header rename) needs only a `hypermedia/turbo`
+    major version bump, not a coordinated release across all three, and not
+    a root-module release at all.
+  - ⚠️ Three `go.mod` files (plus `ui/radix`'s) is more repository-management
+    overhead than a single package — release tagging, CI matrix, and
+    `go.work` setup for local development all need to account for multiple
+    modules in one repository. This is a one-time cost, not a per-release
+    one, and is a well-trodden pattern (see §4.1's nested-module precedent
+    citation).
+  - **Verdict**: recommended.
+- **Option B — a single `hypermedia` package/module covering all three
+  frameworks (the original draft's proposal)**
+  - ✅ One `go.mod`, simpler repository layout.
+  - ❌ Forces every consumer — including one that only ever uses htmx — to
+    resolve `datastar-go` as a transitive dependency the moment they import
+    anything from the package, exactly the coupling concern this RFC's
+    original draft left as an unresolved open question. A single Go package
+    cannot selectively exclude a dependency based on which of its own
+    functions a caller actually uses.
+  - **Verdict**: rejected — Option A achieves the same developer-facing
+    surface with none of the dependency bleed.
+- **Option C — publish this only as documentation/recipes, no shipped code**
   - ✅ Zero new maintenance surface, zero coupling to external protocol
     churn.
   - ❌ Every project re-implements the same handful of header checks and
     string constants, with the same opportunity to get the exact header name
-    or content-type string wrong that Option A's subpackage exists to
-    prevent.
+    or content-type string wrong that Option A's modules exist to prevent —
+    and, for Datastar specifically, re-implements the same
+    buffer-render-then-patch wiring shown in §6 Example 6.
   - **Verdict**: rejected as the sole answer, but the RFC's Examples (§6) and
     a docs-branch tutorial (per this repo's documentation convention) should
     still show the underlying pattern explicitly, not hide it behind the
-    helper package, so a project using a fourth hypermedia library (or a
-    future Turbo/htmx major version) can replicate the approach without
-    waiting on an `htmlc` release.
+    helper modules, so a project using a fourth hypermedia library (or a
+    future major version of one of these three) can replicate the approach
+    without waiting on an `htmlc` release.
 
 ### 4.7 Prerequisite bug fixes
 
@@ -788,8 +919,8 @@ prerequisites rather than deferred cleanup:
 | `<turbo-frame id="todos">...</turbo-frame>` | Renders as a plain native element (attributes/children evaluated normally) when `turbo-frame` is declared in `NativeElements`; otherwise fails with `unknown component` as today |
 | `:hx-swap-oob="isOOB"` | Omits the `hx-swap-oob` attribute entirely when `isOOB` is `false`/`nil`/`undefined`; renders `hx-swap-oob="true"` otherwise — works for any attribute name, not just the eight native HTML boolean attributes |
 | `sc := engine.NewStyleCollector()` then repeated `engine.RenderFragmentWithStyles(ctx, w, name, data, sc)` | Dedups `<style scoped>` output across multiple render calls sharing `sc` (one SSE connection, or several fragments concatenated into one response) |
-| `hypermedia.IsHTMXRequest(r)` / `hypermedia.WantsTurboStream(r)` / `hypermedia.TurboFrameID(r)` | Request-side detection helpers for branching page-vs-fragment rendering |
-| `hypermedia.WriteTurboStream(w, "replace", "todo-list", fragmentHTML)` | Wraps rendered fragment HTML in a `<turbo-stream>` element with the correct `Content-Type` implications |
+| `htmx.IsHTMXRequest(r)` / `turbo.WantsStream(r)` / `turbo.FrameID(r)` | Request-side detection helpers (from the `hypermedia/htmx` and `hypermedia/turbo` nested modules, §4.6) for branching page-vs-fragment rendering |
+| `turbo.WriteStream(w, "replace", "todo-list", fragmentHTML)` | Wraps rendered fragment HTML in a `<turbo-stream>` element with the correct `Content-Type` implications |
 
 ---
 
@@ -812,24 +943,26 @@ engine, _ := htmlc.New(htmlc.Options{ComponentDir: "templates/"})
 
 No `Mounts`, no `NativeElements`, no behavior change.
 
-### Example 2 — Vendoring the library, referenced directly, no special syntax needed
+### Example 2 — Vendoring `ui/radix`, referenced directly, no special syntax needed
+
+This example uses the actual in-tree package this RFC ships (§4.1
+"In-tree example and first real consumer"), not a hypothetical third party:
 
 ```
-// third-party module: github.com/example/radix-htmlc
-radix-htmlc/
+ui/radix/                    ← this repository, github.com/dhamidi/htmlc/ui/radix
   components/
     Accordion.vue   ← HTML-only <details>/<summary> baseline + <script customelement>
     Tabs.vue
-  radix.go          ← //go:embed components/*.vue ; func FS() fs.FS { return embeddedFS }
+    Dialog.vue
 ```
 
 ```go
-import radixhtmlc "github.com/example/radix-htmlc"
+import radixui "github.com/dhamidi/htmlc/ui/radix"
 
 engine, err := htmlc.New(htmlc.Options{
     ComponentDir: "templates/",
     Mounts: []htmlc.Mount{
-        {Prefix: "radix", FS: radixhtmlc.FS(), Dir: "components"},
+        {Prefix: "radix", FS: radixui.FS(), Dir: "components"},
     },
 })
 ```
@@ -864,7 +997,7 @@ templates/
 engine, _ := htmlc.New(htmlc.Options{
     ComponentDir: "templates/",
     Mounts: []htmlc.Mount{
-        {Prefix: "radix", FS: radixhtmlc.FS(), Dir: "components"},
+        {Prefix: "radix", FS: radixui.FS(), Dir: "components"},
     },
 })
 if errs := engine.ValidateAll(); len(errs) > 0 {
@@ -893,22 +1026,28 @@ is immediate — no design work required, since the aliases already exist:
 ### Example 4 — htmx: fragment vs. full page, with an out-of-band swap and no duplicate styles
 
 ```go
+import "github.com/dhamidi/htmlc/hypermedia/htmx"
+
 func handleIncrement(w http.ResponseWriter, r *http.Request, engine *htmlc.Engine, sc *htmlc.StyleCollector) {
     count := incrementCounter()
     data := map[string]any{"count": count}
 
-    if !hypermedia.IsHTMXRequest(r) {
+    if !htmx.IsHTMXRequest(r) {
         engine.RenderPage(r.Context(), w, "HomePage", data)
         return
     }
 
-    hypermedia.SetTrigger(w, "counter-updated")
+    htmx.SetTrigger(w, "counter-updated")
     engine.RenderFragmentWithStyles(r.Context(), w, "Counter", data, sc)
     fmt.Fprintf(w, `<div id="status-badge" hx-swap-oob="true">`)
     engine.RenderFragmentWithStyles(r.Context(), w, "StatusBadge", data, sc)
     fmt.Fprint(w, `</div>`)
 }
 ```
+
+Note that this handler's import list never mentions Turbo or Datastar at
+all — `hypermedia/htmx` is a standalone module with no dependency even on
+the other two hypermedia modules, let alone their third-party dependencies.
 
 Both fragments share `sc`, so `Counter` and `StatusBadge`'s scoped `<style>`
 blocks are each emitted at most once across the response, even though both
@@ -917,15 +1056,17 @@ components are rendered independently into the same writer.
 ### Example 5 — Turbo Streams: two actions in one response
 
 ```go
+import "github.com/dhamidi/htmlc/hypermedia/turbo"
+
 func handleTodoCreate(w http.ResponseWriter, r *http.Request, engine *htmlc.Engine) {
     todo := createTodo(r)
-    w.Header().Set("Content-Type", hypermedia.TurboStreamContentType)
+    w.Header().Set("Content-Type", turbo.StreamContentType)
 
     itemHTML, _ := engine.RenderFragmentString(r.Context(), "TodoItem", map[string]any{"todo": todo})
-    hypermedia.WriteTurboStream(w, "append", "todo-list", itemHTML)
+    turbo.WriteStream(w, "append", "todo-list", itemHTML)
 
     countHTML, _ := engine.RenderFragmentString(r.Context(), "TodoCount", map[string]any{"count": todoCount()})
-    hypermedia.WriteTurboStream(w, "update", "todo-count", countHTML)
+    turbo.WriteStream(w, "update", "todo-count", countHTML)
 }
 ```
 
@@ -936,24 +1077,33 @@ pattern already validated end-to-end.
 ### Example 6 — Datastar: an SSE loop with deduplicated styles
 
 ```go
+import (
+    dsdatastar "github.com/starfederation/datastar-go/datastar"
+    htmlcdatastar "github.com/dhamidi/htmlc/hypermedia/datastar"
+)
+
 func handleCounterStream(w http.ResponseWriter, r *http.Request, engine *htmlc.Engine) {
-    sse := datastar.NewSSE(w, r)
+    sse := dsdatastar.NewSSE(w, r)
     sc := engine.NewStyleCollector()
 
     for i := 1; i <= 3; i++ {
-        var buf bytes.Buffer
-        engine.RenderFragmentWithStyles(r.Context(), &buf, "Counter", map[string]any{"count": i}, sc)
-        sse.PatchElements(buf.String(), datastar.WithSelector("#ds-counter"))
+        htmlcdatastar.PatchElementsFragment(sse, engine, sc, r.Context(),
+            "Counter", map[string]any{"count": i}, "#ds-counter")
         time.Sleep(200 * time.Millisecond)
     }
 }
 ```
 
-Only the first `PatchElements` call's `elements` payload carries the
+`hypermedia/datastar`'s `PatchElementsFragment` (§4.6) is the only one of the
+three hypermedia modules that imports the root `htmlc` module directly — it
+combines `Engine.RenderFragmentWithStyles` (§4.5) and `datastar-go`'s
+`PatchElements` in one call, so the buffer-then-patch wiring shown as
+hand-written code in earlier drafts of this example is now a single
+function call. Only the first call's `elements` payload carries the
 `<style scoped>` block; the second and third carry bare HTML — reproduced as
 a real, working pattern in the prototype using the existing
 `RenderWithCollector` accident (§1.2), and formalized here as the supported
-`RenderFragmentWithStyles` API.
+`RenderFragmentWithStyles` API that `PatchElementsFragment` wraps.
 
 ---
 
@@ -1022,21 +1172,41 @@ High-level Go-level changes only, grouped by file:
    custom usages — `component` is never a void HTML element, so this is safe
    by construction.
 
-### New package: `hypermedia/` (§4.6)
+### New nested module: `ui/radix/` (§4.1)
 
-1. `hypermedia/htmx.go`: `IsHTMXRequest`, `IsBoosted`, `SetTrigger`, and
-   similar small header-based helpers, each a direct wrapper over one
-   documented htmx request/response header.
-2. `hypermedia/turbo.go`: `TurboStreamContentType` constant,
-   `WantsTurboStream`, `TurboFrameID`, `WriteTurboStream`.
-3. `hypermedia/datastar.go`: either a thin re-export/helper layered on
-   `github.com/starfederation/datastar-go`, or (if a hard dependency on that
-   module is undesirable for `htmlc`'s own `go.mod`) documentation-only
-   guidance showing the pattern from Example 6 — resolve as part of Open
-   Question 9 (§10).
-4. This package has its own `go.mod`-relative import path but should be
-   released and versioned alongside the main module, matching the
-   already-established `cmd/htmlc` sub-tooling pattern in this repo.
+1. `ui/radix/go.mod`: `module github.com/dhamidi/htmlc/ui/radix`, no
+   `require` on the root `htmlc` module (§4.1 — a component package needs no
+   `htmlc` dependency).
+2. `ui/radix/radix.go`: `//go:embed components/*.vue` plus an exported
+   `func FS() fs.FS`.
+3. `ui/radix/components/{Accordion,Tabs,Dialog}.vue`: dual-mode components —
+   HTML-only baseline (`<details>`/`<summary>`, native tab order, `<dialog>`)
+   plus a `<script customelement>` enhancement block per component,
+   following the pattern validated in the component-library prototype (§1.2,
+   §6 Example 1).
+4. A root-level `go.work` (development-only, not committed as a build
+   requirement for consumers) so `go build ./...` from the repository root
+   can resolve both the root module and `ui/radix` together during `htmlc`'s
+   own development, without requiring every contributor to `cd` into
+   `ui/radix` separately.
+
+### New nested modules: `hypermedia/{htmx,turbo,datastar}/` (§4.6)
+
+1. `hypermedia/htmx/go.mod` (`module github.com/dhamidi/htmlc/hypermedia/htmx`,
+   no dependencies): `IsHTMXRequest`, `IsBoosted`, `SetTrigger`, and similar
+   small header-based helpers, each a direct wrapper over one documented
+   htmx request/response header.
+2. `hypermedia/turbo/go.mod` (`module github.com/dhamidi/htmlc/hypermedia/turbo`,
+   no dependencies): `StreamContentType` constant, `WantsStream`, `FrameID`,
+   `WriteStream`.
+3. `hypermedia/datastar/go.mod` (`module github.com/dhamidi/htmlc/hypermedia/datastar`,
+   requires both `github.com/starfederation/datastar-go` and the root
+   `github.com/dhamidi/htmlc` module): `PatchElementsFragment`, combining
+   `Engine.RenderFragmentWithStyles` (§4.5) with `datastar-go`'s
+   `PatchElements`.
+4. Each module is tagged independently (`hypermedia/htmx/v0.1.0`, etc.),
+   matching `ui/radix`'s convention, and added to the same development-only
+   `go.work` as `ui/radix` for repository-local builds and tests.
 
 ### Notes
 
@@ -1130,10 +1300,20 @@ final custom-element tag is invalid — a case that was previously silently
 passing validation while producing broken output. No project relying on the
 current silent-pass behavior is depending on anything the spec allows.
 
-### New `hypermedia` subpackage
+### New nested modules: `ui/radix` and `hypermedia/{htmx,turbo,datastar}`
 
-Entirely new, opt-in package; zero impact on the core `htmlc` module or any
-project not importing it.
+Entirely new, opt-in, independently-versioned Go modules — not subpackages
+of the root module. The root `htmlc` module's `go.mod` (currently `module
+github.com/dhamidi/htmlc`, `go 1.25.0`, `require golang.org/x/net v0.51.0`)
+is **not modified** by adding any of these four nested modules: they are
+separate `go.mod` files in subdirectories, each with its own module path and
+dependency graph. A project that imports only `github.com/dhamidi/htmlc`
+(the core engine) sees zero new transitive dependencies, zero new exported
+identifiers, and zero behavior change from any of `ui/radix`,
+`hypermedia/htmx`, `hypermedia/turbo`, or `hypermedia/datastar` existing in
+the repository — each is opt-in per `import`, exactly like any other
+separately-versioned Go module would be, whether it lived in this repository
+or a completely different one.
 
 ---
 
@@ -1207,15 +1387,29 @@ incomplete: every new hypermedia library, every project's own custom
 list in `htmlc` itself, rather than being solved once by matching real
 Vue.js's general semantics.
 
+### A single combined `hypermedia` module instead of three nested modules
+
+Considered in §4.6 (Option B) — a single `github.com/dhamidi/htmlc/hypermedia`
+module covering htmx, Turbo, and Datastar helpers together, rather than
+three independently-versioned nested modules. **Rejected**: a single Go
+module cannot let a caller depend on its htmx helpers without also pulling
+in `datastar-go` as a transitive dependency the moment the module is
+imported at all — package-level granularity is not fine enough once one
+function in the package needs a third-party dependency the others don't.
+Three nested modules give the same ergonomics per framework with none of
+the dependency bleed, at the one-time cost of more `go.mod`/tagging
+bookkeeping.
+
 ### Building the hypermedia helpers as documentation only, no shipped code
 
-Considered in §4.6 (Option B) — rejected as the *sole* answer because it
+Considered in §4.6 (Option C) — rejected as the *sole* answer because it
 reproduces the exact class of easy-to-get-wrong details (precise header
-names, the exact `text/vnd.turbo-stream.html` string) in every consuming
-project independently, but retained as a **complement**: the Examples (§6)
-and any docs-branch tutorial should still show the underlying pattern in
-full, not just call the helper, so a project using a different or future
-hypermedia library isn't blocked on an `htmlc` release.
+names, the exact `text/vnd.turbo-stream.html` string, the Datastar
+buffer-then-patch wiring) in every consuming project independently, but
+retained as a **complement**: the Examples (§6) and any docs-branch tutorial
+should still show the underlying pattern in full, not just call the helper,
+so a project using a different or future hypermedia library isn't blocked
+on an `htmlc` release.
 
 ---
 
@@ -1291,9 +1485,9 @@ hypermedia library isn't blocked on an `htmlc` release.
    syntax highlighter or a hypermedia-protocol directive implemented in a
    language other than Go) is a natural next step this RFC's design does not
    preclude.
-8. **Should `hypermedia.TurboFrameID`/`WantsTurboStream` also validate that
+8. **Should `hypermedia/turbo`'s `FrameID`/`WantsStream` also validate that
    the server's response actually contains a matching `<turbo-frame
-   id="...">`** (non-blocking) — i.e. should the helper package catch the
+   id="...">`** (non-blocking) — i.e. should the helper module catch the
    "response doesn't match Turbo Frame's expectations" class of bug at the
    `htmlc` layer, or is that left entirely to the author, matching Turbo's
    own "no special server validation" contract? Recommendation: leave to the
@@ -1302,17 +1496,14 @@ hypermedia library isn't blocked on an `htmlc` release.
    with the streaming-friendly design elsewhere in this RFC (§4.5, §6 Example
    6). Revisit only if this proves to be a common source of bugs in
    practice.
-9. **Should the `hypermedia` subpackage take a hard dependency on
+9. ~~Should the `hypermedia` subpackage take a hard dependency on
    `github.com/starfederation/datastar-go`, or stay documentation-only for
-   the Datastar portion specifically** (blocking, scoped to §4.6/§7's
-   `hypermedia/datastar.go`): htmx and Turbo need no third-party dependency
-   (they're just header/content-type conventions), but a genuinely useful
-   Datastar helper likely means depending on the official SDK, whose release
-   cadence `htmlc` would not control. Recommendation: ship
-   `hypermedia/htmx.go` and `hypermedia/turbo.go` as proposed, but treat
-   `hypermedia/datastar.go` as documentation/example code only (as shown in
-   §6 Example 6) rather than a dependency-carrying package, until there's
-   clear demand for a maintained wrapper.
+   the Datastar portion specifically?~~ **Resolved** by packaging
+   `hypermedia/datastar` as its own nested module (§4.6): it takes the
+   dependency, since only projects that actually import
+   `github.com/dhamidi/htmlc/hypermedia/datastar` ever resolve
+   `datastar-go` — `hypermedia/htmx` and `hypermedia/turbo` remain
+   dependency-free, and the root `htmlc` module is untouched either way.
 10. **Multi-segment mount subdirectories and alias derivation** (non-blocking,
     §4.1): how should the PascalCase/kebab aliases be derived for a component
     nested inside subdirectories of a mount (e.g. `radix/dialog/Trigger.vue`,
@@ -1328,3 +1519,18 @@ hypermedia library isn't blocked on an `htmlc` release.
     case — a mount with no internal subdirectories — is unaffected either
     way, since `Prefix + localName` and the full-path form coincide when
     there are no intermediate segments.
+11. **Scope-sequencing roadmap for `ui/radix` and `hypermedia/*` beyond v1**
+    (non-blocking): §3 deliberately scopes `ui/radix`'s first release to
+    Accordion/Tabs/Dialog and each `hypermedia/*` module to its core
+    request/response contract, not full parity with Radix's component set
+    or each framework's full feature surface. This RFC does not commit to a
+    specific order or timeline for expanding either — e.g. whether the next
+    `ui/radix` addition should be Popover/DropdownMenu (natural given the
+    Popover-API research in §1.2) or Tooltip, or whether `hypermedia/turbo`
+    should prioritize `<turbo-stream-source>` (SSE/WebSocket) support before
+    `hypermedia/datastar` gains additional patch modes. Recommendation:
+    treat both as ordinary, incremental follow-on pull requests once this
+    RFC's core mechanism lands, prioritized by actual project demand rather
+    than fixed in this document; each addition is a `.vue` file or a small
+    function addition to an already-working nested module, not a design
+    change requiring a further RFC.
