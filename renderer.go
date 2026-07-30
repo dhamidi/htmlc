@@ -149,24 +149,25 @@ func ErrorOnMissingProp(name string) (any, error) {
 // want engine functions to propagate into child components must call WithFuncs
 // explicitly.
 type Renderer struct {
-	component          *Component
-	styleCollector     *StyleCollector
-	ceCollector        *CustomElementCollector
-	registry           Registry
-	nsRegistry         map[string]map[string]*Component // nil = NS resolution disabled
-	componentDir       string                           // ComponentDir for NS relative-path computation
-	missingPropHandler MissingPropFunc
-	slotDefs           map[string]*SlotDefinition
-	directives         DirectiveRegistry
-	ctx                context.Context // optional; nil means no cancellation
-	debug              bool
-	debugAttrs         map[string]string
-	funcs                 map[string]any // engine-registered functions, propagated to child renderers
-	logger                *slog.Logger  // nil = no slog output
-	cw                    countingWriter // Reset()ed at each child dispatch
-	componentPath         []string            // ordered path from root to this component
+	component             *Component
+	styleCollector        *StyleCollector
+	ceCollector           *CustomElementCollector
+	registry              Registry
+	nsRegistry            map[string]map[string]*Component // nil = NS resolution disabled
+	componentDir          string                           // ComponentDir for NS relative-path computation
+	mountPrefixes         []string                         // registered Mount.Prefix values; lets callerDir root a mount-sourced component at its own mount instead of componentDir
+	missingPropHandler    MissingPropFunc
+	slotDefs              map[string]*SlotDefinition
+	directives            DirectiveRegistry
+	ctx                   context.Context // optional; nil means no cancellation
+	debug                 bool
+	debugAttrs            map[string]string
+	funcs                 map[string]any        // engine-registered functions, propagated to child renderers
+	logger                *slog.Logger          // nil = no slog output
+	cw                    countingWriter        // Reset()ed at each child dispatch
+	componentPath         []string              // ordered path from root to this component
 	componentErrorHandler ComponentErrorHandler // nil = abort on error (default)
-	ancestors             map[*Component]bool  // components being rendered by ancestor renderers; used for cycle detection
+	ancestors             map[*Component]bool   // components being rendered by ancestor renderers; used for cycle detection
 }
 
 // NewRenderer creates a Renderer for c. Call WithStyles and WithComponents
@@ -212,6 +213,20 @@ func (r *Renderer) WithComponents(reg Registry) *Renderer {
 func (r *Renderer) WithNSComponents(ns map[string]map[string]*Component, componentDir string) *Renderer {
 	r.nsRegistry = ns
 	r.componentDir = componentDir
+	return r
+}
+
+// WithMountPrefixes attaches the set of registered Mount.Prefix values so
+// proximity resolution can correctly root a mount-sourced component's
+// callerDir at its own mount instead of componentDir. Without this, a
+// mount-sourced component's path (e.g. "radix/dialog/Trigger.vue") never
+// shares componentDir's own prefix (e.g. "templates"), so callerDir would
+// always collapse to "" regardless of how deep inside the mount the
+// component actually lives, and any nsRegistry entries keyed under the
+// mount's own internal subdirectories would be unreachable. Returns the
+// Renderer for chaining.
+func (r *Renderer) WithMountPrefixes(prefixes []string) *Renderer {
+	r.mountPrefixes = prefixes
 	return r
 }
 
@@ -1514,6 +1529,9 @@ func (r *Renderer) callerDir() string {
 	if r.component == nil || r.component.Path == "" {
 		return ""
 	}
+	if dir, ok := mountRelDirFor(r.mountPrefixes, r.component.Path); ok {
+		return dir
+	}
 	return nsRelDir(r.component.Path, r.componentDir)
 }
 
@@ -1792,14 +1810,15 @@ func (r *Renderer) renderComponentElement(w io.Writer, n *html.Node, scope map[s
 		styleCollector:        r.styleCollector,
 		ceCollector:           r.ceCollector,
 		registry:              r.registry,
-		nsRegistry:            r.nsRegistry,        // propagate NS registry to child renderers
-		componentDir:          r.componentDir,       // propagate componentDir to child renderers
+		nsRegistry:            r.nsRegistry,    // propagate NS registry to child renderers
+		componentDir:          r.componentDir,  // propagate componentDir to child renderers
+		mountPrefixes:         r.mountPrefixes, // propagate mount prefixes to child renderers
 		missingPropHandler:    r.missingPropHandler,
 		slotDefs:              slotDefs,
 		directives:            r.directives,
 		ctx:                   r.ctx,
 		debug:                 r.debug,
-		funcs:                 r.funcs,              // propagate engine functions to child renderers
+		funcs:                 r.funcs, // propagate engine functions to child renderers
 		logger:                r.logger,
 		componentPath:         childPath,
 		componentErrorHandler: r.componentErrorHandler,

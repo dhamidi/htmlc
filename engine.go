@@ -83,6 +83,44 @@ type Options struct {
 	// to RenderPage. The nil value (default) preserves the existing behaviour:
 	// the first component error aborts the render and w receives nothing.
 	ComponentErrorHandler ComponentErrorHandler
+	// Mounts registers additional, independently-sourced component trees
+	// alongside the primary FS/ComponentDir pair. Each Mount's components are
+	// addressed under Mount.Prefix (e.g. Prefix: "radix" makes its
+	// Accordion.vue reachable as <component is="radix/Accordion">) and also
+	// participate in the ordinary flat-registry fallback, so an unqualified
+	// <Accordion> resolves through it whenever the bare name is unambiguous.
+	//
+	// Mounts is purely additive: setting it does not require setting
+	// FS/ComponentDir, and vice versa. Adding Mounts to an existing
+	// FS/ComponentDir configuration never changes how the primary source's
+	// own files are discovered, tagged, or resolved — only Mount.Prefix
+	// itself must not collide with a top-level directory name already
+	// present under ComponentDir (the engine does not currently detect this
+	// case; it is a caller responsibility).
+	//
+	// When a mount-defined name collides with another mount's or with a
+	// locally-defined component, the local component (or the
+	// earliest-processed Mount, in Mounts order) wins the flat-registry slot;
+	// the loser is still reachable via its explicit "prefix/Name" path. This
+	// is a coarse, temporary priority rule — real alias-based disambiguation
+	// and collision detection are not implemented yet.
+	Mounts []Mount
+}
+
+// Mount registers an additional, independently-sourced component tree
+// alongside the primary Options.FS/ComponentDir pair.
+type Mount struct {
+	// Prefix is the namespace prefix this mount's components are addressed
+	// under (e.g. "radix" makes its Accordion.vue reachable as
+	// <component is="radix/Accordion">). Prefix must be non-empty, must not
+	// contain "/", and must be unique across all of Options.Mounts — New
+	// returns an error immediately if any of these is violated.
+	Prefix string
+	// FS is the component source for this mount.
+	FS fs.FS
+	// Dir is the path within FS to scan, mirroring ComponentDir. Empty
+	// means the root of FS (equivalent to ".").
+	Dir string
 }
 
 // engineEntry holds a parsed component together with its source path and the
@@ -91,6 +129,13 @@ type engineEntry struct {
 	path    string
 	comp    *Component
 	modTime time.Time
+	// mountID identifies which source registered this entry: "" for the
+	// primary Options.FS/ComponentDir source, or the owning Mount.Prefix for
+	// a component discovered inside a Mount. Not yet consulted by anything
+	// (collision detection across mounts is a later commit) — it exists so
+	// that later logic can distinguish "which source is this entry from"
+	// without re-deriving it from the entry's path.
+	mountID string
 }
 
 // Engine is the entry point for rendering .vue components. Create one with
@@ -102,7 +147,7 @@ type engineEntry struct {
 // multiple goroutines simultaneously.
 type Engine struct {
 	opts               Options
-	mu                 sync.RWMutex // guards entries, nsEntries, and collector
+	mu                 sync.RWMutex // guards entries, nsEntries, entryMountIDs, and collector
 	entries            map[string]*engineEntry
 	nsEntries          map[string]map[string]*engineEntry // relDir → localName → entry
 	collector          *CustomElementCollector
@@ -110,6 +155,28 @@ type Engine struct {
 	directives         DirectiveRegistry
 	funcs              map[string]any // per-engine functions, injected into every render scope
 	dataMiddleware     []func(*http.Request, map[string]any) map[string]any
+
+	// mountPrefixes holds every configured Options.Mounts[i].Prefix, set once
+	// in New and never mutated afterward (Mounts cannot currently be changed
+	// at runtime), so it is safe to read without holding mu. It is consulted
+	// by relDirForPath and threaded into the Renderer (via
+	// WithMountPrefixes) so a mount-sourced component's proximity directory
+	// is computed relative to its own mount instead of collapsing to "".
+	mountPrefixes []string
+
+	// entryMountIDs records, for every flat registry name ever attempted
+	// during discovery, every distinct mountID ("" for the primary source, or
+	// a Mount.Prefix) that attempted to register that name — in registration
+	// order, deduplicated per (name, mountID) pair. Unlike e.entries (which
+	// only holds the single entry that actually won the flat-registry slot,
+	// per the insert-if-absent priority rule), entryMountIDs also remembers
+	// attempts that lost — a mount whose registration was shadowed by a local
+	// or earlier-mount entry of the same name is still recorded here.
+	//
+	// Nothing reads this field yet: it exists so a later commit implementing
+	// cross-mount collision detection (RFC 014 §4.2's checkMountCollisions)
+	// does not need to re-plumb discovery to recover this information.
+	entryMountIDs map[string][]string
 
 	// expvar-backed option vars
 	varReload       *expvar.Int
@@ -192,11 +259,71 @@ func (e *Engine) WithDataMiddleware(fn func(*http.Request, map[string]any) map[s
 // New creates an Engine configured by opts. If opts.ComponentDir is set the
 // directory is walked recursively and all *.vue files are registered.
 func New(opts Options) (*Engine, error) {
+	if err := validateMountPrefixes(opts.Mounts); err != nil {
+		return nil, err
+	}
+
+	// mountPrefixes is captured before opts.FS is possibly rewritten to the
+	// union below, since it only ever needs the Prefix strings, not the
+	// mounts' filesystems.
+	var mountPrefixes []string
+	for _, m := range opts.Mounts {
+		mountPrefixes = append(mountPrefixes, m.Prefix)
+	}
+
+	if len(opts.Mounts) > 0 {
+		primaryFS := opts.FS
+		if primaryFS == nil {
+			// Mounts are combined into a union fs.FS (see unionfs.go), which
+			// requires a real fs.FS for the primary source too — fall back
+			// to the OS filesystem rooted at the process's working
+			// directory. This only supports a *relative* ComponentDir
+			// (matching every example in RFC 014, §4.1) because fs.FS's own
+			// path rules (fs.ValidPath) reject absolute paths outright.
+			// Detect that unsupported combination here and fail clearly,
+			// rather than letting it surface later as a confusing
+			// "open <path>: invalid argument" error during discovery.
+			if filepath.IsAbs(opts.ComponentDir) {
+				return nil, fmt.Errorf("engine: Options.Mounts requires a relative ComponentDir when Options.FS is nil (got absolute path %q)", opts.ComponentDir)
+			}
+			primaryFS = os.DirFS(".")
+		}
+
+		mounts := make([]fsMount, 0, len(opts.Mounts)+1)
+		mounts = append(mounts, fsMount{prefix: "", fs: primaryFS})
+		for i, m := range opts.Mounts {
+			dir := m.Dir
+			if dir == "" {
+				dir = "."
+			}
+			sub, err := fs.Sub(m.FS, dir)
+			if err != nil {
+				return nil, fmt.Errorf("engine: Options.Mounts[%d] (prefix %q): fs.Sub(%q): %w", i, m.Prefix, dir, err)
+			}
+			mounts = append(mounts, fsMount{prefix: m.Prefix, fs: sub})
+		}
+
+		// e.opts.FS becomes the union of the primary source (mounted at "")
+		// and every Mount (mounted at its own Prefix). Deliberately NOT
+		// touched: opts.ComponentDir. Resetting it to "" (as RFC 014 §4.1's
+		// simplified pseudocode suggests) would make discoverInto's
+		// ComponentDir-relative custom-element tag re-derivation operate
+		// against the wrong base for every existing primary-source
+		// component the moment any Mount is added — see the Options.Mounts
+		// doc comment and this package's design notes. Leaving
+		// ComponentDir untouched means the discovery call below behaves
+		// byte-for-byte as it did before Mounts existed; only the mount
+		// walk further down is new.
+		opts.FS = newUnionFS(mounts)
+	}
+
 	e := &Engine{
-		opts:       opts,
-		entries:    make(map[string]*engineEntry),
-		nsEntries:  make(map[string]map[string]*engineEntry),
-		directives: opts.Directives,
+		opts:          opts,
+		entries:       make(map[string]*engineEntry),
+		nsEntries:     make(map[string]map[string]*engineEntry),
+		directives:    opts.Directives,
+		mountPrefixes: mountPrefixes,
+		entryMountIDs: make(map[string][]string),
 	}
 
 	// Initialise expvar-backed option vars (not registered globally).
@@ -241,6 +368,15 @@ func New(opts Options) (*Engine, error) {
 	e.collector = NewCustomElementCollector()
 	if opts.ComponentDir != "" {
 		if err := e.discover(opts.ComponentDir); err != nil {
+			return nil, err
+		}
+	}
+	// Record the primary source's own attempts ("" mountID) before touching
+	// any mount, so entryMountIDs preserves registration order across
+	// sources (primary always precedes every mount).
+	recordPrimaryMountIDs(e.entries, e.entryMountIDs)
+	for _, m := range opts.Mounts {
+		if err := e.discoverMountInto(m, e.entries, e.nsEntries, e.entryMountIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -351,6 +487,21 @@ func (e *Engine) discoverInto(dir string, entries map[string]*engineEntry, nsEnt
 				return err
 			}
 			if d.IsDir() {
+				// When Options.Mounts is set, e.opts.FS is the union of the
+				// primary source and every mount (see New/unionfs.go). If
+				// dir is (or contains) the union root, an ordinary recursive
+				// walk would descend straight into a mount's own
+				// synthesized subdirectory and register its files as if
+				// they were primary-source entries — bypassing
+				// discoverMountInto's insert-if-absent priority rule
+				// entirely and re-deriving their tags/relDir against the
+				// wrong base. Prune any directory that is exactly a
+				// registered mount's own root so the primary walk only ever
+				// sees the primary source's own files, regardless of
+				// ComponentDir.
+				if isMountRootDir(e.mountPrefixes, dir, path) {
+					return fs.SkipDir
+				}
 				return nil
 			}
 			base := filepath.Base(path)
@@ -379,6 +530,215 @@ func (e *Engine) discoverInto(dir string, entries map[string]*engineEntry, nsEnt
 	})
 }
 
+// validateMountPrefixes checks that every Mount.Prefix in mounts is
+// non-empty, contains no "/", and is unique across the slice, and that every
+// Mount.FS is non-nil. It is called eagerly from New (not deferred to
+// ValidateAll) per RFC 014 §4.2: two mounts sharing a prefix is a narrow,
+// authoring-time mistake, not something that needs a full-registry-scan
+// validation pass to catch. The nil-FS check exists because fs.Sub(nil, dir)
+// does not itself return an error — it defers the failure to a later Open/
+// Stat/ReadDir call, which panics on a nil fs.FS rather than returning a
+// clean error; catching it here turns that into an ordinary New() error.
+func validateMountPrefixes(mounts []Mount) error {
+	seen := make(map[string]bool, len(mounts))
+	for i, m := range mounts {
+		if m.Prefix == "" {
+			return fmt.Errorf("engine: Options.Mounts[%d]: Prefix must not be empty", i)
+		}
+		if strings.Contains(m.Prefix, "/") {
+			return fmt.Errorf("engine: Options.Mounts[%d]: Prefix %q must not contain %q", i, m.Prefix, "/")
+		}
+		if seen[m.Prefix] {
+			return fmt.Errorf("engine: Options.Mounts: duplicate Prefix %q", m.Prefix)
+		}
+		if m.FS == nil {
+			return fmt.Errorf("engine: Options.Mounts[%d] (prefix %q): FS must not be nil", i, m.Prefix)
+		}
+		seen[m.Prefix] = true
+	}
+	return nil
+}
+
+// appendMountIDAttempt records that name was registered under mountID,
+// appending (name, mountID) to ids[name] in call order and skipping the
+// append if that exact pair was already recorded (so re-running discovery,
+// or a name/lowercase-alias pair sharing the same underlying entry, does not
+// produce duplicate bookkeeping).
+func appendMountIDAttempt(ids map[string][]string, name, mountID string) {
+	for _, existing := range ids[name] {
+		if existing == mountID {
+			return
+		}
+	}
+	ids[name] = append(ids[name], mountID)
+}
+
+// recordPrimaryMountIDs records every name currently in entries as belonging
+// to the primary source (mountID ""). It is called once, immediately after
+// the primary discovery walk and before any mount is processed, so
+// entryMountIDs preserves "primary before every mount" registration order
+// regardless of Go's randomized map iteration order (names are sorted here
+// purely for determinism between runs, not because order matters among
+// primary entries themselves — they all share the same mountID).
+func recordPrimaryMountIDs(entries map[string]*engineEntry, mountIDs map[string][]string) {
+	names := make([]string, 0, len(entries))
+	for name := range entries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		appendMountIDAttempt(mountIDs, name, "")
+	}
+}
+
+// isMountRootDir reports whether path is exactly the WalkDir path a
+// registered mount's own top-level directory would have when the primary
+// discovery walk is rooted at dir (i.e. path == pathpkg.Join(dir, prefix)
+// for some prefix in prefixes). This is only ever true when dir is "."  (or
+// otherwise resolves to the union's own root) and a same-named mount exists
+// — for the common case of ComponentDir set to a real subdirectory (e.g.
+// "templates"), no registered mount prefix can ever collide with a path the
+// walk would report, so this is a no-op guard in that case.
+func isMountRootDir(prefixes []string, dir, path string) bool {
+	for _, p := range prefixes {
+		if pathpkg.Join(dir, p) == path {
+			return true
+		}
+	}
+	return false
+}
+
+// mountRelDirFor returns the forward-slash proximity directory of path when
+// path is owned by one of prefixes (path itself equals a prefix, or path has
+// a prefix followed by "/"), or ("", false) if no prefix owns it.
+//
+// The returned directory is deliberately *not* stripped of the owning
+// mount's own prefix — it is exactly pathpkg.Dir(path), the same "full,
+// union-relative directory" shape that <component is="radix/dialog/Trigger">
+// already splits into (dirPart="radix/dialog", localName="Trigger") via its
+// own, unrelated string-splitting logic (renderer.go's "path-based
+// reference" branch). Keeping both computations in agreement is what makes
+// that explicit syntax find the same nsRegistry entry proximity resolution
+// does; stripping the mount's own prefix here (i.e. computing "dialog"
+// instead of "radix/dialog") would desynchronize the two and break explicit
+// mount-qualified addressing. It also means a mount's own entries never
+// share nsEntries[""] with the primary source's root-level entries, since
+// every mount-owned path's directory always starts with that mount's own
+// (non-empty) prefix.
+// mountIDForPath returns the Mount.Prefix that owns path, or "" if path does
+// not belong to any registered mount (the primary source owns it instead).
+// Used by registerPathLocked (Register) to populate engineEntry.mountID and
+// to pick the correct custom-element-tag stripping base for a path that
+// arrives outside the normal discovery walk.
+func mountIDForPath(prefixes []string, path string) string {
+	for _, p := range prefixes {
+		if p == "" {
+			continue
+		}
+		if path == p || strings.HasPrefix(path, p+"/") {
+			return p
+		}
+	}
+	return ""
+}
+
+func mountRelDirFor(prefixes []string, path string) (string, bool) {
+	if mountIDForPath(prefixes, path) == "" {
+		return "", false
+	}
+	return nsRelDir(path, ""), true
+}
+
+// discoverMountInto walks mount's own subtree (reachable through the union
+// e.opts.FS at mount.Prefix) and registers every *.vue file it contains into
+// entries, nsEntries, and mountIDs.
+//
+// Unlike discoverInto's registerInto (used only for the primary source),
+// registration into the flat entries map here is insert-if-absent: an
+// existing entry at the same flat name — whether a local/primary entry or an
+// earlier-processed mount's — is never overwritten. This is a coarse,
+// temporary form of "local wins" priority; real alias-based disambiguation
+// and collision detection are later commits. Every attempted (name,
+// mount.Prefix) pairing is nonetheless recorded into mountIDs, win or lose.
+//
+// Custom-element tag derivation uses mount.Prefix as the effective
+// "ComponentDir", mirroring registerInto's own ComponentDir-relative
+// derivation exactly — so a mounted "radix/dialog/Trigger.vue" derives the
+// same tag a local "dialog/Trigger.vue" would relative to its own
+// ComponentDir (i.e. mount.Prefix itself is stripped and never appears in
+// the tag).
+//
+// nsEntries keying is intentionally *not* stripped of mount.Prefix — see
+// mountRelDirFor's doc comment for why the union-relative directory (e.g.
+// "radix/dialog") is the key that must be used, not the mount-relative one
+// (e.g. "dialog"). nsEntries writes are insert-if-absent, protecting an
+// existing primary (or earlier-mount) entry from ever being silently
+// overwritten if Mount.Prefix happens to collide with a real top-level
+// directory name already present under ComponentDir.
+func (e *Engine) discoverMountInto(mount Mount, entries map[string]*engineEntry, nsEntries map[string]map[string]*engineEntry, mountIDs map[string][]string) error {
+	prefix := mount.Prefix + "/"
+	return fs.WalkDir(e.opts.FS, mount.Prefix, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		base := pathpkg.Base(path)
+		ext := pathpkg.Ext(base)
+		if !strings.EqualFold(ext, ".vue") {
+			return nil
+		}
+		name := strings.TrimSuffix(base, ext)
+
+		data, err := fs.ReadFile(e.opts.FS, path)
+		if err != nil {
+			return fmt.Errorf("engine: read %s: %w", path, err)
+		}
+		comp, err := ParseFile(path, string(data))
+		if err != nil {
+			return err
+		}
+		if comp.CustomElementTag != "" {
+			relPath := path
+			if strings.HasPrefix(path, prefix) {
+				relPath = path[len(prefix):]
+			}
+			reviseCustomElementTagWarning(comp, path, deriveCustomElementTag(relPath))
+		}
+
+		var modTime time.Time
+		if statFS, ok := e.opts.FS.(fs.StatFS); ok {
+			if info, statErr := statFS.Stat(path); statErr == nil {
+				modTime = info.ModTime()
+			}
+		}
+		entry := &engineEntry{path: path, comp: comp, modTime: modTime, mountID: mount.Prefix}
+
+		insertIfAbsent := func(key string) {
+			if _, exists := entries[key]; !exists {
+				entries[key] = entry
+			}
+			appendMountIDAttempt(mountIDs, key, mount.Prefix)
+		}
+		insertIfAbsent(name)
+		if lower := strings.ToLower(name); lower != name {
+			insertIfAbsent(lower)
+		}
+
+		// Deliberately unstripped — see mountRelDirFor's doc comment.
+		relDir := nsRelDir(path, "")
+		if nsEntries[relDir] == nil {
+			nsEntries[relDir] = make(map[string]*engineEntry)
+		}
+		if _, exists := nsEntries[relDir][name]; !exists {
+			nsEntries[relDir][name] = entry
+		}
+
+		return nil
+	})
+}
+
 // registerPathLocked reads and parses the .vue file at path, then stores it
 // under name. The caller must hold e.mu for writing.
 func (e *Engine) registerPathLocked(name, path string) error {
@@ -398,21 +758,37 @@ func (e *Engine) registerPathLocked(name, path string) error {
 	if err != nil {
 		return err
 	}
-	// If a component directory is set and the component is a custom element,
-	// re-derive the tag using only the path relative to ComponentDir so that
-	// the directory name is not included in the tag (e.g. "templates/Button.vue"
-	// with ComponentDir="templates" yields "button", not "templates-button").
-	if e.opts.ComponentDir != "" && comp.CustomElementTag != "" {
-		compSlash := filepath.ToSlash(filepath.Clean(path))
-		dirSlash := filepath.ToSlash(filepath.Clean(e.opts.ComponentDir))
-		relPath := compSlash
-		if dirSlash != "" && dirSlash != "." {
-			prefix := dirSlash + "/"
-			if strings.HasPrefix(compSlash, prefix) {
-				relPath = compSlash[len(prefix):]
-			}
+	// mountID identifies path as belonging to a registered Mount (by Prefix)
+	// or, if empty, the primary source. This matters for a path registered
+	// manually via Register — e.g. Register("X", "radix/Accordion.vue") —
+	// which reaches this same code path as any other registration.
+	mountID := mountIDForPath(e.mountPrefixes, path)
+
+	// Re-derive the custom-element tag using the path relative to its
+	// effective source root, so the directory name is not included in the
+	// tag (e.g. "templates/Button.vue" with ComponentDir="templates" yields
+	// "button", not "templates-button"). For a mount-owned path, that root
+	// is the owning Mount.Prefix (mirroring discoverMountInto's own
+	// derivation, e.g. "radix/Accordion.vue" yields "accordion", not
+	// "radix-accordion") rather than ComponentDir, which would never strip
+	// anything from a mount path (they never share ComponentDir's prefix).
+	if comp.CustomElementTag != "" {
+		base := e.opts.ComponentDir
+		if mountID != "" {
+			base = mountID
 		}
-		reviseCustomElementTagWarning(comp, path, deriveCustomElementTag(relPath))
+		if base != "" {
+			compSlash := filepath.ToSlash(filepath.Clean(path))
+			dirSlash := filepath.ToSlash(filepath.Clean(base))
+			relPath := compSlash
+			if dirSlash != "" && dirSlash != "." {
+				prefix := dirSlash + "/"
+				if strings.HasPrefix(compSlash, prefix) {
+					relPath = compSlash[len(prefix):]
+				}
+			}
+			reviseCustomElementTagWarning(comp, path, deriveCustomElementTag(relPath))
+		}
 	}
 	var modTime time.Time
 	if e.opts.FS != nil {
@@ -426,7 +802,7 @@ func (e *Engine) registerPathLocked(name, path string) error {
 			modTime = info.ModTime()
 		}
 	}
-	entry := &engineEntry{path: path, comp: comp, modTime: modTime}
+	entry := &engineEntry{path: path, comp: comp, modTime: modTime, mountID: mountID}
 	e.entries[name] = entry
 	if lower := strings.ToLower(name); lower != name {
 		e.entries[lower] = entry
@@ -506,12 +882,24 @@ func (e *Engine) maybeReload() error {
 		return nil
 	}
 
-	// Full re-walk: clear both registries and rebuild from ComponentDir.
+	// Full re-walk: clear both registries and rebuild from ComponentDir, then
+	// redo every Mount's own walk too (against the still-intact union
+	// e.opts.FS) — otherwise a reload triggered by a primary-source file
+	// change would silently drop every mount-sourced entry from the
+	// registry, since the primary discover call below only ever repopulates
+	// entries/nsEntries from ComponentDir.
 	e.counterReloads.Add(1)
 	e.entries = make(map[string]*engineEntry)
 	e.nsEntries = make(map[string]map[string]*engineEntry)
+	e.entryMountIDs = make(map[string][]string)
 	if e.opts.ComponentDir != "" {
 		if err := e.discover(e.opts.ComponentDir); err != nil {
+			return err
+		}
+	}
+	recordPrimaryMountIDs(e.entries, e.entryMountIDs)
+	for _, m := range e.opts.Mounts {
+		if err := e.discoverMountInto(m, e.entries, e.nsEntries, e.entryMountIDs); err != nil {
 			return err
 		}
 	}
@@ -546,10 +934,18 @@ func (e *Engine) buildNSRegistryLocked() map[string]map[string]*Component {
 	return ns
 }
 
-// relDirForPath returns the forward-slash directory of the given path relative
-// to opts.ComponentDir, or "" for root-level components. Used when populating
-// nsEntries in registerPathLocked.
+// relDirForPath returns the forward-slash directory of path relative to its
+// effective source root: the longest registered Mount.Prefix that owns path,
+// or opts.ComponentDir (the primary source) otherwise, or "" for root-level
+// components. Used when populating nsEntries in registerPathLocked (so a
+// manually Register()'d mount-addressed path, e.g. "radix/Accordion.vue",
+// gets the same proximity namespace a discovered mount entry would) and by
+// ValidateAll (so a mount component's own references are checked against its
+// own mount's proximity namespace instead of always collapsing to "").
 func (e *Engine) relDirForPath(path string) string {
+	if dir, ok := mountRelDirFor(e.mountPrefixes, path); ok {
+		return dir
+	}
 	if e.opts.ComponentDir == "" {
 		return ""
 	}
@@ -870,6 +1266,9 @@ func (e *Engine) renderComponentWithCollector(ctx context.Context, w io.Writer, 
 		WithContext(ctx)
 	if nsReg != nil {
 		renderer = renderer.WithNSComponents(nsReg, e.opts.ComponentDir)
+	}
+	if len(e.mountPrefixes) > 0 {
+		renderer = renderer.WithMountPrefixes(e.mountPrefixes)
 	}
 
 	scope := e.applyScope(data, renderFuncs)
@@ -1464,6 +1863,10 @@ func (e *Engine) SetDebug(enabled bool) {
 // SetComponentDir changes the component directory at runtime, re-running
 // discovery atomically under the engine's write lock. If discovery fails,
 // the engine's state is unchanged and the error is returned.
+//
+// Any Options.Mounts configured at New time are preserved: every Mount is
+// re-walked (against the unchanged union e.opts.FS) after the primary
+// ComponentDir walk, so mount-sourced entries are not lost by this call.
 func (e *Engine) SetComponentDir(dir string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -1472,8 +1875,16 @@ func (e *Engine) SetComponentDir(dir string) error {
 	if err := e.discoverInto(dir, entries, nsEntries); err != nil {
 		return err
 	}
+	mountIDs := make(map[string][]string)
+	recordPrimaryMountIDs(entries, mountIDs)
+	for _, m := range e.opts.Mounts {
+		if err := e.discoverMountInto(m, entries, nsEntries, mountIDs); err != nil {
+			return err
+		}
+	}
 	e.entries = entries
 	e.nsEntries = nsEntries
+	e.entryMountIDs = mountIDs
 	e.opts.ComponentDir = dir
 	e.varComponentDir.Set(dir)
 	return nil
@@ -1483,6 +1894,13 @@ func (e *Engine) SetComponentDir(dir string) error {
 // runtime, re-running discovery atomically under the engine's write lock.
 // If discovery fails, the engine's state is unchanged and the error is
 // returned.
+//
+// SetFS is not Mounts-aware: when Options.Mounts was configured at New time,
+// e.opts.FS is the internal union fs.FS wrapping the primary source and
+// every mount (see unionfs.go); calling SetFS replaces that union outright
+// with fsys, so every mount becomes unreachable until the engine is
+// reconstructed with New. Rebuilding the union in place is not implemented
+// in this release.
 func (e *Engine) SetFS(fsys fs.FS) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
