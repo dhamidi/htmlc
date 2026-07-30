@@ -16,16 +16,19 @@ A server-side Go template engine that uses Vue.js Single File Component (`.vue`)
 2. [Template Syntax](#template-syntax)
 3. [Directives](#directives)
 4. [Component System](#component-system)
-5. [Special Attributes](#special-attributes)
-6. [Go API Quick Reference](#go-api-quick-reference)
-7. [Expression Language Reference](#expression-language-reference)
-8. [Debug Mode](#debug-mode)
-9. [Structured Logging](#structured-logging)
-10. [Component Error Handling](#component-error-handling)
-11. [Custom Directives](#custom-directives)
-12. [Compatibility with Vue.js](#compatibility-with-vuejs)
-13. [Testing](#testing)
-14. [html/template Integration](#htmltemplate-integration)
+5. [Component Packages and Mounts](#component-packages-and-mounts)
+6. [Special Attributes](#special-attributes)
+7. [Go API Quick Reference](#go-api-quick-reference)
+8. [Expression Language Reference](#expression-language-reference)
+9. [Debug Mode](#debug-mode)
+10. [Structured Logging](#structured-logging)
+11. [Component Error Handling](#component-error-handling)
+12. [Custom Directives](#custom-directives)
+13. [Custom Elements](#custom-elements)
+14. [Compatibility with Vue.js](#compatibility-with-vuejs)
+15. [Testing](#testing)
+16. [html/template Integration](#htmltemplate-integration)
+17. [Extension Modules](#extension-modules)
 
 ---
 
@@ -585,6 +588,29 @@ Use `<component :is="expr">` to render a component whose name is determined at r
 - If the resolved name is a known HTML element (e.g. `"div"`, `"input"`), the tag is rendered as-is rather than looked up in the component registry.
 - `is` or `:is` is required; omitting it or supplying a non-string value is a render error.
 
+#### Native elements and `v-native`
+
+A hyphenated tag name is normally always treated as a component reference: the engine looks it up in the registry and fails with `unknown component` if no match is found. Two mechanisms opt a specific hyphenated tag out of that check, letting it render as a plain HTML element instead — attributes and children are still evaluated normally (`v-if`/`v-for` honored), there is just no registry lookup:
+
+- **`Options.NativeElements []string`** declares a project-wide allowlist of tag names (matched case-insensitively) that must never resolve as components:
+
+  ```go
+  engine, err := htmlc.New(htmlc.Options{
+      ComponentDir:   "templates/",
+      NativeElements: []string{"turbo-frame", "turbo-stream"},
+  })
+  ```
+
+- **`v-native`** marks a single element as native HTML for just that occurrence, without adding a project-wide entry:
+
+  ```html
+  <my-one-off-widget v-native data-config="x">{{ msg }}</my-one-off-widget>
+  ```
+
+  The `v-native` attribute itself is stripped from the rendered output.
+
+A tag that is neither declared in `NativeElements` nor marked `v-native` keeps today's behaviour. A real component nested inside a native element still resolves normally — the passthrough only affects the native element's own tag, not its descendants.
+
 ### Not supported
 
 | Feature | Status |
@@ -596,6 +622,52 @@ Use `<component :is="expr">` to render a component whose name is determined at r
 | Async components | Not applicable. |
 | `defineProps` / `defineEmits` / `withDefaults` | Not applicable. |
 | Teleport, Suspense, KeepAlive | Not applicable. |
+
+---
+
+## Component Packages and Mounts
+
+`Options.Mounts` registers one or more additional, independently-sourced component trees alongside the primary `Options.FS`/`ComponentDir` pair — for example, a third-party or in-tree component package distributed with its own `fs.FS` of `.vue` files.
+
+```go
+type Mount struct {
+    Prefix string // namespace prefix, e.g. "radix"; non-empty, no "/", unique across Mounts
+    FS     fs.FS  // component source for this mount
+    Dir    string // path within FS to scan; "" means the FS root
+}
+```
+
+```go
+import radixui "github.com/dhamidi/htmlc/ui/radix"
+
+engine, err := htmlc.New(htmlc.Options{
+    ComponentDir: "templates/",
+    Mounts: []htmlc.Mount{
+        {Prefix: "radix", FS: radixui.FS(), Dir: "components"},
+    },
+})
+```
+
+`Mounts` is purely additive: it does not require `FS`/`ComponentDir` to be set, and adding it never changes how the primary source's own files are discovered or resolved.
+
+### Addressing a mounted component
+
+A mounted component is reachable three ways:
+
+1. **Unqualified**, exactly like a local component, whenever the bare name is unambiguous — `<Accordion>` resolves through the same proximity-then-flat-registry walk as any other tag.
+2. **Auto-registered aliases** — every mounted component also gets a PascalCase alias (`Mount.Prefix` + every intermediate directory segment + base name, e.g. `radix/dialog/Trigger.vue` → `RadixDialogTrigger`) and the equivalent kebab-case alias (`radix-dialog-trigger`, derived the same way as custom-element tag names), so a disambiguated reference doesn't need the full path form.
+3. **Explicit path**: `<component is="radix/Accordion">` (or `<component :is="expr">` for a dynamic name) always resolves into the named mount, bypassing proximity resolution.
+
+```html
+<Accordion />                          <!-- unqualified -->
+<RadixAccordion />                     <!-- PascalCase alias -->
+<radix-accordion></radix-accordion>    <!-- kebab-case alias -->
+<component is="radix/Accordion" />     <!-- explicit path -->
+```
+
+### Collision detection
+
+When `Options.Mounts` is non-empty, [`ValidateAll`](#validate-components-at-startup) additionally reports every flat-registry name (bare name or alias) that more than one source — the primary tree or another mount — attempted to register. This is a **hard error**, not a warning: an ambiguous name must be resolved to one of its qualified forms (an alias, or `<component is="prefix/Name">`) before validation passes.
 
 ---
 
@@ -640,6 +712,23 @@ err = engine.RenderFragment(w, "Card", map[string]any{
     "title": "My Card",
 })
 ```
+
+For a long-lived connection or a response containing several fragments — SSE, htmx out-of-band swaps, multiple Turbo Streams actions — see [RenderSession](#render-fragments-on-a-shared-rendersession) below, which deduplicates styles across calls instead of repeating them on every fragment.
+
+### Render fragments on a shared RenderSession
+
+`NewRenderSession` creates a `*RenderSession` that can be threaded through multiple `RenderFragmentSession` calls — one long-lived SSE connection, or several fragments concatenated into a single response — so a component's `<style scoped>` block is emitted only once across the whole session instead of being repeated on every call:
+
+```go
+sess := engine.NewRenderSession()
+
+err = engine.RenderFragmentSession(ctx, w, "Counter", map[string]any{"count": 1}, sess)
+err = engine.RenderFragmentSession(ctx, w, "Counter", map[string]any{"count": 2}, sess)
+err = engine.RenderFragmentSession(ctx, w, "Counter", map[string]any{"count": 3}, sess)
+// Counter's <style scoped> block appears in the output of the first call only.
+```
+
+Scripts (from `<script customelement>` components) are deduplicated the same way across a shared session. `RenderSession` is safe for use by a single goroutine only — allocate one per connection/response, not one shared across concurrent requests.
 
 ### Pass a struct as component data
 
@@ -1727,3 +1816,18 @@ Registering the same name twice keeps the latest value ("last write wins").
 `*ConversionError`.
 
 For a complete walkthrough, see `docs/tutorial-template-integration.md`.
+
+---
+
+## Extension Modules
+
+This repository ships four additional Go modules, each independently versioned with its own `go.mod`. Importing `github.com/dhamidi/htmlc` alone never pulls in any of their dependencies.
+
+| Module | Description |
+|---|---|
+| `github.com/dhamidi/htmlc/ui/radix` | Accordion, Tabs, and Dialog — a small Radix-inspired component library demonstrating `Options.Mounts` (see [Component Packages and Mounts](#component-packages-and-mounts)). |
+| `github.com/dhamidi/htmlc/hypermedia/htmx` | Zero-dependency request/response header helpers for htmx (`IsHTMXRequest`, `IsBoosted`, `SetTrigger`). |
+| `github.com/dhamidi/htmlc/hypermedia/turbo` | Zero-dependency Turbo Streams/Frames helpers (`WantsStream`, `FrameID`, `WriteStream`). |
+| `github.com/dhamidi/htmlc/hypermedia/datastar` | `PatchElementsFragment`, combining [`RenderFragmentSession`](#render-fragments-on-a-shared-rendersession) with [datastar-go](https://github.com/starfederation/datastar-go) to drive a Datastar SSE connection. |
+
+See each module's package doc comment (e.g. `go doc github.com/dhamidi/htmlc/ui/radix`) for its full API.
