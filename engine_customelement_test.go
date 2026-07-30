@@ -96,3 +96,124 @@ func TestCollectCustomElements_MultipleAndNonCE(t *testing.T) {
 		t.Errorf("imports unexpectedly contains 'plain'")
 	}
 }
+
+// TestValidateAll_RootLevelCustomElement_HyphenGap reproduces the RFC 014
+// §1.2 gap: a root-level component's tag is derived twice — once inside
+// ParseFile against the full, ComponentDir-prefixed path (which typically
+// contains a hyphen from the directory separator), and again inside
+// discoverInto against the path relative to ComponentDir (which, for a
+// root-level file, has no directory segment left to contribute a hyphen).
+// The ParseFile-time check passes on the first tag, but the final,
+// effective tag is invalid; ValidateAll must catch it.
+func TestValidateAll_RootLevelCustomElement_HyphenGap(t *testing.T) {
+	fsys := fstest.MapFS{
+		"components/Accordion.vue": &fstest.MapFile{
+			Data: []byte(`<template><div>accordion</div></template>
+<script customelement>
+export default class Accordion extends HTMLElement {}
+</script>
+`),
+		},
+	}
+	e, err := New(Options{ComponentDir: "components", FS: fsys})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	errs := e.ValidateAll()
+	var found bool
+	for _, ve := range errs {
+		if strings.Contains(ve.Message, "no hyphen") {
+			found = true
+			if !strings.Contains(ve.Message, `"accordion"`) {
+				t.Errorf("warning does not mention final tag %q: %s", "accordion", ve.Message)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected ValidateAll to report a missing-hyphen warning for the "+
+			"final tag %q, got errors: %v", "accordion", errs)
+	}
+
+	// The final, effective tag really is the invalid hyphen-less one.
+	e.mu.RLock()
+	entry := e.entries["Accordion"]
+	e.mu.RUnlock()
+	if entry == nil {
+		t.Fatal("entry for Accordion not found")
+	}
+	if entry.comp.CustomElementTag != "accordion" {
+		t.Errorf("CustomElementTag = %q, want %q", entry.comp.CustomElementTag, "accordion")
+	}
+}
+
+// TestValidateAll_NestedCustomElement_NoSpuriousHyphenWarning covers a
+// component nested in a subdirectory of ComponentDir: both the ParseFile-time
+// tag (derived from the full path) and the final, ComponentDir-relative tag
+// contain a hyphen, so ValidateAll must not report anything about it.
+func TestValidateAll_NestedCustomElement_NoSpuriousHyphenWarning(t *testing.T) {
+	fsys := fstest.MapFS{
+		"components/ui/DatePicker.vue": &fstest.MapFile{
+			Data: []byte(`<template><div>picker</div></template>
+<script customelement>
+export default class DatePicker extends HTMLElement {}
+</script>
+`),
+		},
+	}
+	e, err := New(Options{ComponentDir: "components", FS: fsys})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	errs := e.ValidateAll()
+	for _, ve := range errs {
+		if strings.Contains(ve.Message, "no hyphen") {
+			t.Errorf("unexpected missing-hyphen warning: %s", ve.Message)
+		}
+	}
+
+	e.mu.RLock()
+	entry := e.entries["DatePicker"]
+	e.mu.RUnlock()
+	if entry == nil {
+		t.Fatal("entry for DatePicker not found")
+	}
+	if entry.comp.CustomElementTag != "ui-date-picker" {
+		t.Errorf("CustomElementTag = %q, want %q", entry.comp.CustomElementTag, "ui-date-picker")
+	}
+	if len(entry.comp.Warnings) != 0 {
+		t.Errorf("expected no warnings, got: %v", entry.comp.Warnings)
+	}
+}
+
+// TestValidateAll_ComponentDirDot_NoDoubleWarning covers the case where
+// re-derivation in discoverInto is a no-op (ComponentDir == ".", so the
+// relative path equals the path already used by ParseFile): a genuinely
+// hyphen-less root-level tag must be reported exactly once, not twice.
+func TestValidateAll_ComponentDirDot_NoDoubleWarning(t *testing.T) {
+	fsys := fstest.MapFS{
+		"Button.vue": &fstest.MapFile{
+			Data: []byte(`<template><div>btn</div></template>
+<script customelement>
+export default class Button extends HTMLElement {}
+</script>
+`),
+		},
+	}
+	e, err := New(Options{ComponentDir: ".", FS: fsys})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	errs := e.ValidateAll()
+	count := 0
+	for _, ve := range errs {
+		if strings.Contains(ve.Message, "no hyphen") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 missing-hyphen warning, got %d: %v", count, errs)
+	}
+}

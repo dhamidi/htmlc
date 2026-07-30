@@ -315,7 +315,7 @@ func (e *Engine) discoverInto(dir string, entries map[string]*engineEntry, nsEnt
 					relPath = compSlash[len(prefix):]
 				}
 			}
-			comp.CustomElementTag = deriveCustomElementTag(relPath)
+			reviseCustomElementTagWarning(comp, path, deriveCustomElementTag(relPath))
 		}
 		var modTime time.Time
 		if e.opts.FS != nil {
@@ -412,7 +412,7 @@ func (e *Engine) registerPathLocked(name, path string) error {
 				relPath = compSlash[len(prefix):]
 			}
 		}
-		comp.CustomElementTag = deriveCustomElementTag(relPath)
+		reviseCustomElementTagWarning(comp, path, deriveCustomElementTag(relPath))
 	}
 	var modTime time.Time
 	if e.opts.FS != nil {

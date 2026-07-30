@@ -133,10 +133,8 @@ func ParseFile(path, src string) (*Component, error) {
 	if c.CustomElementScript != "" {
 		tag := deriveCustomElementTag(path)
 		c.CustomElementTag = tag
-		if !strings.Contains(tag, "-") {
-			c.Warnings = append(c.Warnings, fmt.Sprintf(
-				"%s: custom element tag %q has no hyphen; "+
-					"the browser CE registry requires at least one hyphen", path, tag))
+		if w := customElementHyphenWarning(path, tag); w != "" {
+			c.Warnings = append(c.Warnings, w)
 		}
 	}
 	if count > 0 {
@@ -466,6 +464,50 @@ func deriveCustomElementTag(filePath string) string {
 		segments[i] = strings.ToLower(seg)
 	}
 	return strings.Join(segments, "-")
+}
+
+// customElementHyphenWarning returns a warning message when tag does not
+// contain a hyphen, as required by the Custom Elements spec (the browser CE
+// registry rejects hyphen-less tag names). It returns "" when tag is valid.
+//
+// This is shared between ParseFile, which validates the path-derived tag at
+// parse time, and the engine's discoverInto/registerPathLocked, which
+// re-validate after re-deriving CustomElementTag relative to ComponentDir —
+// the final, effective tag can differ from (and be invalid where the
+// parse-time tag was not).
+func customElementHyphenWarning(path, tag string) string {
+	if strings.Contains(tag, "-") {
+		return ""
+	}
+	return fmt.Sprintf(
+		"%s: custom element tag %q has no hyphen; "+
+			"the browser CE registry requires at least one hyphen", path, tag)
+}
+
+// reviseCustomElementTagWarning updates comp.CustomElementTag to newTag and
+// reconciles comp.Warnings so the hyphen-validity warning always reflects the
+// final tag. It removes a stale warning that was generated (in ParseFile)
+// against the pre-rederivation tag when that tag differs from newTag, then
+// re-validates newTag, appending a fresh warning if needed. It is a no-op
+// when newTag equals the tag already recorded on comp, so a component whose
+// tag is unaffected by re-derivation is never double-warned.
+func reviseCustomElementTagWarning(comp *Component, path, newTag string) {
+	oldTag := comp.CustomElementTag
+	if newTag == oldTag {
+		return
+	}
+	if oldWarning := customElementHyphenWarning(path, oldTag); oldWarning != "" {
+		for i, w := range comp.Warnings {
+			if w == oldWarning {
+				comp.Warnings = append(comp.Warnings[:i], comp.Warnings[i+1:]...)
+				break
+			}
+		}
+	}
+	comp.CustomElementTag = newTag
+	if w := customElementHyphenWarning(path, newTag); w != "" {
+		comp.Warnings = append(comp.Warnings, w)
+	}
 }
 
 // selfClosingComponentRe matches self-closing tags whose name starts with an
