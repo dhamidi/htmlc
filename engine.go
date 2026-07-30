@@ -1123,6 +1123,12 @@ func (e *Engine) ValidateAll() []ValidationError {
 		seen[entry] = true
 		entries = append(entries, namedEntry{name, entry})
 	}
+	// entryMountIDs is only ever replaced wholesale (never mutated in place)
+	// under e.mu.Lock() by New/SetComponentDir/SetFS/etc., so capturing the
+	// map reference here, inside the same RLock section used for e.entries
+	// above, is enough to read it safely after RUnlock below.
+	mountIDs := e.entryMountIDs
+	hasMounts := len(e.opts.Mounts) > 0
 	e.mu.RUnlock()
 
 	var errs []ValidationError
@@ -1144,6 +1150,77 @@ func (e *Engine) ValidateAll() []ValidationError {
 				})
 			}
 		}
+	}
+
+	// Cross-mount collision detection (RFC 014 §4.2). Gated entirely behind
+	// Options.Mounts being non-empty so single-source projects (the
+	// overwhelming majority) pay zero cost and see zero behavior change.
+	//
+	// Deliberately blanket, not shadowing-aware: any flat name recorded in
+	// entryMountIDs with two or more distinct mount identities is reported,
+	// even when a local/primary entry currently shadows the mount-provided
+	// one via proximity for every existing caller. The flat-registry name
+	// itself remains ambiguous — a future component added anywhere outside
+	// the shadowing directory's proximity reach would silently fall through
+	// to whichever source lexical order visited last, with no error. See
+	// RFC 014 §4.2 and §6 Example 3 ("A genuine collision, caught at
+	// validation time and resolved via an alias").
+	if hasMounts {
+		errs = append(errs, checkMountCollisions(mountIDs)...)
+	}
+
+	return errs
+}
+
+// checkMountCollisions reports one ValidationError for every flat registry
+// name in mountIDs that was attempted by two or more distinct mount
+// identities (the empty string for the primary source, or a Mount.Prefix).
+// This is always a hard, reported error — RFC 014 §4.2/§10 item 2 rules out
+// a warning-only mode for cross-mount collisions.
+//
+// Names are processed in sorted order so results are deterministic
+// regardless of map iteration order.
+func checkMountCollisions(mountIDs map[string][]string) []ValidationError {
+	names := make([]string, 0, len(mountIDs))
+	for name, ids := range mountIDs {
+		if len(ids) > 1 {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	errs := make([]ValidationError, 0, len(names))
+	for _, name := range names {
+		ids := mountIDs[name]
+		labels := make([]string, len(ids))
+		for i, id := range ids {
+			if id == "" {
+				labels[i] = "(primary)"
+				continue
+			}
+			labels[i] = id
+		}
+
+		// The fix is described generically ("PrefixName"/"prefix-name",
+		// "prefix/Name"), not reconstructed into a specific alias or path,
+		// because entryMountIDs records only which mount identities
+		// attempted a name, not the source path each one attempted it
+		// from — and the colliding name itself may already *be* a derived
+		// alias rather than a bare filename (e.g. two mounts whose
+		// PascalCase aliases collide with each other, as in
+		// TestMountAlias_CrossMountCollision), so there is no reliable way
+		// to compute the one true qualified name from name+mountID alone.
+		// The mount identities listed in the message are real and always
+		// correct; the disambiguation syntax shown is illustrative.
+		message := fmt.Sprintf(
+			`component name %q is ambiguous across sources %v; use one of its qualified aliases (e.g. "PrefixName"/"prefix-name") or <component is="prefix/Name"> to disambiguate`,
+			name, labels,
+		)
+
+		errs = append(errs, ValidationError{
+			Component: name,
+			Message:   message,
+		})
 	}
 	return errs
 }
