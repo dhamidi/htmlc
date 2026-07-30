@@ -206,7 +206,8 @@ proposed in [RFC #482](https://github.com/vuejs/rfcs/discussions/482).
 
 - `:class` supports **object syntax** (`{ active: isActive }`) and **array syntax** (`[classA, classB]`).
 - `:style` supports **object syntax** with camelCase keys (`{ fontSize: '14px' }`); keys are converted to kebab-case in the output.
-- **Boolean attributes** (`disabled`, `checked`, `selected`, `readonly`, `required`, `multiple`, `autofocus`, `open`) are omitted entirely when the bound value is falsy.
+- **Falsy-value omission**: for any `:attr`/`v-bind:attr` binding, the attribute is omitted entirely when the bound value is exactly `false`, `null`, or `undefined`. Every other value — including `0`, `NaN`, and the empty string — renders normally. This applies to any attribute name, not just a fixed list, so idioms like `:hx-swap-oob="shouldSwap"` or `:data-turbo-permanent="isPermanent"` work for any third-party attribute vocabulary, not only native HTML ones.
+- **Boolean attributes** (`disabled`, `checked`, `selected`, `readonly`, `required`, `multiple`, `autofocus`, `open`) render bare (no `="value"`) when bound to a non-omitted value, e.g. `:disabled="true"` renders `disabled`. This bare-vs-valued rendering is still scoped to these eight names; every other attribute, once past the falsy-omission check above, renders as `key="value"`.
 - `:key` is rendered as `data-key="value"` in the output (not as a `key` attribute).
 - `class` and `:class` are merged into a single `class` attribute.
 - `style` and `:style` are merged into a single `style` attribute.

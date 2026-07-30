@@ -1285,11 +1285,10 @@ func (r *Renderer) renderElement(w io.Writer, n *html.Node, scope map[string]any
 					}
 					dynStyleParts = append(dynStyleParts, s)
 				default:
-					if isBooleanAttr(dynKey) {
-						if expr.IsTruthy(val) {
-							dynAttrs = append(dynAttrs, outAttr{key: dynKey, boolOnly: true})
-						}
-						// falsy → omit entirely
+					if attrShouldOmit(val) {
+						// omit entirely: value is exactly false, nil, or undefined
+					} else if isBooleanAttr(dynKey) {
+						dynAttrs = append(dynAttrs, outAttr{key: dynKey, boolOnly: true})
 					} else {
 						dynAttrs = append(dynAttrs, outAttr{key: dynKey, val: valueToString(val)})
 					}
@@ -2008,6 +2007,27 @@ var booleanAttrs = map[string]bool{
 
 func isBooleanAttr(key string) bool { return booleanAttrs[key] }
 
+// attrShouldOmit reports whether a dynamically-bound (:attr/v-bind:attr)
+// attribute value should omit the attribute entirely. This is a narrower
+// check than expr.IsTruthy: only Go nil, the Go bool false, and the
+// expr.Undefined sentinel omit the attribute. Every other value — including
+// 0, NaN, and the empty string — renders normally, matching Vue.js's
+// v-bind falsy-attribute semantics exactly. This applies to every attribute
+// name, not just the fixed isBooleanAttr allowlist; isBooleanAttr continues
+// to control only bare-vs-valued rendering for non-omitted values.
+func attrShouldOmit(v any) bool {
+	if v == nil {
+		return true
+	}
+	if b, ok := v.(bool); ok && !b {
+		return true
+	}
+	if _, ok := v.(expr.UndefinedValue); ok {
+		return true
+	}
+	return false
+}
+
 // resolveClass converts a :class binding value to a space-separated class string.
 // Supports object syntax (map[string]any), array syntax ([]any), and string.
 func resolveClass(val any) (string, error) {
@@ -2126,10 +2146,10 @@ func applyAttrSpread(
 			}
 			*dynStyleParts = append(*dynStyleParts, s)
 		default:
-			if isBooleanAttr(k) {
-				if expr.IsTruthy(v) {
-					*dynAttrs = append(*dynAttrs, outAttr{key: k, boolOnly: true})
-				}
+			if attrShouldOmit(v) {
+				// omit entirely: value is exactly false, nil, or undefined
+			} else if isBooleanAttr(k) {
+				*dynAttrs = append(*dynAttrs, outAttr{key: k, boolOnly: true})
 			} else {
 				*dynAttrs = append(*dynAttrs, outAttr{key: k, val: valueToString(v)})
 			}
