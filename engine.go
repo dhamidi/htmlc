@@ -1356,7 +1356,24 @@ func (e *Engine) renderComponent(ctx context.Context, w io.Writer, name string, 
 // scope for every call; it closes over collector and returns the same value
 // as collector.ImportMapJSON(urlPrefix). When collector is nil, importMap
 // returns "". The function is propagated to all child components automatically.
+//
+// renderComponentWithCollector always renders into a fresh *StyleCollector.
+// Callers that need to reuse a *StyleCollector across multiple render calls
+// (see [RenderSession]) must call [Engine.renderComponentWithCollectors]
+// directly.
 func (e *Engine) renderComponentWithCollector(ctx context.Context, w io.Writer, name string, data map[string]any, collector *CustomElementCollector) (*StyleCollector, *CustomElementCollector, error) {
+	return e.renderComponentWithCollectors(ctx, w, name, data, collector, nil)
+}
+
+// renderComponentWithCollectors renders the named component with the given
+// data scope, writing HTML to w. It behaves exactly like
+// renderComponentWithCollector, except the caller may supply sc, an
+// externally-owned *StyleCollector to accumulate style contributions into
+// (for example, one shared across multiple render calls on a
+// [RenderSession]). When sc is nil, a fresh *StyleCollector is allocated
+// internally, preserving renderComponentWithCollector's existing behavior
+// exactly.
+func (e *Engine) renderComponentWithCollectors(ctx context.Context, w io.Writer, name string, data map[string]any, collector *CustomElementCollector, sc *StyleCollector) (*StyleCollector, *CustomElementCollector, error) {
 	e.counterRenders.Add(1)
 	start := time.Now()
 	defer func() { e.counterRenderNanos.Add(time.Since(start).Nanoseconds()) }()
@@ -1402,7 +1419,9 @@ func (e *Engine) renderComponentWithCollector(ctx context.Context, w io.Writer, 
 		return collector.ImportMapJSON(urlPrefix), nil
 	}
 
-	sc := &StyleCollector{}
+	if sc == nil {
+		sc = &StyleCollector{}
+	}
 	renderer := NewRenderer(entry.comp).
 		WithStyles(sc).
 		WithCollector(collector).
@@ -1442,6 +1461,47 @@ func (e *Engine) renderComponentWithCollector(ctx context.Context, w io.Writer, 
 		return nil, nil, err
 	}
 	return sc, collector, nil
+}
+
+// RenderSession bundles a *StyleCollector and a *CustomElementCollector so a
+// caller driving one long-lived connection (for example, a Datastar SSE
+// stream) or composing one multi-fragment response (for example, htmx
+// out-of-band swaps, or several Turbo Streams actions concatenated into one
+// response) can thread a single object through every render call on that
+// connection/response, instead of managing a *StyleCollector and a
+// *CustomElementCollector separately.
+//
+// [Engine.RenderFragmentSession] sources both scoped-style and
+// custom-element-script output from a *RenderSession across multiple calls:
+// scripts are deduplicated the same way [CustomElementCollector.Add] already
+// dedups identical content when the same *CustomElementCollector is passed to
+// multiple [Engine.RenderWithCollector] calls; styles are deduplicated by
+// tracking how much of the session's *StyleCollector has already been
+// written to a writer by a previous call, so a component rendered repeatedly
+// on the same session (for example, once per SSE tick) emits its
+// <style scoped> block only on the call that first renders it — later calls
+// on the same session render its HTML without repeating the block.
+//
+// It is safe for use by a single goroutine only.
+type RenderSession struct {
+	styles  *StyleCollector
+	scripts *CustomElementCollector
+
+	// styleEmitted is the count of styles.All() items already written to a
+	// writer by a previous RenderFragmentSession call on this session. It
+	// advances only when a call succeeds, so a failed render can be retried
+	// on the same session without losing styles that were never actually
+	// written to any writer.
+	styleEmitted int
+}
+
+// NewRenderSession constructs an empty *RenderSession backed by fresh,
+// empty collectors.
+func (e *Engine) NewRenderSession() *RenderSession {
+	return &RenderSession{
+		styles:  &StyleCollector{},
+		scripts: NewCustomElementCollector(),
+	}
 }
 
 // RenderWithCollector renders the named component into w and records any custom
@@ -1507,7 +1567,14 @@ func (e *Engine) loggedRender(
 // styleBlock builds a "<style>…</style>" string from sc's contributions.
 // Returns an empty string when there are no contributions.
 func styleBlock(sc *StyleCollector) string {
-	items := sc.All()
+	return styleBlockFromItems(sc.All())
+}
+
+// styleBlockFromItems builds a "<style>…</style>" string from items. Returns
+// an empty string when items is empty. Shared by styleBlock (which passes
+// the full sc.All()) and RenderFragmentSession (which passes only the items
+// not yet written to a writer on the session).
+func styleBlockFromItems(items []StyleContribution) string {
 	if len(items) == 0 {
 		return ""
 	}
@@ -1599,6 +1666,47 @@ func (e *Engine) RenderFragmentContext(ctx context.Context, w io.Writer, name st
 	}
 	_, err = io.WriteString(w, buf.String())
 	return err
+}
+
+// RenderFragmentSession renders name as an HTML fragment into w exactly like
+// RenderFragmentContext, but sources style output from sess.styles and
+// custom-element-script collection from sess.scripts instead of fresh,
+// per-call collectors.
+//
+// Passing the same *RenderSession across multiple calls — for example,
+// across the life of one SSE connection, or across several fragments
+// concatenated into one htmx/Turbo Streams response — means each call emits
+// only the <style scoped> contributions not already written to a writer by
+// an earlier RenderFragmentSession call on the same session; scripts are
+// deduplicated the same way CustomElementCollector.Add already dedups
+// identical content across multiple calls sharing a *CustomElementCollector
+// (see [Engine.RenderWithCollector]) — script markup is never written to w,
+// callers retrieve scripts out-of-band via sess.scripts.ScriptsFS(),
+// .IndexJS(), or .ImportMapJSON(), exactly as with a bare
+// *CustomElementCollector today.
+//
+// sess.styleEmitted only advances when the call succeeds in full (including
+// writing to w), so a failed render — for example, one referencing an
+// unknown nested component — can be retried on the same session without
+// losing styles that were never actually written to any writer.
+func (e *Engine) RenderFragmentSession(ctx context.Context, w io.Writer, name string, data map[string]any, sess *RenderSession) error {
+	var buf strings.Builder
+	_, _, err := e.renderComponentWithCollectors(ctx, &buf, name, data, sess.scripts, sess.styles)
+	if err != nil {
+		return err
+	}
+	all := sess.styles.All()
+	style := styleBlockFromItems(all[sess.styleEmitted:])
+	if style != "" {
+		if _, err := io.WriteString(w, style); err != nil {
+			return err
+		}
+	}
+	if _, err := io.WriteString(w, buf.String()); err != nil {
+		return err
+	}
+	sess.styleEmitted = len(all)
+	return nil
 }
 
 // RenderFragmentString renders name as an HTML fragment and returns the result
