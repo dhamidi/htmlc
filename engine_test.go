@@ -840,6 +840,45 @@ func TestEngine_Proximity_ExplicitPathIs(t *testing.T) {
 	}
 }
 
+func TestEngine_Proximity_ExplicitPathIs_SelfClosing_DoesNotSwallowSiblings(t *testing.T) {
+	// Regression test for RFC 014 §1.2/§4.7 item 1: a self-closing
+	// <component is="..." /> tag used to be left unclosed by the HTML5
+	// parser (since "component" is not a void element). When it appears as
+	// a direct sibling (not wrapped in its own container that would force
+	// it closed via the "mismatched end tag" recovery algorithm), the next
+	// sibling start tag is silently swallowed as a child of the unclosed
+	// <component> tag instead of remaining a sibling. Three sibling
+	// sections, the second one being the self-closing <component
+	// is="..." /> itself, must all render.
+	memFS := fstest.MapFS{
+		"blog/Card.vue": &fstest.MapFile{Data: []byte(`<template><div class="blog-card">blog</div></template>`)},
+		"Page.vue": &fstest.MapFile{Data: []byte(`<template>` +
+			`<section id="first">First</section>` +
+			`<component is="blog/Card" />` +
+			`<section id="third">Third</section>` +
+			`</template>`)},
+	}
+
+	e, err := New(Options{FS: memFS, ComponentDir: "."})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, err := e.RenderFragmentString(context.Background(), "Page", nil)
+	if err != nil {
+		t.Fatalf("RenderFragmentString: %v", err)
+	}
+	if !strings.Contains(out, `id="first"`) {
+		t.Errorf("got %q, want first section to be present", out)
+	}
+	if !strings.Contains(out, "blog-card") {
+		t.Errorf("got %q, want blog-card from self-closing <component is=\"blog/Card\" />", out)
+	}
+	if !strings.Contains(out, `id="third"`) {
+		t.Errorf("got %q, want third section to be present (must not be swallowed as a child of the unclosed <component> tag)", out)
+	}
+}
+
 func TestEngine_Proximity_RootRelativeIs(t *testing.T) {
 	// Root-relative <component is="/Card">: always resolves to root Card.vue.
 	memFS := fstest.MapFS{

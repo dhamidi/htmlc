@@ -141,7 +141,7 @@ func ParseFile(path, src string) (*Component, error) {
 	}
 	if count > 0 {
 		c.Warnings = append(c.Warnings, fmt.Sprintf(
-			"%s: %d self-closing custom component tag(s) were auto-corrected; "+
+			"%s: %d self-closing component tag(s) were auto-corrected; "+
 				"prefer explicit open/close tags", path, count))
 	}
 	return c, nil
@@ -476,14 +476,35 @@ var selfClosingComponentRe = regexp.MustCompile(
 	`<([A-Z][a-zA-Z0-9]*)((?:[^"'>]|"[^"]*"|'[^']*')*?)\s*/>`,
 )
 
+// selfClosingBuiltinComponentRe matches self-closing tags whose name is the
+// exact lowercase built-in tag name "component" (e.g. <component
+// is="blog/Card" />), the self-closing form documented in the README for
+// explicit cross-directory references. Go's regexp package (RE2) has no
+// lookahead, so — unlike selfClosingComponentRe's greedy identifier match —
+// exactness is enforced structurally: the single capture group is either
+// empty (bare "<component/>" or "<component  />") or begins with a
+// mandatory whitespace character before any attribute text. This means a
+// tag that merely starts with "component", such as a hypothetical
+// <component-card />, cannot match: there is no whitespace directly after
+// "component" in that string, so neither the empty nor the whitespace-led
+// alternative applies at that position.
+var selfClosingBuiltinComponentRe = regexp.MustCompile(
+	`<component((?:\s(?:[^"'>]|"[^"]*"|'[^']*')*?)?)\s*/>`,
+)
+
 // normalizeSelfClosingComponents rewrites <Name ... /> as <Name ...></Name>
-// for any tag whose name begins with an uppercase letter, so that the HTML5
-// parser does not silently ignore the self-closing syntax. It returns the
-// rewritten source and the number of replacements made.
+// for any tag whose name begins with an uppercase letter, and rewrites
+// <component ... /> as <component ...></component> for the exact lowercase
+// built-in tag name, so that the HTML5 parser does not silently ignore the
+// self-closing syntax. It returns the rewritten source and the number of
+// replacements made.
 func normalizeSelfClosingComponents(src string) (string, int) {
-	matches := selfClosingComponentRe.FindAllString(src, -1)
-	count := len(matches)
+	count := len(selfClosingComponentRe.FindAllString(src, -1))
 	result := selfClosingComponentRe.ReplaceAllString(src, "<$1$2></$1>")
+
+	count += len(selfClosingBuiltinComponentRe.FindAllString(result, -1))
+	result = selfClosingBuiltinComponentRe.ReplaceAllString(result, "<component$1></component>")
+
 	return result, count
 }
 

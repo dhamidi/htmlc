@@ -378,6 +378,84 @@ func TestNormalizeSelfClosingComponents_MultipleTagsCountCorrect(t *testing.T) {
 	}
 }
 
+func TestNormalizeSelfClosingComponents_LowercaseBuiltinComponentTag(t *testing.T) {
+	input := `<component is="blog/Card" />`
+	got, count := normalizeSelfClosingComponents(input)
+	want := `<component is="blog/Card"></component>`
+	if got != want {
+		t.Errorf("normalize = %q, want %q", got, want)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_LowercaseBuiltinComponentTagNoAttrs(t *testing.T) {
+	input := `<component/>`
+	got, count := normalizeSelfClosingComponents(input)
+	want := `<component></component>`
+	if got != want {
+		t.Errorf("normalize = %q, want %q", got, want)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_ComponentPrefixedTagNotAffected(t *testing.T) {
+	// A tag that merely starts with "component" (but isn't exactly
+	// "component") must not be rewritten — only the exact lowercase tag
+	// name "component" is matched.
+	input := `<component-card is="x" />`
+	got, count := normalizeSelfClosingComponents(input)
+	if got != input {
+		t.Errorf("normalize changed component-prefixed tag: got %q, want %q", got, input)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 for component-prefixed tag", count)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_PascalCaseComponentUnaffectedByLowercaseFix(t *testing.T) {
+	// Existing PascalCase self-closing custom components (e.g. <Card />)
+	// must continue to work exactly as before.
+	input := `<Card :title="'t'" />`
+	got, count := normalizeSelfClosingComponents(input)
+	want := `<Card :title="'t'"></Card>`
+	if got != want {
+		t.Errorf("normalize = %q, want %q", got, want)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_LowercaseBuiltinAttributeContainingSlashGT(t *testing.T) {
+	// Attribute value contains "/>"; the normalization must not corrupt it.
+	input := `<component is="blog/Card" :title="'a/>'" />`
+	got, count := normalizeSelfClosingComponents(input)
+	if !strings.Contains(got, `'a/>'`) {
+		t.Errorf("normalize corrupted attribute containing '/>': got %q", got)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(got), "</component>") {
+		t.Errorf("normalize output should end with </component>, got %q", got)
+	}
+}
+
+func TestNormalizeSelfClosingComponents_LowercaseBuiltinIdempotentOnExplicitTags(t *testing.T) {
+	input := `<component is="blog/Card"></component>`
+	got, count := normalizeSelfClosingComponents(input)
+	if got != input {
+		t.Errorf("normalize changed explicit tag: got %q, want %q", got, input)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 for explicit tag", count)
+	}
+}
+
 // ---------- end normalizeSelfClosingComponents tests ----------
 
 // propNames returns a sorted slice of prop names from a []PropInfo.
