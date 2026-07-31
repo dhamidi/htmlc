@@ -78,6 +78,7 @@
         :checked="index === 0"
       />
       <label
+        v-native
         class="radix-tabs-label"
         :id="'radix-tabs-' + item.id + '-tab-label'"
         :for="'radix-tabs-' + item.id + '-tab'"

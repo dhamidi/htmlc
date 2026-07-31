@@ -56,6 +56,22 @@ func TestTabs_ContainsScopedStyle(t *testing.T) {
 	}
 }
 
+// TestTabs_LabelTagIsMarkedNative guards against a real regression: once
+// ui/radix also ships a Label.vue component (it does), that component's
+// auto-registered lowercase "label" alias would otherwise shadow every
+// literal <label> tag in the package when mounted as a whole — including
+// this file's own tab-button <label>, silently dropping its class/id/
+// aria-controls attributes and rendering Label.vue's markup instead. The
+// literal <label> here must carry v-native so it always resolves as a
+// plain native element regardless of what else is mounted alongside it.
+func TestTabs_LabelTagIsMarkedNative(t *testing.T) {
+	src := readTabs(t)
+
+	if !strings.Contains(src, "<label\n        v-native") && !strings.Contains(src, "<label v-native") {
+		t.Error("Tabs.vue's <label> tag must carry v-native to avoid being shadowed by Label.vue's auto-registered lowercase alias")
+	}
+}
+
 func readTabs(t *testing.T) string {
 	t.Helper()
 	data, err := fs.ReadFile(FS(), "components/Tabs.vue")
