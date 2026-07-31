@@ -13,7 +13,10 @@
     orientation: "horizontal" | "vertical"
     decorative:  boolean
 
-  Semantic/accessibility contract:
+  Semantic/accessibility contract (matches Radix Primitives' own, real
+  documented behavior for this component — corrected from an earlier draft
+  of this file that used aria-hidden="true" for the decorative case, which
+  was this port's own invention, not what upstream Radix actually does):
     - decorative == false (meaningful separator):
         role="separator" is present.
         aria-orientation is present only for "vertical". "horizontal" is
@@ -21,12 +24,11 @@
         role="separator", so stating it there would be redundant; it is
         omitted and only added for the "vertical" case.
     - decorative == true (purely visual separator):
-        No role attribute at all (not role="separator", not any other
-        role) and aria-hidden="true" instead, so assistive technology
-        does not announce it as a meaningful boundary in the content.
-        aria-orientation is not emitted either, since there is no
-        `role="separator"` for it to qualify once the element is pulled
-        out of the accessibility tree entirely.
+        role="none" (the ARIA synonym for role="presentation") replaces
+        role="separator", removing the "separator" semantic without
+        hiding the element from the accessibility tree outright the way
+        aria-hidden="true" would. No aria-orientation is emitted, since
+        there is no `role="separator"` left for it to qualify.
 
   Usage:
     <Separator :orientation="'horizontal'" :decorative="false" />
@@ -56,7 +58,7 @@
     v-if="decorative"
     class="radix-separator"
     :data-orientation="orientation"
-    aria-hidden="true"
+    role="none"
   ></div>
   <div
     v-else

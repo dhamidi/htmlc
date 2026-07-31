@@ -62,9 +62,12 @@ func TestSeparator_NonDecorativeBranch(t *testing.T) {
 
 // TestSeparator_DecorativeBranch confirms the branch of the template that
 // renders when decorative is truthy (v-if="decorative") carries
-// aria-hidden="true" and, critically, carries NO role attribute at all —
-// a decorative separator that still announced role="separator" would be
-// an accessibility regression, the opposite of what "decorative" means.
+// role="none" (matching Radix Primitives' own real behavior — this removes
+// the "separator" semantic without pulling the element out of the
+// accessibility tree entirely, unlike aria-hidden) and, critically, never
+// carries role="separator" or aria-orientation — a decorative separator
+// that still announced role="separator" would be an accessibility
+// regression, the opposite of what "decorative" means.
 func TestSeparator_DecorativeBranch(t *testing.T) {
 	src := readSeparator(t)
 	branch := decorativeBranch(t, src)
@@ -72,11 +75,14 @@ func TestSeparator_DecorativeBranch(t *testing.T) {
 	if !strings.Contains(branch, `v-if="decorative"`) {
 		t.Fatalf("Separator.vue missing expected v-if=\"decorative\" branch; source was:\n%s", src)
 	}
-	if !strings.Contains(branch, `aria-hidden="true"`) {
-		t.Errorf(`Separator.vue decorative (v-if) branch missing expected marker aria-hidden="true"; branch was:\n%s`, branch)
+	if !strings.Contains(branch, `role="none"`) {
+		t.Errorf(`Separator.vue decorative (v-if) branch missing expected marker role="none"; branch was:\n%s`, branch)
 	}
-	if strings.Contains(branch, "role=") {
-		t.Errorf("Separator.vue decorative (v-if) branch must not carry any role attribute; branch was:\n%s", branch)
+	if strings.Contains(branch, "aria-hidden") {
+		t.Errorf("Separator.vue decorative (v-if) branch must not carry aria-hidden; branch was:\n%s", branch)
+	}
+	if strings.Contains(branch, `role="separator"`) {
+		t.Errorf("Separator.vue decorative (v-if) branch must not carry role=\"separator\"; branch was:\n%s", branch)
 	}
 	if strings.Contains(branch, "aria-orientation") {
 		t.Errorf("Separator.vue decorative (v-if) branch must not carry aria-orientation; branch was:\n%s", branch)
