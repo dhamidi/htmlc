@@ -74,12 +74,19 @@
   tag here is <dialog>, a genuine native element, not that alias — so this
   guards against the same class of collision Dialog.vue documents, even
   though the literal tag names themselves differ.
+
+  v-native on the <form> tag below: same fix as Dialog.vue's own
+  <form v-native method="dialog"> — see that file's header comment for the
+  full empirically-confirmed finding. Once Form.vue exists in this same
+  package, its name auto-registers a lowercase "form" alias that this
+  literal <form method="dialog"> would otherwise resolve to instead of
+  staying a plain native form, breaking the zero-JS Cancel mechanism.
 -->
 <template>
   <dialog v-native role="alertdialog" class="radix-alert-dialog" :open="open">
     <slot></slot>
     <div class="radix-alert-dialog-actions">
-      <form method="dialog" class="radix-alert-dialog-cancel-form">
+      <form v-native method="dialog" class="radix-alert-dialog-cancel-form">
         <button type="submit" class="radix-alert-dialog-cancel">Cancel</button>
       </form>
       <slot name="actions"></slot>

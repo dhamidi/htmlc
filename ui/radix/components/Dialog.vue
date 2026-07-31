@@ -68,11 +68,27 @@
   detected". v-native declares this tag a genuine native HTML element so
   the component keeps working without every consumer having to add "dialog"
   to their own Options.NativeElements just to use this library.
+
+  v-native on the <form> tag below (added alongside Form.vue): once
+  Form.vue exists in this same package, its own name ("Form")
+  auto-registers a lowercase "form" alias in the component registry the
+  same way — and this file's own close mechanism is a literal <form
+  method="dialog">, which would otherwise resolve to Form.vue's component
+  instead of staying a plain native form, silently breaking the zero-JS
+  close mechanism documented above (a <div>, which is what Form.vue
+  renders, does not submit or trigger <form method="dialog">'s native
+  close-the-nearest-ancestor-dialog behavior at all). Confirmed empirically
+  the same way Checkbox.vue's header comment confirms its own analogous
+  <label> finding: rendering this component through a real htmlc.Engine
+  with the full ui/radix package mounted, once Form.vue was added, turned
+  this <form> into a Form.vue instance with "[missing: id]"/"[missing:
+  label]" placeholders and swallowed the Close button into a slot — before
+  this v-native was added to fix it.
 -->
 <template>
   <dialog v-native class="radix-dialog" :open="open">
     <slot></slot>
-    <form method="dialog" class="radix-dialog-close-form">
+    <form v-native method="dialog" class="radix-dialog-close-form">
       <button type="submit" class="radix-dialog-close">Close</button>
     </form>
   </dialog>

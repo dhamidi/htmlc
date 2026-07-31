@@ -84,7 +84,7 @@ func TestAlertDialog_CancelUsesFormMethodDialog(t *testing.T) {
 	src := readAlertDialog(t)
 
 	for _, marker := range []string{
-		`<form method="dialog"`,
+		`<form v-native method="dialog"`,
 		"Cancel",
 	} {
 		if !strings.Contains(src, marker) {
