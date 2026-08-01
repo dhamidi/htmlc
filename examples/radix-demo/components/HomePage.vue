@@ -39,6 +39,36 @@
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>{{ title }}</title>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+            Helvetica, Arial, sans-serif;
+          color: #1a1a1a;
+          max-width: 720px;
+          margin: 3rem auto;
+          padding: 0 1.5rem;
+          line-height: 1.6;
+        }
+        h1 {
+          font-size: 1.75rem;
+        }
+        h2 {
+          font-size: 1.15rem;
+          margin-top: 0;
+        }
+        section {
+          margin: 2.5rem 0;
+        }
+        p {
+          color: #444;
+        }
+        code {
+          background: #f2f2f2;
+          border-radius: 3px;
+          padding: 0.15em 0.4em;
+          font-size: 0.9em;
+        }
+      </style>
     </head>
     <body>
       <h1>{{ title }}</h1>
