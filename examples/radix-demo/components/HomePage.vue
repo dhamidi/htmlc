@@ -120,6 +120,42 @@
         .radix-scroll-area-viewport {
           height: 120px;
         }
+        /*
+         * Not a ui/radix component — this package ships no standalone
+         * Button primitive, matching real Radix Primitives, which also
+         * leaves plain buttons to consumer styling rather than shipping
+         * one. This page-level class instead reuses the exact visual
+         * language every ui/radix component's own internal buttons already
+         * share (compare .radix-dialog-close/.radix-alert-dialog-cancel in
+         * Dialog.vue/AlertDialog.vue), so the plain <button> elements this
+         * demo authors itself as slot content (the Form section's "Sign
+         * up", AlertDialog's "Delete", VisuallyHidden's checkmark trigger)
+         * read as part of the same design system instead of falling back
+         * to the browser's raw default button chrome.
+         */
+        .radix-button {
+          padding: 0.4rem 0.9rem;
+          border: 1px solid #d9d9d9;
+          border-radius: 6px;
+          background-color: #fff;
+          font: inherit;
+          cursor: pointer;
+        }
+        .radix-button:hover {
+          background-color: #f5f5f5;
+        }
+        .radix-button:focus-visible {
+          outline: 2px solid #2563eb;
+          outline-offset: 2px;
+        }
+        .radix-button-primary {
+          border-color: #2563eb;
+          background-color: #2563eb;
+          color: #fff;
+        }
+        .radix-button-primary:hover {
+          background-color: #1d4ed8;
+        }
       </style>
     </head>
     <body>
@@ -318,7 +354,7 @@
           <radix-form id="signup-email" label="Email" error="">
             <input id="signup-email" type="email" name="email" />
           </radix-form>
-          <button type="submit">Sign up</button>
+          <button type="submit" class="radix-button radix-button-primary">Sign up</button>
         </form>
       </section>
 
@@ -331,7 +367,7 @@
           <h3>Delete this file?</h3>
           <p>This action cannot be undone.</p>
           <template #actions>
-            <button type="button">Delete</button>
+            <button type="button" class="radix-button">Delete</button>
           </template>
         </AlertDialog>
       </section>
@@ -515,7 +551,7 @@
       <section>
         <h3>31. VisuallyHidden</h3>
         <p><code>&lt;VisuallyHidden&gt;...&lt;/VisuallyHidden&gt;</code></p>
-        <button type="button">
+        <button type="button" class="radix-button">
           <span aria-hidden="true">&#10003;</span>
           <VisuallyHidden>Mark as complete</VisuallyHidden>
         </button>
