@@ -3,7 +3,9 @@
 // github.com/dhamidi/htmlc/ui/radix component package alongside its own
 // local ComponentDir and renders a single page that references the mounted
 // Accordion/Tabs/Dialog components via every form documented in RFC 014 §5's
-// Syntax Summary table.
+// Syntax Summary table, followed by a full gallery showcasing every other
+// component in ui/radix. See components/HomePage.vue's own header comment
+// for the gallery's structure.
 package main
 
 import (

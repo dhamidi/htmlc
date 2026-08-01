@@ -100,6 +100,75 @@ func TestHomePage_Render_AllFourReferenceForms(t *testing.T) {
 	}
 }
 
+// TestHomePage_Render_ComponentGallery confirms the "Component Gallery"
+// section (everything below the four RFC 014 reference forms) actually
+// renders all 28 remaining ui/radix components — not just that the overall
+// render call succeeds. Each marker below is that component's own root
+// element class name (read directly from its .vue source, not guessed —
+// most follow the kebab-cased-component-name convention, but Form.vue
+// ("radix-form-field"), OneTimePasswordField.vue ("radix-otp-field"), and
+// RadioGroup.vue ("radix-radiogroup") each chose a different root class of
+// their own, confirmed by reading each file rather than assuming the
+// pattern held universally). Accordion/Tabs/Dialog are already covered by
+// TestHomePage_Render_AllFourReferenceForms above, so are not repeated here.
+func TestHomePage_Render_ComponentGallery(t *testing.T) {
+	engine, err := newEngine()
+	if err != nil {
+		t.Fatalf("newEngine: %v", err)
+	}
+	out, err := engine.RenderPageString("HomePage", pageData())
+	if err != nil {
+		t.Fatalf("RenderPageString(HomePage): %v", err)
+	}
+
+	markers := map[string]string{
+		"AlertDialog":          `class="radix-alert-dialog"`,
+		"AspectRatio":          `class="radix-aspect-ratio"`,
+		"Avatar":               `class="radix-avatar"`,
+		"Checkbox":             `class="radix-checkbox"`,
+		"Collapsible":          `class="radix-collapsible"`,
+		"ContextMenu":          `class="radix-context-menu"`,
+		"DropdownMenu":         `class="radix-dropdown-menu"`,
+		"Form":                 `class="radix-form-field"`,
+		"HoverCard":            `class="radix-hover-card"`,
+		"Label":                `class="radix-label"`,
+		"Menubar":              `class="radix-menubar"`,
+		"NavigationMenu":       `class="radix-navigation-menu"`,
+		"OneTimePasswordField": `class="radix-otp-field"`,
+		"PasswordToggleField":  `class="radix-password-toggle-field"`,
+		"Popover":              `class="radix-popover"`,
+		"Progress":             `class="radix-progress"`,
+		"RadioGroup":           `class="radix-radiogroup"`,
+		"ScrollArea":           `class="radix-scroll-area"`,
+		"Select":               `class="radix-select"`,
+		"Separator":            `class="radix-separator"`,
+		"Slider":               `class="radix-slider"`,
+		"Switch":               `class="radix-switch"`,
+		"Toast":                `class="radix-toast"`,
+		"Toggle":               `class="radix-toggle"`,
+		"ToggleGroup":          `class="radix-toggle-group"`,
+		"Toolbar":              `class="radix-toolbar"`,
+		"Tooltip":              `class="radix-tooltip"`,
+		"VisuallyHidden":       `class="radix-visually-hidden"`,
+	}
+	if len(markers) != 28 {
+		t.Fatalf("test bug: expected 28 markers (one per non-Accordion/Tabs/Dialog ui/radix component), got %d", len(markers))
+	}
+	for component, marker := range markers {
+		if !strings.Contains(out, marker) {
+			t.Errorf("%s: expected marker %s in rendered gallery output, not found", component, marker)
+		}
+	}
+
+	// No component in the gallery may have a missing required prop — this
+	// package has no notion of an optional prop with a default, so any
+	// unpassed one renders a visible, truthy "[missing: <name>]" placeholder
+	// (component.go's validateProps) rather than failing the render outright.
+	if strings.Contains(out, "[missing:") {
+		t.Errorf("expected no \"[missing: <prop>]\" placeholders anywhere in the rendered gallery output")
+	}
+}
+
 // TestSelfClosingComponentIs_DoesNotSwallowSiblings confirms, in isolation,
 // the commit b8de838 fix that makes a self-closed
 // <component is="..." /> safe to use (RFC 014 §4.7 item 1) — the exact
