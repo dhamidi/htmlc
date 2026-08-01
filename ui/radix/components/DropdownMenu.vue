@@ -290,7 +290,6 @@
  * here.
  */
 .radix-dropdown-menu-content {
-  display: flex;
   flex-direction: column;
   gap: 0.15rem;
   min-width: 10rem;
@@ -302,6 +301,21 @@
   font-size: 0.875rem;
   line-height: 1.5;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+}
+
+/*
+ * `display` is gated on `:popover-open`, not set unconditionally above: an
+ * author-level `display` declaration on a `[popover]` element — at any
+ * specificity — wins the cascade over the UA stylesheet's own
+ * `[popover]:not(:popover-open) { display: none; }` rule, because author
+ * origin beats UA origin regardless of selector specificity. An
+ * unconditional `display: flex` here would therefore make this menu
+ * render permanently visible, even in its closed, zero-JS baseline state
+ * — found and fixed via an actual rendered screenshot showing exactly
+ * that, not caught by markup-only inspection.
+ */
+.radix-dropdown-menu-content:popover-open {
+  display: flex;
 }
 
 .radix-dropdown-menu-menuitem {
