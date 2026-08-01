@@ -174,6 +174,40 @@ func TestForm_DocumentsConsumerFormNeedsVNative(t *testing.T) {
 	}
 }
 
+// TestForm_DocumentsNestedFormAliasRequirement confirms the header comment
+// documents the second, distinct trap this file's own name creates: even
+// with the consumer's wrapping <form> correctly marked v-native (per
+// "Critical" above), a literal <Form> reference nested inside it still
+// lowercases to the same tag name ("form") as that wrapper during HTML
+// tokenization, and golang.org/x/net/html's standard parser silently drops
+// a <form> start tag encountered while already inside another <form> (the
+// same nested-form suppression real browsers apply) — before this engine's
+// own component resolution ever sees the node. Confirms both the
+// explanation and the fix (the auto-registered radix-form kebab-case
+// alias, which does not collide with the literal tag name) are documented,
+// and that the header's own usage examples actually use <radix-form>, not
+// just describe the fix in prose.
+func TestForm_DocumentsNestedFormAliasRequirement(t *testing.T) {
+	src := readForm(t)
+	header := headerCommentForm(t, src)
+
+	for _, marker := range []string{
+		"radix-form",
+		"nested",
+		"golang.org/x/net/html",
+	} {
+		if !strings.Contains(header, marker) {
+			t.Errorf("Form.vue header comment missing expected marker %q documenting the nested <Form>-reference trap", marker)
+		}
+	}
+	if !strings.Contains(header, "<radix-form") {
+		t.Errorf("Form.vue header comment's usage examples must use <radix-form>, not <Form>, for field references nested inside a literal <form>")
+	}
+	if strings.Contains(header, "<Form id=") {
+		t.Errorf("Form.vue header comment still shows a literal <Form id=...> usage example, which silently fails to render when nested inside a wrapping <form> — should be <radix-form id=...>")
+	}
+}
+
 // TestForm_DocumentsDialogFix confirms the header comment documents that
 // Dialog.vue's/AlertDialog.vue's own internal <form method="dialog">
 // elements needed the same v-native fix once Form.vue was added to the
@@ -227,7 +261,7 @@ func TestAlertDialog_CancelFormIsVNative(t *testing.T) {
 }
 
 // TestForm_RequiredPropsDocumented confirms the header comment documents
-// id/label/error as required props, including the "error='' means no
+// id/label/error as required props, including the "error=” means no
 // error" convention this package's lack of optional-prop defaults forces
 // (matching Toast.vue's own title/description precedent).
 func TestForm_RequiredPropsDocumented(t *testing.T) {

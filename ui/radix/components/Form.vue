@@ -32,14 +32,17 @@
   slotted control, and a conditional accessible error message — used once
   per field inside the consumer's own plain, native `<form>` element (note
   the required `v-native` on that wrapping `<form>` — see "Critical: the
-  consumer's own `<form>` tag needs `v-native` too" below for why):
+  consumer's own `<form>` tag needs `v-native` too" below for why — and note
+  `<radix-form>`, not `<Form>`, for the field reference itself — see
+  "Critical #2: nested `<form>`-tag-name references need the `radix-form`
+  alias, not `<Form>`" further below for why):
 
     <form v-native method="post" action="/signup">
-      <Form id="email" label="Email" error="{{ .Errors.Email }}">
+      <radix-form id="email" label="Email" error="{{ .Errors.Email }}">
         <input id="email" type="email" name="email"
                :aria-invalid="Errors.Email ? 'true' : undefined"
                :aria-describedby="Errors.Email ? 'email-message' : undefined" />
-      </Form>
+      </radix-form>
       <button type="submit">Sign up</button>
     </form>
 
@@ -221,6 +224,67 @@
   `<dialog>`, just with a wider blast radius this file owes it to the next
   reader to spell out plainly rather than downplay.
 
+  ## Critical #2: nested `<form>`-tag-name references need the `radix-form`
+  alias, not `<Form>` — a second, distinct trap that survives the fix above
+
+  Marking the consumer's own wrapping `<form v-native>` (per "Critical"
+  above) is necessary but **not sufficient**. Even correctly fixed that way,
+  a literal `<Form>` field reference nested *inside* that same wrapping
+  `<form>`, in the same template's raw HTML content, still silently
+  disappears — found the same way as the trap above, by actually rendering
+  this exact pattern through a real htmlc.Engine (in examples/radix-demo's
+  own component gallery, the first real page to nest a `<Form>` reference
+  inside a literal wrapping `<form>`), not reasoned about in the abstract.
+
+  The cause is one layer beneath this engine's own component resolution,
+  in the standard HTML tokenizer itself (`golang.org/x/net/html`, which
+  `component.go`'s `parseTemplateHTML` feeds a template's *entire* raw HTML
+  content to in one `html.Parse`/`html.ParseFragment` call — see that
+  function's own header comment). `<Form>`, like every tag name, is
+  lowercased to "form" during tokenization, same as the literal wrapping
+  `<form>` around it — and the WHATWG HTML parsing spec has a dedicated,
+  unconditional rule for this exact shape: a `<form>` start tag encountered
+  while the parser's own form-element pointer is already set (i.e. while
+  already inside another `<form>`) is a parse error, and *the token is
+  simply ignored* — no element is created for it at all. This was confirmed
+  directly, not inferred from reading the spec alone: a standalone
+  `html.Parse` call on
+  `<form method="post"><form id="inner"><input id="x"></form>...</form>`
+  was run before writing this comment, and its rendered-back output
+  contains exactly one `<form>` element, with `<input id="x">` reparented
+  directly inside it — the inner `<form id="inner">` tag pair is entirely
+  absent from the resulting tree, exactly as the spec's own "in body"
+  insertion-mode algorithm describes for the form token. This happens
+  *before* this engine's own component-resolution walk ever runs (parsing
+  is a separate, earlier pass over the whole template — see engine.go's
+  load sequence), so there is no hook in `renderer.go` that could
+  compensate for it: by the time component resolution sees the tree, the
+  inner `<Form>...</Form>` node pair, and every attribute it carried
+  (`id`/`label`/`error`), has already ceased to exist. What survives is only
+  its slotted children (e.g. the field's own `<input>`), silently reparented
+  as direct children of the *outer* form — no error, no warning, no
+  "[missing: <prop>]" placeholder (there is no node left to even attempt to
+  render), just this component's entire label/message contribution quietly
+  gone from the page.
+
+  The fix is the same *kind* of fix "Critical" above already established
+  for the outer `<form>`, applied to the inner reference instead: use a tag
+  spelling that does not lowercase to the literal string "form". `v-native`
+  itself does not apply here (`<Form>` is meant to resolve *as* the
+  component, not to be excluded from resolution), but this package's own
+  auto-registered kebab-case alias for this file, `radix-form` (assuming
+  the standard `Mount{Prefix: "radix", ...}` this whole package hardcodes
+  — see radix.go's header comment), works exactly like every other
+  same-shape fix in this file: `<radix-form>` is not literally "form" to
+  the tokenizer, so the nested-form suppression rule never matches it, and
+  it survives standard HTML tree construction intact for this engine's own
+  component resolution to correctly pick up afterward. Every usage example
+  in this file's own header comment and the live examples/radix-demo
+  gallery uses `<radix-form>` for exactly this reason — not a style
+  preference, a load-bearing requirement for the reference to survive
+  parsing at all whenever it is nested inside a literal `<form>` (which,
+  per "Critical" above, is *every* real usage of this component).
+
   ## No customelement enhancement script: none, deliberately
 
   Per RFC 014 §3 Non-Goals, a script is only added when something is
@@ -256,18 +320,20 @@
   is a small, genuinely optional enhancement squarely in the consumer's own
   script, not something this file can safely reach in and do for them.
 
-  Usage (see also the full example at the top of this comment — and note
-  the wrapping `<form v-native>`, required per "Critical" above):
+  Usage (see also the full example at the top of this comment — note both
+  the wrapping `<form v-native>`, required per "Critical" above, AND
+  `<radix-form>` rather than `<Form>` for each field reference, required
+  per "Critical #2" above):
 
     <form v-native method="post" action="/signup">
-      <Form id="username" label="Username" error="">
+      <radix-form id="username" label="Username" error="">
         <input id="username" type="text" name="username" />
-      </Form>
+      </radix-form>
 
-      <Form id="email" label="Email" error="Email is already taken">
+      <radix-form id="email" label="Email" error="Email is already taken">
         <input id="email" type="email" name="email"
                aria-invalid="true" aria-describedby="email-message" />
-      </Form>
+      </radix-form>
 
       <button type="submit">Sign up</button>
     </form>
