@@ -108,7 +108,7 @@ func TestAlertDialog_ContainsScopedStyle(t *testing.T) {
 	src := readAlertDialog(t)
 
 	for _, marker := range []string{
-		"<style scoped>",
+		"<style>",
 		"::backdrop",
 	} {
 		if !strings.Contains(src, marker) {

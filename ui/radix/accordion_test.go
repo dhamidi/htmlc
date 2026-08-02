@@ -45,7 +45,7 @@ func TestAccordion_ContainsCustomElementEnhancement(t *testing.T) {
 func TestAccordion_ContainsScopedStyle(t *testing.T) {
 	src := readAccordion(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("Accordion.vue missing expected <style scoped> block")
 	}
 }

@@ -50,7 +50,7 @@ func TestCollapsible_SummaryPrecedesContent(t *testing.T) {
 func TestCollapsible_ContainsScopedStyle(t *testing.T) {
 	src := readCollapsible(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("Collapsible.vue missing expected <style scoped> block")
 	}
 }

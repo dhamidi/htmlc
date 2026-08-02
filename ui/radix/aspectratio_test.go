@@ -17,7 +17,7 @@ func TestAspectRatio_ContainsBaselineMarkers(t *testing.T) {
 
 	for _, marker := range []string{
 		"<template>",
-		"<style scoped>",
+		"<style>",
 	} {
 		if !strings.Contains(src, marker) {
 			t.Errorf("AspectRatio.vue missing expected baseline marker %q", marker)

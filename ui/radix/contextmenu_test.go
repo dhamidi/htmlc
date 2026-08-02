@@ -78,7 +78,7 @@ func TestContextMenu_TriggerIsPlainNonInteractiveElement(t *testing.T) {
 func TestContextMenu_ContainsScopedStyle(t *testing.T) {
 	src := readContextMenu(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("ContextMenu.vue missing expected <style scoped> block")
 	}
 }

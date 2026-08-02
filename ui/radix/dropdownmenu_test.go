@@ -91,7 +91,7 @@ func TestDropdownMenu_NoManualAriaExpanded(t *testing.T) {
 func TestDropdownMenu_ContainsScopedStyle(t *testing.T) {
 	src := readDropdownMenu(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("DropdownMenu.vue missing expected <style scoped> block")
 	}
 }

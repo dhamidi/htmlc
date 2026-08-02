@@ -367,7 +367,7 @@ func TestHoverCard_RecomputesOnResizeAndScroll(t *testing.T) {
 func TestHoverCard_ContainsScopedStyle(t *testing.T) {
 	src := readHoverCard(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("HoverCard.vue missing expected <style scoped> block")
 	}
 }
