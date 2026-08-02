@@ -149,7 +149,7 @@ func TestSwitch_InputStaysInTabOrder(t *testing.T) {
 		}
 	}
 
-	inputRule := switchCSSRule(t, src, ".radix-visually-hidden-input {")
+	inputRule := tokensCSSRule(t, ".radix-visually-hidden-input {")
 	if strings.Contains(inputRule, "display: none") || strings.Contains(inputRule, "display:none") {
 		t.Errorf(".radix-visually-hidden-input rule must not use display:none (would remove it from the tab order); rule was:\n%s", inputRule)
 	}

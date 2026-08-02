@@ -51,13 +51,26 @@
 // Radix Colors' own gray/blue/red scales) and --radix-radius-*/
 // --radix-space-* (mirroring Radix Themes' default radius/spacing scale)
 // — plus one shared utility class, .radix-visually-hidden-input. The
-// canonical, single-source-of-truth copy of this block lives in
-// Button.vue's own <style> section; every other component includes the
-// exact same block, byte-for-byte, in its own unscoped <style> section.
-// htmlc's StyleCollector (style.go) dedupes style contributions by exact
-// (scope, CSS text) match, so this block reaches the final rendered page
+// canonical, single-source-of-truth copy of this block lives in its own
+// dedicated component, Tokens.vue, which has an empty <template> and
+// exists solely to carry this <style> block. Every other component in
+// this package instantiates <Tokens></Tokens> as a child in its own
+// template, rather than duplicating the block's text inline.
+//
+// This indirection matters because of how htmlc's StyleCollector
+// (style.go) dedupes style contributions: two contributions collapse into
+// one only when their (scope, CSS text) pair matches exactly, where the
+// CSS text is a component's *entire* <style> block, not a sub-rule within
+// it. Pasting the shared block into 30+ components' own <style> sections
+// alongside each component's own distinct rules does not dedupe, because
+// each file's combined block text differs from every other's. Routing
+// every consumer through one shared child component avoids that: since
+// Tokens.vue's own <style> content is fixed, every render of it —
+// regardless of which parent mounts it — contributes the same (scope,
+// CSS text) pair, which StyleCollector.Add does collapse to a single
+// entry. The result is that this block reaches the final rendered page
 // only once no matter how many of this package's components a given page
-// mounts — see Button.vue's header comment for the fuller explanation and
+// mounts — see Tokens.vue's header comment for the fuller explanation and
 // the values themselves.
 package radix
 

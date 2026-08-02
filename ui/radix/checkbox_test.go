@@ -179,7 +179,7 @@ func TestCheckbox_InputStaysInTabOrder(t *testing.T) {
 	// from the tab order entirely; the clip-path/opacity/position technique
 	// must be used instead (same requirement Tabs.vue's own hidden-input
 	// CSS satisfies).
-	inputRule := checkboxCSSRule(t, src, ".radix-visually-hidden-input {")
+	inputRule := tokensCSSRule(t, ".radix-visually-hidden-input {")
 	if strings.Contains(inputRule, "display: none") || strings.Contains(inputRule, "display:none") {
 		t.Errorf(".radix-visually-hidden-input rule must not use display:none (would remove it from the tab order); rule was:\n%s", inputRule)
 	}
