@@ -230,6 +230,13 @@
   width: 100%;
   max-width: 24rem;
   padding: 0.9rem 1rem;
+  /* Without this, the browser's default content-box model adds the
+     padding and border on top of the 100% width, pushing the toast past
+     its container's right edge — invisible on a wide page with generous
+     margin either side, but a real overflow on a narrow (mobile) viewport.
+     Found via an actual mobile-width screenshot, not caught by markup
+     review. */
+  box-sizing: border-box;
   background-color: #fff;
   border: 1px solid #d9d9d9;
   border-radius: 8px;
