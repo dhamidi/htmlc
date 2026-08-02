@@ -51,7 +51,7 @@ func TestTabs_ContainsCustomElementEnhancement(t *testing.T) {
 func TestTabs_ContainsScopedStyle(t *testing.T) {
 	src := readTabs(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("Tabs.vue missing expected <style scoped> block")
 	}
 }

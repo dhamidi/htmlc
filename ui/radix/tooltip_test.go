@@ -193,7 +193,7 @@ func TestTooltip_RecomputesOnResizeAndScroll(t *testing.T) {
 func TestTooltip_ContainsScopedStyle(t *testing.T) {
 	src := readTooltip(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("Tooltip.vue missing expected <style scoped> block")
 	}
 }

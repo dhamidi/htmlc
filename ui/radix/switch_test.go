@@ -149,12 +149,12 @@ func TestSwitch_InputStaysInTabOrder(t *testing.T) {
 		}
 	}
 
-	inputRule := switchCSSRule(t, src, ".radix-switch-input {")
+	inputRule := switchCSSRule(t, src, ".radix-visually-hidden-input {")
 	if strings.Contains(inputRule, "display: none") || strings.Contains(inputRule, "display:none") {
-		t.Errorf(".radix-switch-input rule must not use display:none (would remove it from the tab order); rule was:\n%s", inputRule)
+		t.Errorf(".radix-visually-hidden-input rule must not use display:none (would remove it from the tab order); rule was:\n%s", inputRule)
 	}
 	if !strings.Contains(inputRule, "clip-path") {
-		t.Errorf(".radix-switch-input rule missing expected clip-path visually-hidden technique; rule was:\n%s", inputRule)
+		t.Errorf(".radix-visually-hidden-input rule missing expected clip-path visually-hidden technique; rule was:\n%s", inputRule)
 	}
 }
 

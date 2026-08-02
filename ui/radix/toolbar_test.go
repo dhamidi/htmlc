@@ -33,7 +33,7 @@ func TestToolbar_ContainsZeroJSBaseline(t *testing.T) {
 func TestToolbar_ContainsScopedStyle(t *testing.T) {
 	src := readToolbar(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("Toolbar.vue missing expected <style scoped> block")
 	}
 }

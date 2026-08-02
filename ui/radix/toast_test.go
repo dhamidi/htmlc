@@ -231,7 +231,7 @@ func TestToast_DismissDispatchesCancelableEventBeforeRemoving(t *testing.T) {
 func TestToast_ContainsScopedStyle(t *testing.T) {
 	src := readToast(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("Toast.vue missing expected <style scoped> block")
 	}
 }

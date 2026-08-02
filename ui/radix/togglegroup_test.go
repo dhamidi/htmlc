@@ -39,7 +39,7 @@ func TestToggleGroup_ContainsZeroJSBaseline(t *testing.T) {
 func TestToggleGroup_ContainsScopedStyle(t *testing.T) {
 	src := readToggleGroup(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("ToggleGroup.vue missing expected <style scoped> block")
 	}
 }

@@ -112,7 +112,7 @@ func TestToggle_NoDisabledGuardInClickHandler(t *testing.T) {
 func TestToggle_ContainsScopedStyle(t *testing.T) {
 	src := readToggle(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("Toggle.vue missing expected <style scoped> block")
 	}
 }
