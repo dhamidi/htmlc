@@ -113,6 +113,52 @@
   dismiss and Escape-to-close, all native, all free) — verified, not
   assumed, for this component's script-first invocation path.
 
+  That correct choice has one genuinely nasty consequence specific to this
+  component, found via a real trusted-input regression (right-click via CDP
+  `Input.dispatchMouseEvent({button: 'right'})`, both `mousePressed` and
+  `mouseReleased`, against a live examples/radix-demo instance — not
+  reasoned from the spec) and root-caused with a standalone `<dialog>`-free
+  popover repro before being fixed: **the right-click gesture that opens
+  this menu also light-dismisses it**, on the same gesture's own trailing
+  pointerup/mouseup. `Popover.vue`'s/`DropdownMenu.vue`'s declarative
+  `popovertarget` trigger is recognized by the browser as the popover's own
+  associated invoker and is exempted from counting as "outside" for that
+  same click — but this component opens imperatively via `.showPopover()`
+  from `#onContextMenu`, so there is no such invoker association, and
+  Chromium (HeadlessChrome/151.0.7922.71, the engine available in this
+  environment) cannot tell "the gesture that opened this" from "a
+  subsequent click outside it". The repro isolated the actual trigger for
+  the dismiss: it is not about the right-click itself, and stopping the
+  `contextmenu` event's propagation, or intercepting the trailing
+  `pointerup`/`mouseup` with `preventDefault()`/`stopPropagation()`, made no
+  difference. What did matter was timing: with positioning deferred to the
+  content's own `toggle` event (as this file originally did, and as
+  Popover.vue's/Tooltip.vue's own `#onToggle` still correctly does for
+  their non-racing invocation paths), the content is still sitting at its
+  unpositioned default location (`getBoundingClientRect()` reads all-zero)
+  at the moment the same gesture's trailing pointerup/mouseup is processed
+  — so that pointerup lands nowhere near the popover's (not yet real)
+  bounding box, reads as "outside", and light-dismisses it, immediately
+  followed by the deferred `toggle`-driven positioning that never gets to
+  matter. Fix, verified the same way: `#onContextMenu` now also does a
+  synchronous, un-clamped "rough" placement of the content at the cursor
+  point *before* calling `.showPopover()` (see the code below and
+  "Positioning" below) — by the time the browser processes the trailing
+  pointerup/mouseup, the content already occupies real, cursor-adjacent
+  screen space, so that pointerup reads as landing inside it, not outside,
+  and the light-dismiss never fires. `#onToggle`'s existing `toggle`-driven
+  call to `#positionAtPoint()` still runs afterward and still owns the
+  real, edge-clamped final position — the rough placement only has to
+  survive the one trailing pointerup, not be pixel-accurate. Honest
+  trade-off: because the rough placement is intentionally un-clamped (real
+  size isn't known synchronously — see "Positioning" below), right-clicking
+  very close to the viewport's right or bottom edge can show the content
+  spilling slightly off-screen for the single frame between `showPopover()`
+  and the `toggle`-driven clamp correcting it, rather than being clamped
+  from the very first paint. Not a functional regression (nothing is
+  unusable or misclicked), and not verified to be visually perceptible at
+  normal frame rates, but recorded here rather than glossed over.
+
   One additional, genuinely different consequence of driving `showPopover()`
   from script here (absent from every popovertarget-based file, where the
   browser's own invoker mechanism guarantees a clean toggle): per the HTML
@@ -148,11 +194,22 @@
   multi-side fallback order, no collision priority, no arrow — just the
   cursor point as the content's natural top-left corner, clamped back in
   bounds on both axes if the menu's real, laid-out size would overflow the
-  viewport's right or bottom edge. Measured on the content's own `toggle`
-  event (not synchronously in `#onContextMenu`), for the identical reason
-  Popover.vue's header comment documents: the content has to actually be
-  shown and laid out before `getBoundingClientRect()` reflects its real
-  size.
+  viewport's right or bottom edge.
+
+  This is done in two phases, not one — see the `popover="auto"` section
+  above for the real, verified bug this two-phase split fixes. Phase 1: a
+  synchronous, un-clamped placement of the content's top-left corner at the
+  cursor point, done in `#onContextMenu` itself, before `.showPopover()` is
+  even called — this is what has to exist before the opening gesture's own
+  trailing pointerup/mouseup is processed, or Chromium light-dismisses the
+  popover this same handler just opened (see `popover="auto"` section).
+  Phase 2: the real, edge-clamped final placement, computed in
+  `#positionAtPoint()` and applied on the content's own `toggle` event (not
+  synchronously in `#onContextMenu` — this part is unchanged from before
+  the fix, for the identical reason Popover.vue's header comment documents:
+  the content has to actually be shown and laid out before
+  `getBoundingClientRect()` reflects its real size, which phase 1's rough
+  placement does not need because it does no clamping).
 
   ## Not ported in this v1 (documented scope cuts, not oversights)
 
@@ -423,6 +480,15 @@ class RadixContextMenu extends HTMLElement {
   // statement in this handler — every contextmenu event delivered to the
   // trigger region reaches it before anything else runs, so there is no
   // code path here that lets the native menu leak through.
+  //
+  // Also does a synchronous, un-clamped "rough" placement of the content at
+  // the cursor point BEFORE calling showPopover() — see this file's header
+  // comment's "Positioning"/`popover="auto"` sections for why this matters:
+  // without it, the right-click gesture's own trailing pointerup/mouseup
+  // immediately light-dismisses the popover this same handler just opened.
+  // #onToggle below still re-positions with real edge-clamping once the
+  // content is actually laid out; this rough placement only has to survive
+  // long enough for that trailing pointerup, not be pixel-perfect.
   #onContextMenu = (event) => {
     event.preventDefault()
     this.#point = { x: event.clientX, y: event.clientY }
@@ -437,6 +503,26 @@ class RadixContextMenu extends HTMLElement {
     if (this.#content.matches(':popover-open')) {
       this.#content.hidePopover()
     }
+    // Rough placement, synchronous and un-clamped (real size isn't known
+    // yet — see header comment). This alone is what keeps the menu open
+    // across the opening gesture's own trailing pointerup; see #onToggle
+    // for the real, edge-clamped placement. Offset 4px up-and-left of the
+    // exact cursor point, not placed AT it: verified empirically (via
+    // document.elementFromPoint() probed in a small pixel grid around the
+    // cursor, against the real popover's rendered box) that positioning
+    // the content's top-left corner exactly at the cursor coordinate is
+    // not enough — Chromium's real hit-testing of the freshly-shown
+    // top-layer popover was found to disagree with its own
+    // getBoundingClientRect() by 1-2px right where a fractional-pixel
+    // cursor coordinate (the ordinary case; window.innerWidth/Height-scaled
+    // event.clientX/Y are rarely whole numbers) lands exactly on the box's
+    // reported edge, so the cursor point tests as just outside the popover
+    // and the trailing pointerup light-dismisses it — the same bug this
+    // whole placement exists to fix, just moved a couple of pixels rather
+    // than fixed. A 4px inward offset comfortably clears that margin.
+    const roughOffsetPx = 4
+    this.#content.style.left = (this.#point.x - roughOffsetPx) + 'px'
+    this.#content.style.top = (this.#point.y - roughOffsetPx) + 'px'
     this.#content.showPopover()
   }
 
@@ -445,9 +531,11 @@ class RadixContextMenu extends HTMLElement {
   // (not doing this synchronously inside #onContextMenu) matters here for
   // the same reason it matters in Popover.vue's #onToggle: the content
   // has to actually be shown and laid out before getBoundingClientRect()
-  // in #positionAtPoint reflects its real size. No action on close: the
-  // popover machinery already owns returning focus to wherever it was
-  // before the menu opened.
+  // in #positionAtPoint reflects its real size — this call to
+  // #positionAtPoint() is what turns #onContextMenu's rough, un-clamped
+  // placement above into the real, edge-clamped final position. No action
+  // on close: the popover machinery already owns returning focus to
+  // wherever it was before the menu opened.
   #onToggle = (event) => {
     if (event.newState !== 'open') return
     this.#positionAtPoint()
