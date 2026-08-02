@@ -18,42 +18,62 @@ import (
 	radixui "github.com/dhamidi/htmlc/ui/radix"
 )
 
-func faqItems() []any {
-	return []any{
-		map[string]any{
-			"id":      "shipping",
-			"title":   "How fast is shipping?",
-			"content": "<p>Orders ship within two business days.</p>",
+// AccordionFAQ is one Accordion/HomePage FAQ entry — the shape rendered by
+// Accordion.vue's own `v-for="item in items"` loop (item.id/item.title/
+// item.content). Passed as a Go struct slice rather than []map[string]any;
+// props.go's StructProps resolves each field against its `json` tag, the
+// same convention this project's other example apps (e.g. examples/blog)
+// already use for exposing Go structs as template data.
+type AccordionFAQ struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+// TabItem is one Tabs/HomePage tab entry — the shape rendered by Tabs.vue's
+// own `v-for="item in items"` loop (item.id/item.label/item.content).
+type TabItem struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Content string `json:"content"`
+}
+
+func faqItems() []AccordionFAQ {
+	return []AccordionFAQ{
+		{
+			ID:      "shipping",
+			Title:   "How fast is shipping?",
+			Content: "<p>Orders ship within two business days.</p>",
 		},
-		map[string]any{
-			"id":      "returns",
-			"title":   "What is your return policy?",
-			"content": "<p>Unused items may be returned within 30 days.</p>",
+		{
+			ID:      "returns",
+			Title:   "What is your return policy?",
+			Content: "<p>Unused items may be returned within 30 days.</p>",
 		},
 	}
 }
 
-func moreFaqItems() []any {
-	return []any{
-		map[string]any{
-			"id":      "warranty",
-			"title":   "Is there a warranty?",
-			"content": "<p>Every product carries a one-year limited warranty.</p>",
+func moreFaqItems() []AccordionFAQ {
+	return []AccordionFAQ{
+		{
+			ID:      "warranty",
+			Title:   "Is there a warranty?",
+			Content: "<p>Every product carries a one-year limited warranty.</p>",
 		},
 	}
 }
 
-func tabItems() []any {
-	return []any{
-		map[string]any{
-			"id":      "overview",
-			"label":   "Overview",
-			"content": "<p>Radix-inspired, headless, zero-JS-baseline components for htmlc.</p>",
+func tabItems() []TabItem {
+	return []TabItem{
+		{
+			ID:      "overview",
+			Label:   "Overview",
+			Content: "<p>Radix-inspired, headless, zero-JS-baseline components for htmlc.</p>",
 		},
-		map[string]any{
-			"id":      "usage",
-			"label":   "Usage",
-			"content": "<p>Mount the package, then reference its components by any documented form.</p>",
+		{
+			ID:      "usage",
+			Label:   "Usage",
+			Content: "<p>Mount the package, then reference its components by any documented form.</p>",
 		},
 	}
 }
