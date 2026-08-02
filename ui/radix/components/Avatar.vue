@@ -128,7 +128,7 @@
   height: 2.5rem;
   overflow: hidden;
   border-radius: var(--radix-radius-thumb);
-  background-color: var(--radix-sand-4);
+  background-color: var(--radix-brown-4);
   vertical-align: middle;
   user-select: none;
 }

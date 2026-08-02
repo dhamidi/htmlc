@@ -159,7 +159,7 @@
   width: 100%;
   height: 0.5rem;
   border-radius: var(--radix-radius-thumb);
-  background-color: var(--radix-sand-4);
+  background-color: var(--radix-brown-4);
 }
 
 /*

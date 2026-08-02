@@ -195,9 +195,9 @@
   margin: 0;
   max-width: 20rem;
   padding: 1rem;
-  border: 1px solid var(--radix-sand-6);
+  border: 1px solid var(--radix-brown-6);
   border-radius: var(--radix-radius-4);
-  background-color: var(--radix-sand-1);
+  background-color: var(--radix-brown-1);
   color: var(--radix-sand-12);
   font-size: 0.875rem;
   line-height: 1.5;

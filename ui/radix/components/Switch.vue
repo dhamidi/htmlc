@@ -152,7 +152,7 @@
   flex-shrink: 0;
   width: 2.75rem;
   height: 1.5rem;
-  background-color: var(--radix-sand-6);
+  background-color: var(--radix-brown-6);
   border-radius: var(--radix-radius-thumb);
   cursor: pointer;
   transition: background-color 150ms ease;
@@ -175,7 +175,7 @@
   left: 0.125rem;
   width: 1.25rem;
   height: 1.25rem;
-  background-color: var(--radix-sand-1);
+  background-color: var(--radix-brown-1);
   border-radius: var(--radix-radius-thumb);
   transform: translateX(0);
   transition: transform 150ms ease;

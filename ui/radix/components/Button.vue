@@ -67,9 +67,9 @@
   align-items: center;
   justify-content: center;
   padding: 0.4rem 0.9rem;
-  border: 1px solid var(--radix-sand-6);
+  border: 1px solid var(--radix-brown-6);
   border-radius: var(--radix-radius-2);
-  background-color: var(--radix-sand-1);
+  background-color: var(--radix-brown-1);
   color: var(--radix-sand-12);
   font: inherit;
   font-weight: 500;
@@ -77,7 +77,7 @@
 }
 
 .radix-button:hover {
-  background-color: var(--radix-sand-3);
+  background-color: var(--radix-brown-3);
 }
 
 /* Never remove the focus outline — keep it visible for keyboard users. */

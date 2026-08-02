@@ -46,16 +46,33 @@
  * scales (@radix-ui/colors, sand/brown/ruby, light mode, fetched from the
  * published package's own CSS source, not guessed), chosen deliberately
  * over the library's own default gray/blue/red trio: sand (a warm neutral)
- * replaces gray for surfaces/text, brown (a coffee/terracotta accent)
- * replaces blue for primary/interactive/focus, and ruby (a warm rose-red)
- * replaces plain red for danger/destructive — still unambiguously "this is
- * dangerous," just warmer than a stock red. Paired with Radix Themes'
- * default "medium" radius scale / scaling=1 spacing scale (fetched from
+ * for text, brown (a coffee/terracotta accent) for surfaces/chrome and
+ * primary/interactive/focus, and ruby (a warm rose-red) for danger/
+ * destructive — still unambiguously "this is dangerous," just warmer than
+ * a stock red. Paired with Radix Themes' default "medium" radius scale /
+ * scaling=1 spacing scale (fetched from
  * @radix-ui/themes/.../tokens/{radius,space}.css). Prefixed --radix-*
  * (unlike upstream's own unprefixed --sand-1/--brown-9/--radius-3/--space-4)
  * because this is a mounted library, not an app shell: an unprefixed
  * custom property would leak into, and could collide with, a consuming
  * project's own global CSS custom properties of the same generic name.
+ *
+ * A deliberate split within the palette itself, easy to miss by reading
+ * the scale names alone: sand's own low steps (1-8) are barely
+ * distinguishable from plain gray to the eye — real Radix Colors keeps its
+ * neutral scales very desaturated by design, sand included, it's just the
+ * warmest of the bunch. Using sand-1..8 for every border/panel/track
+ * across this package (the initial version of this palette did exactly
+ * that) still reads as "white and gray," not "earthy," no matter how
+ * warm the scale's name is. So the low steps (1-8, used for surfaces,
+ * borders, tracks, disabled/hover fills — chrome, not text) are pulled
+ * from brown instead, which is visibly tan/khaki even at its lightest
+ * steps; sand is reserved for steps 9-12, where it still does real work
+ * as body/secondary text and the one dark, near-black chip background
+ * (Tooltip's) that needs to stay closer to neutral than brown-12 (a
+ * lighter coffee tone) would allow. Every component in this package
+ * follows that split — see the components themselves for the concrete
+ * per-role assignments.
  *
  * Every other component in this package instantiates this component
  * (<Tokens></Tokens>) as a child instead of carrying its own copy of this

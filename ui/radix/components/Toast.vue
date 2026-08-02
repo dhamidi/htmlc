@@ -238,8 +238,8 @@
      Found via an actual mobile-width screenshot, not caught by markup
      review. */
   box-sizing: border-box;
-  background-color: var(--radix-sand-1);
-  border: 1px solid var(--radix-sand-6);
+  background-color: var(--radix-brown-1);
+  border: 1px solid var(--radix-brown-6);
   border-radius: var(--radix-radius-4);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
   touch-action: none; /* dragging the toast itself should not also pan the page */

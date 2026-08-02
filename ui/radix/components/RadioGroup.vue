@@ -246,8 +246,8 @@
   width: 1.25rem;
   height: 1.25rem;
   border-radius: var(--radix-radius-thumb);
-  border: 1px solid var(--radix-sand-8);
-  background-color: var(--radix-sand-1);
+  border: 1px solid var(--radix-brown-8);
+  background-color: var(--radix-brown-1);
 }
 
 /* Checked: driven by the input's real, native :checked pseudo-class. */

@@ -302,7 +302,7 @@
   text-align: center;
   letter-spacing: 0.3em;
   padding: 0.4rem 0.6rem;
-  border: 1px solid var(--radix-sand-6);
+  border: 1px solid var(--radix-brown-6);
   border-radius: var(--radix-radius-3);
 }
 
@@ -337,8 +337,8 @@
   font-size: 1.125rem;
   font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
   color: var(--radix-sand-12);
-  background-color: var(--radix-sand-1);
-  border: 1px solid var(--radix-sand-6);
+  background-color: var(--radix-brown-1);
+  border: 1px solid var(--radix-brown-6);
   border-radius: var(--radix-radius-3);
   cursor: text;
   user-select: none;

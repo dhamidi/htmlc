@@ -199,8 +199,8 @@
   flex-shrink: 0;
   width: 1.25rem;
   height: 1.25rem;
-  background-color: var(--radix-sand-1);
-  border: 1px solid var(--radix-sand-8);
+  background-color: var(--radix-brown-1);
+  border: 1px solid var(--radix-brown-8);
   border-radius: var(--radix-radius-2);
   cursor: pointer;
 }

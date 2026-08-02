@@ -137,12 +137,12 @@
             --radix-ruby-10: #ec5a72;
             --radix-ruby-11: #ff949d;
             --radix-ruby-12: #fed2e1;
-            --page-surface: var(--radix-sand-2);
+            --page-surface: var(--radix-brown-2);
             --page-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.36);
           }
         }
         :root {
-          --page-surface: var(--radix-sand-2);
+          --page-surface: var(--radix-brown-2);
           --page-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
         }
         * {
@@ -151,7 +151,7 @@
         body {
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
             Helvetica, Arial, sans-serif;
-          background: var(--radix-sand-1);
+          background: var(--radix-brown-1);
           color: var(--radix-sand-12);
           margin: 0;
           line-height: 1.6;
@@ -217,7 +217,7 @@
           color: var(--radix-brown-9);
         }
         code {
-          background: var(--radix-sand-3);
+          background: var(--radix-brown-3);
           color: var(--radix-sand-12);
           border-radius: var(--radix-radius-2);
           padding: 0.15em 0.4em;
@@ -239,7 +239,7 @@
           letter-spacing: -0.01em;
           margin: 4rem 0 1.5rem;
           padding-top: 2.5rem;
-          border-top: 1px solid var(--radix-sand-6);
+          border-top: 1px solid var(--radix-brown-6);
         }
         h2.category:first-of-type {
           margin-top: 3rem;
@@ -253,7 +253,7 @@
           margin: 1.25rem 0;
           padding: 1.25rem 1.5rem 1.5rem;
           background: var(--page-surface);
-          border: 1px solid var(--radix-sand-6);
+          border: 1px solid var(--radix-brown-6);
           border-radius: var(--radix-radius-4);
           box-shadow: var(--page-shadow);
           scroll-margin-top: 1.5rem;
@@ -279,7 +279,7 @@
         }
         .card {
           padding: 1.5rem;
-          border: 1px dashed var(--radix-sand-8);
+          border: 1px dashed var(--radix-brown-8);
           border-radius: var(--radix-radius-3);
           text-align: center;
           color: var(--radix-sand-11);
@@ -675,7 +675,7 @@
           <p class="snippet"><code>&lt;AspectRatio :ratio="16/9"&gt;...&lt;/AspectRatio&gt;</code></p>
           <div style="max-width: 20rem">
             <AspectRatio :ratio="16/9">
-              <div style="width: 100%; height: 100%; background: var(--radix-sand-4); display: flex; align-items: center; justify-content: center; color: var(--radix-sand-11);">16:9</div>
+              <div style="width: 100%; height: 100%; background: var(--radix-brown-4); display: flex; align-items: center; justify-content: center; color: var(--radix-sand-11);">16:9</div>
             </AspectRatio>
           </div>
         </section>

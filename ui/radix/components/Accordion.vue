@@ -64,11 +64,11 @@
 
 <style>
 .radix-accordion {
-  border-top: 1px solid var(--radix-sand-6);
+  border-top: 1px solid var(--radix-brown-6);
 }
 
 .radix-accordion-item {
-  border-bottom: 1px solid var(--radix-sand-6);
+  border-bottom: 1px solid var(--radix-brown-6);
 }
 
 .radix-accordion-item > summary {

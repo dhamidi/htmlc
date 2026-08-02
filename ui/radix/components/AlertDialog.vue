@@ -125,7 +125,7 @@
 .radix-alert-dialog {
   padding: 1.5rem;
   max-width: 32rem;
-  border: 1px solid var(--radix-sand-6);
+  border: 1px solid var(--radix-brown-6);
   border-radius: var(--radix-radius-4);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
 }

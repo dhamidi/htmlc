@@ -108,8 +108,8 @@
   align-items: center;
   justify-content: center;
   padding: 0.4rem 0.7rem;
-  background-color: var(--radix-sand-1);
-  border: 1px solid var(--radix-sand-6);
+  background-color: var(--radix-brown-1);
+  border: 1px solid var(--radix-brown-6);
   border-radius: var(--radix-radius-3);
   cursor: pointer;
   line-height: 1;

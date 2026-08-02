@@ -96,7 +96,7 @@
 
 <style>
 .radix-collapsible {
-  border: 1px solid var(--radix-sand-6);
+  border: 1px solid var(--radix-brown-6);
   border-radius: var(--radix-radius-3);
 }
 

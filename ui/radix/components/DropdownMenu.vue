@@ -260,8 +260,8 @@
 .radix-dropdown-menu-trigger {
   font: inherit;
   color: inherit;
-  background-color: var(--radix-sand-1);
-  border: 1px solid var(--radix-sand-6);
+  background-color: var(--radix-brown-1);
+  border: 1px solid var(--radix-brown-6);
   border-radius: var(--radix-radius-3);
   padding: 0.4rem 0.7rem;
   cursor: pointer;
@@ -286,9 +286,9 @@
   gap: 0.15rem;
   min-width: 10rem;
   padding: 0.35rem;
-  border: 1px solid var(--radix-sand-6);
+  border: 1px solid var(--radix-brown-6);
   border-radius: var(--radix-radius-4);
-  background-color: var(--radix-sand-1);
+  background-color: var(--radix-brown-1);
   color: var(--radix-sand-12);
   font-size: 0.875rem;
   line-height: 1.5;
@@ -324,7 +324,7 @@
 }
 
 .radix-dropdown-menu-menuitem:hover:not(:disabled) {
-  background-color: var(--radix-sand-3);
+  background-color: var(--radix-brown-3);
 }
 
 .radix-dropdown-menu-menuitem:disabled {
