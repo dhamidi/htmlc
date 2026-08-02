@@ -91,6 +91,7 @@
 -->
 <template>
   <button
+    v-native
     type="button"
     class="radix-toggle"
     :aria-pressed="pressed ? 'true' : 'false'"

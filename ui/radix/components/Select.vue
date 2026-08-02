@@ -301,6 +301,7 @@
       >{{ item.label }}</option>
     </select>
     <button
+      v-native
       type="button"
       class="radix-select-trigger"
       :popovertarget="id"

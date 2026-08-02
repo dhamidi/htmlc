@@ -216,7 +216,7 @@
       <p v-if="title" class="radix-toast-title">{{ title }}</p>
       <p v-if="description" class="radix-toast-description">{{ description }}</p>
     </div>
-    <button type="button" class="radix-toast-close" aria-label="Dismiss notification">
+    <button v-native type="button" class="radix-toast-close" aria-label="Dismiss notification">
       <span aria-hidden="true">&times;</span>
     </button>
   </li>

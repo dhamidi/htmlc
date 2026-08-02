@@ -87,7 +87,7 @@
     <slot></slot>
     <div class="radix-alert-dialog-actions">
       <form v-native method="dialog" class="radix-alert-dialog-cancel-form">
-        <button type="submit" class="radix-alert-dialog-cancel">Cancel</button>
+        <button v-native type="submit" class="radix-alert-dialog-cancel">Cancel</button>
       </form>
       <slot name="actions"></slot>
     </div>

@@ -216,6 +216,7 @@
 <template>
   <span class="radix-dropdown-menu">
     <button
+      v-native
       type="button"
       class="radix-dropdown-menu-trigger"
       :popovertarget="id"
@@ -231,6 +232,7 @@
     >
       <template v-for="(item, index) in items">
         <button
+          v-native
           v-if="item.type === 'item'"
           type="button"
           role="menuitem"

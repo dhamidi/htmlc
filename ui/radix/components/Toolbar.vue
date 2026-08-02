@@ -200,6 +200,7 @@
   >
     <template v-for="(item, index) in items">
       <button
+        v-native
         v-if="item.type === 'button'"
         type="button"
         class="radix-toolbar-item radix-toolbar-button"

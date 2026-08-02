@@ -244,6 +244,7 @@
     >
       <template v-for="(item, index) in items">
         <button
+          v-native
           v-if="item.type === 'item'"
           type="button"
           role="menuitem"

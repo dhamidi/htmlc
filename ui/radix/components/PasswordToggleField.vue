@@ -142,6 +142,7 @@
       spellcheck="false"
     />
     <button
+      v-native
       type="button"
       class="radix-password-toggle-field-toggle"
       :aria-controls="id"

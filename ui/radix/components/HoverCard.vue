@@ -145,7 +145,7 @@
 -->
 <template>
   <span class="radix-hover-card">
-    <button type="button" class="radix-hover-card-trigger"><slot></slot></button>
+    <button v-native type="button" class="radix-hover-card-trigger"><slot></slot></button>
     <div
       class="radix-hover-card-content"
       popover="auto"

@@ -89,7 +89,7 @@
   <dialog v-native class="radix-dialog" :open="open">
     <slot></slot>
     <form v-native method="dialog" class="radix-dialog-close-form">
-      <button type="submit" class="radix-dialog-close">Close</button>
+      <button v-native type="submit" class="radix-dialog-close">Close</button>
     </form>
   </dialog>
 </template>

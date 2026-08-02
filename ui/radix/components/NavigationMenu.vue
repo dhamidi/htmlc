@@ -289,6 +289,7 @@
       <template v-for="(item, index) in items">
         <li v-if="item.content" class="radix-navigation-menu-item">
           <button
+            v-native
             type="button"
             :id="item.id + '-trigger'"
             class="radix-navigation-menu-trigger radix-navigation-menu-toplevel"

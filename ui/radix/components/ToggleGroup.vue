@@ -236,6 +236,7 @@
     :data-disabled="disabled ? '' : undefined"
   >
     <button
+      v-native
       v-for="(item, index) in items"
       type="button"
       class="radix-toggle-group-item"

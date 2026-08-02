@@ -145,6 +145,7 @@
 <template>
   <span class="radix-popover">
     <button
+      v-native
       type="button"
       class="radix-popover-trigger"
       :popovertarget="id"

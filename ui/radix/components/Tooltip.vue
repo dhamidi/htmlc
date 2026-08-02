@@ -132,7 +132,7 @@
 -->
 <template>
   <span class="radix-tooltip">
-    <button type="button" class="radix-tooltip-trigger"><slot></slot></button>
+    <button v-native type="button" class="radix-tooltip-trigger"><slot></slot></button>
     <div
       class="radix-tooltip-content"
       popover="auto"
