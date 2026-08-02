@@ -379,6 +379,6 @@
 .radix-form-message {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--radix-red-11);
+  color: var(--radix-ruby-11);
 }
 </style>

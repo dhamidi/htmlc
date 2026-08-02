@@ -238,8 +238,8 @@
      Found via an actual mobile-width screenshot, not caught by markup
      review. */
   box-sizing: border-box;
-  background-color: #fff;
-  border: 1px solid var(--radix-gray-6);
+  background-color: var(--radix-sand-1);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-4);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
   touch-action: none; /* dragging the toast itself should not also pan the page */
@@ -247,11 +247,11 @@
 }
 
 .radix-toast[data-variant='destructive'] {
-  border-color: var(--radix-red-9);
+  border-color: var(--radix-ruby-9);
 }
 
 .radix-toast[data-variant='destructive'] .radix-toast-title {
-  color: var(--radix-red-11);
+  color: var(--radix-ruby-11);
 }
 
 .radix-toast-content {
@@ -268,7 +268,7 @@
 .radix-toast-description {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--radix-gray-11);
+  color: var(--radix-sand-11);
 }
 
 .radix-toast-close {
@@ -282,7 +282,7 @@
   background: none;
   border: none;
   border-radius: var(--radix-radius-2);
-  color: var(--radix-gray-11);
+  color: var(--radix-sand-11);
   font-size: 1.1rem;
   line-height: 1;
   cursor: pointer;
@@ -290,12 +290,12 @@
 
 .radix-toast-close:hover {
   background-color: rgba(0, 0, 0, 0.06);
-  color: var(--radix-gray-12);
+  color: var(--radix-sand-12);
 }
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-toast-close:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 
@@ -303,7 +303,7 @@
    above) — also the state that pauses the auto-dismiss timer, see the
    script block below. */
 .radix-toast:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 </style>

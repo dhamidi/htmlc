@@ -339,7 +339,7 @@
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-context-menu-menuitem:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 
@@ -359,10 +359,10 @@
   gap: 0.15rem;
   min-width: 10rem;
   padding: 0.35rem;
-  border: 1px solid var(--radix-gray-6);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-4);
-  background-color: #fff;
-  color: var(--radix-gray-12);
+  background-color: var(--radix-sand-1);
+  color: var(--radix-sand-12);
   font-size: 0.875rem;
   line-height: 1.5;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
@@ -397,7 +397,7 @@
 }
 
 .radix-context-menu-menuitem:hover:not(:disabled) {
-  background-color: var(--radix-gray-3);
+  background-color: var(--radix-sand-3);
 }
 
 .radix-context-menu-menuitem:disabled {

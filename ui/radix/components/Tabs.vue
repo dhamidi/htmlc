@@ -100,7 +100,7 @@
   position: relative; /* containing block for the absolutely-positioned inputs */
   display: flex;
   flex-wrap: wrap;
-  border: 1px solid var(--radix-gray-6);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-2);
   overflow: hidden;
 }
@@ -109,16 +109,16 @@
   order: 1;
   padding: 0.6rem 1rem;
   cursor: pointer;
-  background: var(--radix-gray-3);
-  border-right: 1px solid var(--radix-gray-6);
+  background: var(--radix-sand-3);
+  border-right: 1px solid var(--radix-sand-6);
   border-bottom: 3px solid transparent;
   font-weight: 500;
   user-select: none;
 }
 
 .radix-tabs-input:checked + .radix-tabs-label {
-  background: #fff;
-  border-bottom-color: var(--radix-blue-9);
+  background: var(--radix-sand-1);
+  border-bottom-color: var(--radix-brown-9);
   font-weight: 700;
 }
 
@@ -126,7 +126,7 @@
    The input itself is visually hidden, so its focus ring is drawn on the
    paired label instead. */
 .radix-tabs-input:focus-visible + .radix-tabs-label {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: -2px;
 }
 

@@ -47,8 +47,10 @@
 // # Design tokens
 //
 // This package's components share one set of CSS custom-property design
-// tokens — --radix-gray-*/--radix-blue-*/--radix-red-* (mirroring real
-// Radix Colors' own gray/blue/red scales) and --radix-radius-*/
+// tokens — --radix-sand-*/--radix-brown-*/--radix-ruby-* (an earthy trio
+// of real Radix Colors scales: sand for neutrals, brown for the primary
+// accent, ruby for danger/destructive, deliberately chosen over the
+// library's own default gray/blue/red) and --radix-radius-*/
 // --radix-space-* (mirroring Radix Themes' default radius/spacing scale)
 // — plus one shared utility class, .radix-visually-hidden-input. The
 // canonical, single-source-of-truth copy of this block lives in its own

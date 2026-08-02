@@ -125,7 +125,7 @@
 .radix-alert-dialog {
   padding: 1.5rem;
   max-width: 32rem;
-  border: 1px solid var(--radix-gray-6);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-4);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
 }
@@ -151,7 +151,7 @@
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-alert-dialog-cancel:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 </style>

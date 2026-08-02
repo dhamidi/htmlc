@@ -64,11 +64,11 @@
 
 <style>
 .radix-accordion {
-  border-top: 1px solid var(--radix-gray-6);
+  border-top: 1px solid var(--radix-sand-6);
 }
 
 .radix-accordion-item {
-  border-bottom: 1px solid var(--radix-gray-6);
+  border-bottom: 1px solid var(--radix-sand-6);
 }
 
 .radix-accordion-item > summary {
@@ -79,7 +79,7 @@
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-accordion-item > summary:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 

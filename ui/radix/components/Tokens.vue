@@ -1,6 +1,6 @@
 <!--
   Tokens — pure CSS-custom-property carrier for this package's shared
-  design tokens (--radix-gray-*/--radix-blue-*/--radix-red-*/
+  design tokens (--radix-sand-*/--radix-brown-*/--radix-ruby-*/
   --radix-radius-*/--radix-space-*) plus one shared utility class,
   .radix-visually-hidden-input. It has no template content of its own:
   `<template></template>` is empty on purpose, because this component
@@ -42,12 +42,17 @@
 
 <style>
 /*
- * ui/radix design tokens — mirrors real Radix Colors (@radix-ui/colors,
- * gray/blue/red scales, light mode, fetched from the published package's
- * own CSS source, not guessed) and Radix Themes' default "medium" radius
- * scale / scaling=1 spacing scale (fetched from
+ * ui/radix design tokens — an earthy palette built from real Radix Colors
+ * scales (@radix-ui/colors, sand/brown/ruby, light mode, fetched from the
+ * published package's own CSS source, not guessed), chosen deliberately
+ * over the library's own default gray/blue/red trio: sand (a warm neutral)
+ * replaces gray for surfaces/text, brown (a coffee/terracotta accent)
+ * replaces blue for primary/interactive/focus, and ruby (a warm rose-red)
+ * replaces plain red for danger/destructive — still unambiguously "this is
+ * dangerous," just warmer than a stock red. Paired with Radix Themes'
+ * default "medium" radius scale / scaling=1 spacing scale (fetched from
  * @radix-ui/themes/.../tokens/{radius,space}.css). Prefixed --radix-*
- * (unlike upstream's own unprefixed --gray-1/--blue-9/--radius-3/--space-4)
+ * (unlike upstream's own unprefixed --sand-1/--brown-9/--radius-3/--space-4)
  * because this is a mounted library, not an app shell: an unprefixed
  * custom property would leak into, and could collide with, a consuming
  * project's own global CSS custom properties of the same generic name.
@@ -71,47 +76,47 @@
  * across this package (a deliberate v1 scope cut).
  */
 :root {
-  /* Radix Colors, gray scale, light mode */
-  --radix-gray-1: #fcfcfc;
-  --radix-gray-2: #f9f9f9;
-  --radix-gray-3: #f0f0f0;
-  --radix-gray-4: #e8e8e8;
-  --radix-gray-5: #e0e0e0;
-  --radix-gray-6: #d9d9d9;
-  --radix-gray-7: #cecece;
-  --radix-gray-8: #bbbbbb;
-  --radix-gray-9: #8d8d8d;
-  --radix-gray-10: #838383;
-  --radix-gray-11: #646464;
-  --radix-gray-12: #202020;
+  /* Radix Colors, sand scale (warm neutral), light mode */
+  --radix-sand-1: #fdfdfc;
+  --radix-sand-2: #f9f9f8;
+  --radix-sand-3: #f1f0ef;
+  --radix-sand-4: #e9e8e6;
+  --radix-sand-5: #e2e1de;
+  --radix-sand-6: #dad9d6;
+  --radix-sand-7: #cfceca;
+  --radix-sand-8: #bcbbb5;
+  --radix-sand-9: #8d8d86;
+  --radix-sand-10: #82827c;
+  --radix-sand-11: #63635e;
+  --radix-sand-12: #21201c;
 
-  /* Radix Colors, blue scale, light mode */
-  --radix-blue-1: #fbfdff;
-  --radix-blue-2: #f4faff;
-  --radix-blue-3: #e6f4fe;
-  --radix-blue-4: #d5efff;
-  --radix-blue-5: #c2e5ff;
-  --radix-blue-6: #acd8fc;
-  --radix-blue-7: #8ec8f6;
-  --radix-blue-8: #5eb1ef;
-  --radix-blue-9: #0090ff;
-  --radix-blue-10: #0588f0;
-  --radix-blue-11: #0d74ce;
-  --radix-blue-12: #113264;
+  /* Radix Colors, brown scale (accent), light mode */
+  --radix-brown-1: #fefdfc;
+  --radix-brown-2: #fcf9f6;
+  --radix-brown-3: #f6eee7;
+  --radix-brown-4: #f0e4d9;
+  --radix-brown-5: #ebdaca;
+  --radix-brown-6: #e4cdb7;
+  --radix-brown-7: #dcbc9f;
+  --radix-brown-8: #cea37e;
+  --radix-brown-9: #ad7f58;
+  --radix-brown-10: #a07553;
+  --radix-brown-11: #815e46;
+  --radix-brown-12: #3e332e;
 
-  /* Radix Colors, red scale, light mode */
-  --radix-red-1: #fffcfc;
-  --radix-red-2: #fff7f7;
-  --radix-red-3: #feebec;
-  --radix-red-4: #ffdbdc;
-  --radix-red-5: #ffcdce;
-  --radix-red-6: #fdbdbe;
-  --radix-red-7: #f4a9aa;
-  --radix-red-8: #eb8e90;
-  --radix-red-9: #e5484d;
-  --radix-red-10: #dc3e42;
-  --radix-red-11: #ce2c31;
-  --radix-red-12: #641723;
+  /* Radix Colors, ruby scale (danger/destructive), light mode */
+  --radix-ruby-1: #fffcfd;
+  --radix-ruby-2: #fff7f8;
+  --radix-ruby-3: #feeaed;
+  --radix-ruby-4: #ffdce1;
+  --radix-ruby-5: #ffced6;
+  --radix-ruby-6: #f8bfc8;
+  --radix-ruby-7: #efacb8;
+  --radix-ruby-8: #e592a3;
+  --radix-ruby-9: #e54666;
+  --radix-ruby-10: #dc3b5d;
+  --radix-ruby-11: #ca244d;
+  --radix-ruby-12: #64172b;
 
   /* Radix Themes radius scale, radius-factor=1 ("medium"), scaling=1 */
   --radix-radius-1: 3px;

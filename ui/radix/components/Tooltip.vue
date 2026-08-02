@@ -159,7 +159,7 @@
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-tooltip-trigger:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 
@@ -183,7 +183,7 @@
   padding: 0.35rem 0.6rem;
   border: none;
   border-radius: var(--radix-radius-3);
-  background-color: var(--radix-gray-12);
+  background-color: var(--radix-sand-12);
   color: #fff;
   font-size: 0.8125rem;
   line-height: 1.4;

@@ -128,7 +128,7 @@
   height: 2.5rem;
   overflow: hidden;
   border-radius: var(--radix-radius-thumb);
-  background-color: var(--radix-gray-4);
+  background-color: var(--radix-sand-4);
   vertical-align: middle;
   user-select: none;
 }
@@ -148,7 +148,7 @@
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1;
-  color: var(--radix-gray-11);
+  color: var(--radix-sand-11);
 }
 
 /*

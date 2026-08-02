@@ -236,7 +236,7 @@
   width: 100%;
   height: 0.3rem;
   border-radius: var(--radix-radius-thumb);
-  background-color: var(--radix-gray-4);
+  background-color: var(--radix-sand-4);
 }
 
 /*
@@ -250,7 +250,7 @@
   top: 0;
   bottom: 0;
   border-radius: var(--radix-radius-thumb);
-  background-color: var(--radix-blue-9);
+  background-color: var(--radix-brown-9);
 }
 
 /*
@@ -313,8 +313,8 @@
   height: 1.1rem;
   margin-top: 0; /* runnable-track height above is set equal to thumb height, so no vertical offset is needed */
   border-radius: var(--radix-radius-thumb);
-  background-color: #fff;
-  border: 1px solid var(--radix-gray-8);
+  background-color: var(--radix-sand-1);
+  border: 1px solid var(--radix-sand-8);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   cursor: pointer;
 }
@@ -324,8 +324,8 @@
   width: 1.1rem;
   height: 1.1rem;
   border-radius: var(--radix-radius-thumb);
-  background-color: #fff;
-  border: 1px solid var(--radix-gray-8);
+  background-color: var(--radix-sand-1);
+  border: 1px solid var(--radix-sand-8);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   cursor: pointer;
   box-sizing: border-box;
@@ -345,12 +345,12 @@
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-slider-input:focus-visible::-webkit-slider-thumb {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 
 .radix-slider-input:focus-visible::-moz-range-thumb {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 

@@ -44,19 +44,24 @@
 
   ## Page chrome (this file's own <style>, not ui/radix's)
 
-  The page-level styling below deliberately reuses the same --radix-gray-*/
-  --radix-blue-*/--radix-red-* custom properties every ui/radix component
-  already renders with (defined once, by Tokens.vue, and available here for
-  free: this page mounts many ui/radix components, each of which pulls in
-  <Tokens></Tokens> as its own first template child, and CSS custom
-  properties resolve from wherever in the document a :root rule defining
-  them happens to live — order relative to this file's own <style> block
-  does not matter, confirmed by checking the rendered output after writing
-  this). Dark-mode values for the same three scales (fetched from
-  @radix-ui/colors' own gray-dark.css/blue-dark.css/red-dark.css, not
-  guessed) are layered in via `@media (prefers-color-scheme: dark)`,
+  This page's palette is deliberately earthy rather than the stock Radix
+  Colors gray/blue/red trio: sand (warm neutral) for surfaces and text,
+  brown (coffee/terracotta) for the primary accent and focus rings, and
+  ruby (warm rose-red) for danger/destructive — see Tokens.vue's own header
+  comment for the fuller rationale. The page-level styling below
+  deliberately reuses the same --radix-sand-*/--radix-brown-*/--radix-ruby-*
+  custom properties every ui/radix component already renders with (defined
+  once, by Tokens.vue, and available here for free: this page mounts many
+  ui/radix components, each of which pulls in <Tokens></Tokens> as its own
+  first template child, and CSS custom properties resolve from wherever in
+  the document a :root rule defining them happens to live — order relative
+  to this file's own <style> block does not matter, confirmed by checking
+  the rendered output after writing this). Dark-mode values for the same
+  three scales (fetched from @radix-ui/colors' own sand-dark.css/
+  brown-dark.css/ruby-dark.css, not guessed) are layered in via
+  `@media (prefers-color-scheme: dark)`,
   re-declaring the identical custom-property names so every component's own
-  `var(--radix-blue-9)`-style reference picks up the dark value automatically
+  `var(--radix-brown-9)`-style reference picks up the dark value automatically
   with no JS theme toggle and no per-component change.
 
   That override is written `:root:root { ... }`, not plain `:root`, and
@@ -96,48 +101,48 @@
       <style>
         @media (prefers-color-scheme: dark) {
           :root:root {
-            --radix-gray-1: #111111;
-            --radix-gray-2: #191919;
-            --radix-gray-3: #222222;
-            --radix-gray-4: #2a2a2a;
-            --radix-gray-5: #313131;
-            --radix-gray-6: #3a3a3a;
-            --radix-gray-7: #484848;
-            --radix-gray-8: #606060;
-            --radix-gray-9: #6e6e6e;
-            --radix-gray-10: #7b7b7b;
-            --radix-gray-11: #b4b4b4;
-            --radix-gray-12: #eeeeee;
-            --radix-blue-1: #0d1520;
-            --radix-blue-2: #111927;
-            --radix-blue-3: #0d2847;
-            --radix-blue-4: #003362;
-            --radix-blue-5: #004074;
-            --radix-blue-6: #104d87;
-            --radix-blue-7: #205d9e;
-            --radix-blue-8: #2870bd;
-            --radix-blue-9: #0090ff;
-            --radix-blue-10: #3b9eff;
-            --radix-blue-11: #70b8ff;
-            --radix-blue-12: #c2e6ff;
-            --radix-red-1: #191111;
-            --radix-red-2: #201314;
-            --radix-red-3: #3b1219;
-            --radix-red-4: #500f1c;
-            --radix-red-5: #611623;
-            --radix-red-6: #72232d;
-            --radix-red-7: #8c333a;
-            --radix-red-8: #b54548;
-            --radix-red-9: #e5484d;
-            --radix-red-10: #ec5d5e;
-            --radix-red-11: #ff9592;
-            --radix-red-12: #ffd1d9;
-            --page-surface: var(--radix-gray-2);
+            --radix-sand-1: #111110;
+            --radix-sand-2: #191918;
+            --radix-sand-3: #222221;
+            --radix-sand-4: #2a2a28;
+            --radix-sand-5: #31312e;
+            --radix-sand-6: #3b3a37;
+            --radix-sand-7: #494844;
+            --radix-sand-8: #62605b;
+            --radix-sand-9: #6f6d66;
+            --radix-sand-10: #7c7b74;
+            --radix-sand-11: #b5b3ad;
+            --radix-sand-12: #eeeeec;
+            --radix-brown-1: #12110f;
+            --radix-brown-2: #1c1816;
+            --radix-brown-3: #28211d;
+            --radix-brown-4: #322922;
+            --radix-brown-5: #3e3128;
+            --radix-brown-6: #4d3c2f;
+            --radix-brown-7: #614a39;
+            --radix-brown-8: #7c5f46;
+            --radix-brown-9: #ad7f58;
+            --radix-brown-10: #b88c67;
+            --radix-brown-11: #dbb594;
+            --radix-brown-12: #f2e1ca;
+            --radix-ruby-1: #191113;
+            --radix-ruby-2: #1e1517;
+            --radix-ruby-3: #3a141e;
+            --radix-ruby-4: #4e1325;
+            --radix-ruby-5: #5e1a2e;
+            --radix-ruby-6: #6f2539;
+            --radix-ruby-7: #883447;
+            --radix-ruby-8: #b3445a;
+            --radix-ruby-9: #e54666;
+            --radix-ruby-10: #ec5a72;
+            --radix-ruby-11: #ff949d;
+            --radix-ruby-12: #fed2e1;
+            --page-surface: var(--radix-sand-2);
             --page-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.36);
           }
         }
         :root {
-          --page-surface: #fff;
+          --page-surface: var(--radix-sand-2);
           --page-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
         }
         * {
@@ -146,8 +151,8 @@
         body {
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
             Helvetica, Arial, sans-serif;
-          background: var(--radix-gray-1);
-          color: var(--radix-gray-12);
+          background: var(--radix-sand-1);
+          color: var(--radix-sand-12);
           margin: 0;
           line-height: 1.6;
           display: grid;
@@ -174,23 +179,23 @@
           text-transform: uppercase;
           letter-spacing: 0.04em;
           font-size: 0.7rem;
-          color: var(--radix-gray-9);
+          color: var(--radix-sand-9);
           margin: 1.25rem 0 0.35rem;
         }
         .sidebar-title:first-child {
           margin-top: 0;
         }
         .sidebar a {
-          color: var(--radix-gray-11);
+          color: var(--radix-sand-11);
           text-decoration: none;
           padding: 0.2rem 0;
           border-radius: var(--radix-radius-2);
         }
         .sidebar a:hover {
-          color: var(--radix-blue-9);
+          color: var(--radix-brown-9);
         }
         .sidebar a:focus-visible {
-          outline: 2px solid var(--radix-blue-9);
+          outline: 2px solid var(--radix-brown-9);
           outline-offset: 2px;
         }
         main {
@@ -206,14 +211,14 @@
           margin: 0 0 0.75rem;
         }
         p {
-          color: var(--radix-gray-11);
+          color: var(--radix-sand-11);
         }
         a {
-          color: var(--radix-blue-9);
+          color: var(--radix-brown-9);
         }
         code {
-          background: var(--radix-gray-3);
-          color: var(--radix-gray-12);
+          background: var(--radix-sand-3);
+          color: var(--radix-sand-12);
           border-radius: var(--radix-radius-2);
           padding: 0.15em 0.4em;
           font-size: 0.85em;
@@ -234,7 +239,7 @@
           letter-spacing: -0.01em;
           margin: 4rem 0 1.5rem;
           padding-top: 2.5rem;
-          border-top: 1px solid var(--radix-gray-6);
+          border-top: 1px solid var(--radix-sand-6);
         }
         h2.category:first-of-type {
           margin-top: 3rem;
@@ -242,13 +247,13 @@
         h3 {
           font-size: 0.95rem;
           margin: 0 0 0.6rem;
-          color: var(--radix-gray-12);
+          color: var(--radix-sand-12);
         }
         section {
           margin: 1.25rem 0;
           padding: 1.25rem 1.5rem 1.5rem;
           background: var(--page-surface);
-          border: 1px solid var(--radix-gray-6);
+          border: 1px solid var(--radix-sand-6);
           border-radius: var(--radix-radius-4);
           box-shadow: var(--page-shadow);
           scroll-margin-top: 1.5rem;
@@ -274,10 +279,10 @@
         }
         .card {
           padding: 1.5rem;
-          border: 1px dashed var(--radix-gray-8);
+          border: 1px dashed var(--radix-sand-8);
           border-radius: var(--radix-radius-3);
           text-align: center;
-          color: var(--radix-gray-11);
+          color: var(--radix-sand-11);
           user-select: none;
         }
         .radix-scroll-area-viewport {
@@ -670,7 +675,7 @@
           <p class="snippet"><code>&lt;AspectRatio :ratio="16/9"&gt;...&lt;/AspectRatio&gt;</code></p>
           <div style="max-width: 20rem">
             <AspectRatio :ratio="16/9">
-              <div style="width: 100%; height: 100%; background: var(--radix-gray-4); display: flex; align-items: center; justify-content: center; color: var(--radix-gray-11);">16:9</div>
+              <div style="width: 100%; height: 100%; background: var(--radix-sand-4); display: flex; align-items: center; justify-content: center; color: var(--radix-sand-11);">16:9</div>
             </AspectRatio>
           </div>
         </section>

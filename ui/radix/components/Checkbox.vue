@@ -199,8 +199,8 @@
   flex-shrink: 0;
   width: 1.25rem;
   height: 1.25rem;
-  background-color: #fff;
-  border: 1px solid var(--radix-gray-8);
+  background-color: var(--radix-sand-1);
+  border: 1px solid var(--radix-sand-8);
   border-radius: var(--radix-radius-2);
   cursor: pointer;
 }
@@ -222,8 +222,8 @@
 /* Checked: a classic CSS-only checkmark (a rotated bottom+right border
    corner), driven by the input's real, native :checked pseudo-class. */
 .radix-checkbox-input:checked + .radix-checkbox-box {
-  background-color: var(--radix-blue-9);
-  border-color: var(--radix-blue-9);
+  background-color: var(--radix-brown-9);
+  border-color: var(--radix-brown-9);
 }
 
 .radix-checkbox-input:checked + .radix-checkbox-box::after {
@@ -249,8 +249,8 @@
  * checked".
  */
 .radix-checkbox-input:indeterminate + .radix-checkbox-box {
-  background-color: var(--radix-blue-9);
-  border-color: var(--radix-blue-9);
+  background-color: var(--radix-brown-9);
+  border-color: var(--radix-brown-9);
 }
 
 .radix-checkbox-input:indeterminate + .radix-checkbox-box::after {
@@ -265,7 +265,7 @@
    paired box instead, matching Tabs.vue's identical treatment of its own
    hidden radio + label pair. */
 .radix-checkbox-input:focus-visible + .radix-checkbox-box {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 

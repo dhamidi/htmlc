@@ -302,7 +302,7 @@
   text-align: center;
   letter-spacing: 0.3em;
   padding: 0.4rem 0.6rem;
-  border: 1px solid var(--radix-gray-6);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-3);
 }
 
@@ -336,9 +336,9 @@
   height: 2.75rem;
   font-size: 1.125rem;
   font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
-  color: var(--radix-gray-12);
-  background-color: #fff;
-  border: 1px solid var(--radix-gray-6);
+  color: var(--radix-sand-12);
+  background-color: var(--radix-sand-1);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-3);
   cursor: text;
   user-select: none;
@@ -348,12 +348,12 @@
    cosmetic, keyed off real content rather than a separate tracked
    attribute. */
 .radix-otp-field-box:not(:empty) {
-  border-color: var(--radix-blue-9);
+  border-color: var(--radix-brown-9);
 }
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-otp-field-box:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 </style>

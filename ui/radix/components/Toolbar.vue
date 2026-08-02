@@ -227,7 +227,7 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.35rem;
-  border: 1px solid var(--radix-gray-6);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-3);
 }
 
@@ -241,20 +241,20 @@
   align-items: center;
   justify-content: center;
   padding: 0.4rem 0.7rem;
-  background-color: #fff;
-  border: 1px solid var(--radix-gray-6);
+  background-color: var(--radix-sand-1);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-3);
   cursor: pointer;
   line-height: 1;
 }
 
 .radix-toolbar-button:hover:not(:disabled) {
-  background-color: var(--radix-gray-3);
+  background-color: var(--radix-sand-3);
 }
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-toolbar-button:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 

@@ -108,22 +108,22 @@
   align-items: center;
   justify-content: center;
   padding: 0.4rem 0.7rem;
-  background-color: #fff;
-  border: 1px solid var(--radix-gray-6);
+  background-color: var(--radix-sand-1);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-3);
   cursor: pointer;
   line-height: 1;
 }
 
 .radix-toggle[data-state='on'] {
-  background-color: var(--radix-blue-4);
-  border-color: var(--radix-blue-9);
-  color: var(--radix-blue-9);
+  background-color: var(--radix-brown-4);
+  border-color: var(--radix-brown-9);
+  color: var(--radix-brown-9);
 }
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-toggle:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 

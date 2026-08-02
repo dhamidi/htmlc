@@ -67,22 +67,22 @@
   align-items: center;
   justify-content: center;
   padding: 0.4rem 0.9rem;
-  border: 1px solid var(--radix-gray-6);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-2);
-  background-color: #fff;
-  color: var(--radix-gray-12);
+  background-color: var(--radix-sand-1);
+  color: var(--radix-sand-12);
   font: inherit;
   font-weight: 500;
   cursor: pointer;
 }
 
 .radix-button:hover {
-  background-color: var(--radix-gray-3);
+  background-color: var(--radix-sand-3);
 }
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-button:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 
@@ -92,24 +92,24 @@
 }
 
 .radix-button[data-variant='primary'] {
-  border-color: var(--radix-blue-9);
-  background-color: var(--radix-blue-9);
+  border-color: var(--radix-brown-9);
+  background-color: var(--radix-brown-9);
   color: #fff;
 }
 
 .radix-button[data-variant='primary']:hover {
-  border-color: var(--radix-blue-10);
-  background-color: var(--radix-blue-10);
+  border-color: var(--radix-brown-10);
+  background-color: var(--radix-brown-10);
 }
 
 .radix-button[data-variant='destructive'] {
-  border-color: var(--radix-red-9);
-  background-color: var(--radix-red-9);
+  border-color: var(--radix-ruby-9);
+  background-color: var(--radix-ruby-9);
   color: #fff;
 }
 
 .radix-button[data-variant='destructive']:hover {
-  border-color: var(--radix-red-10);
-  background-color: var(--radix-red-10);
+  border-color: var(--radix-ruby-10);
+  background-color: var(--radix-ruby-10);
 }
 </style>

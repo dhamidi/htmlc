@@ -96,7 +96,7 @@
 
 <style>
 .radix-collapsible {
-  border: 1px solid var(--radix-gray-6);
+  border: 1px solid var(--radix-sand-6);
   border-radius: var(--radix-radius-3);
 }
 
@@ -108,7 +108,7 @@
 
 /* Never remove the focus outline — keep it visible for keyboard users. */
 .radix-collapsible-trigger:focus-visible {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 

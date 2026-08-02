@@ -152,7 +152,7 @@
   flex-shrink: 0;
   width: 2.75rem;
   height: 1.5rem;
-  background-color: var(--radix-gray-6);
+  background-color: var(--radix-sand-6);
   border-radius: var(--radix-radius-thumb);
   cursor: pointer;
   transition: background-color 150ms ease;
@@ -175,7 +175,7 @@
   left: 0.125rem;
   width: 1.25rem;
   height: 1.25rem;
-  background-color: #fff;
+  background-color: var(--radix-sand-1);
   border-radius: var(--radix-radius-thumb);
   transform: translateX(0);
   transition: transform 150ms ease;
@@ -185,7 +185,7 @@
 /* Checked: track turns "on" color, thumb slides to the right edge. Both
    driven by the input's real, native :checked pseudo-class. */
 .radix-switch-input:checked + .radix-switch-track {
-  background-color: var(--radix-blue-9);
+  background-color: var(--radix-brown-9);
 }
 
 .radix-switch-input:checked + .radix-switch-track::after {
@@ -196,7 +196,7 @@
    The input itself is visually hidden, so its focus ring is drawn on the
    paired track instead, matching Checkbox.vue's identical treatment. */
 .radix-switch-input:focus-visible + .radix-switch-track {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 

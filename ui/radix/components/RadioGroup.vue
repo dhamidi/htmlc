@@ -246,14 +246,14 @@
   width: 1.25rem;
   height: 1.25rem;
   border-radius: var(--radix-radius-thumb);
-  border: 1px solid var(--radix-gray-8);
-  background-color: #fff;
+  border: 1px solid var(--radix-sand-8);
+  background-color: var(--radix-sand-1);
 }
 
 /* Checked: driven by the input's real, native :checked pseudo-class. */
 .radix-radiogroup-input:checked + .radix-radiogroup-item-label::before {
-  border-color: var(--radix-blue-9);
-  box-shadow: inset 0 0 0 4px var(--radix-blue-9);
+  border-color: var(--radix-brown-9);
+  box-shadow: inset 0 0 0 4px var(--radix-brown-9);
 }
 
 /* Never remove the focus outline — keep it visible for keyboard users.
@@ -261,7 +261,7 @@
    paired label's dot instead, matching Checkbox.vue's/Switch.vue's
    identical treatment of their own hidden input + label pairs. */
 .radix-radiogroup-input:focus-visible + .radix-radiogroup-item-label::before {
-  outline: 2px solid var(--radix-blue-9);
+  outline: 2px solid var(--radix-brown-9);
   outline-offset: 2px;
 }
 
