@@ -121,6 +121,8 @@
           height: 120px;
         }
       </style>
+      <script type="importmap">{{ importMap("/scripts/") }}</script>
+      <script type="module" src="/scripts/index.js"></script>
     </head>
     <body>
       <h1>{{ title }}</h1>
@@ -403,7 +405,7 @@
         <Menubar
           :menus="[
             {
-              id: 'file-menu',
+              id: 'menubar-file-menu',
               label: 'File',
               items: [
                 { type: 'item', id: 'new', label: 'New File' },
@@ -413,7 +415,7 @@
               ],
             },
             {
-              id: 'edit-menu',
+              id: 'menubar-edit-menu',
               label: 'Edit',
               items: [
                 { type: 'item', id: 'undo', label: 'Undo' },

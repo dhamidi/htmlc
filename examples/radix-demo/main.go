@@ -132,6 +132,18 @@ func main() {
 		}
 	})
 
+	// Serves every <script customelement> block collected while rendering
+	// the page above (21 of ui/radix's 32 components ship one) plus the
+	// generated index.js entry point HomePage.vue's own <head> loads via
+	// {{ importMap "/scripts/" }} + <script type="module" src="/scripts/index.js">
+	// — see examples/shape-canvas/main.go for the identical pattern this
+	// mirrors. Without this, every one of those scripts is dead code: the
+	// page renders correct zero-JS-baseline HTML but no custom element
+	// ever upgrades, a gap this demo shipped with, silently, until an
+	// interaction-testing pass caught it by actually checking whether the
+	// scripts loaded at all.
+	http.Handle("/scripts/", http.StripPrefix("/scripts/", engine.ScriptHandler()))
+
 	addr := ":8080"
 	log.Printf("Listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
