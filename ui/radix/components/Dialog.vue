@@ -89,7 +89,7 @@
   <dialog v-native class="radix-dialog" :open="open">
     <slot></slot>
     <form v-native method="dialog" class="radix-dialog-close-form">
-      <button v-native type="submit" class="radix-dialog-close">Close</button>
+      <Button variant="default" type="submit" :disabled="false">Close</Button>
     </form>
   </dialog>
 </template>
@@ -115,11 +115,6 @@
 .radix-dialog-close-form {
   margin: 1rem 0 0;
   text-align: right;
-}
-
-.radix-dialog-close {
-  padding: 0.4rem 0.9rem;
-  cursor: pointer;
 }
 
 /* Never remove the focus outline — keep it visible for keyboard users. */

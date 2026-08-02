@@ -87,7 +87,7 @@
     <slot></slot>
     <div class="radix-alert-dialog-actions">
       <form v-native method="dialog" class="radix-alert-dialog-cancel-form">
-        <button v-native type="submit" class="radix-alert-dialog-cancel">Cancel</button>
+        <Button variant="default" type="submit" :disabled="false">Cancel</Button>
       </form>
       <slot name="actions"></slot>
     </div>
@@ -120,11 +120,6 @@
 
 .radix-alert-dialog-cancel-form {
   margin: 0;
-}
-
-.radix-alert-dialog-cancel {
-  padding: 0.4rem 0.9rem;
-  cursor: pointer;
 }
 
 /* Never remove the focus outline — keep it visible for keyboard users. */

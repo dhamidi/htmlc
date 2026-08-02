@@ -43,6 +43,22 @@
 // is that derivation with a "radix-" prefix, e.g. "ContextMenu.vue" ->
 // "radix-context-menu". Individual component files state only their own
 // resulting tag name, not this algorithm.
+//
+// # Design tokens
+//
+// This package's components share one set of CSS custom-property design
+// tokens — --radix-gray-*/--radix-blue-*/--radix-red-* (mirroring real
+// Radix Colors' own gray/blue/red scales) and --radix-radius-*/
+// --radix-space-* (mirroring Radix Themes' default radius/spacing scale)
+// — plus one shared utility class, .radix-visually-hidden-input. The
+// canonical, single-source-of-truth copy of this block lives in
+// Button.vue's own <style> section; every other component includes the
+// exact same block, byte-for-byte, in its own unscoped <style> section.
+// htmlc's StyleCollector (style.go) dedupes style contributions by exact
+// (scope, CSS text) match, so this block reaches the final rendered page
+// only once no matter how many of this package's components a given page
+// mounts — see Button.vue's header comment for the fuller explanation and
+// the values themselves.
 package radix
 
 import (

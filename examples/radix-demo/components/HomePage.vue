@@ -120,42 +120,6 @@
         .radix-scroll-area-viewport {
           height: 120px;
         }
-        /*
-         * Not a ui/radix component — this package ships no standalone
-         * Button primitive, matching real Radix Primitives, which also
-         * leaves plain buttons to consumer styling rather than shipping
-         * one. This page-level class instead reuses the exact visual
-         * language every ui/radix component's own internal buttons already
-         * share (compare .radix-dialog-close/.radix-alert-dialog-cancel in
-         * Dialog.vue/AlertDialog.vue), so the plain <button> elements this
-         * demo authors itself as slot content (the Form section's "Sign
-         * up", AlertDialog's "Delete", VisuallyHidden's checkmark trigger)
-         * read as part of the same design system instead of falling back
-         * to the browser's raw default button chrome.
-         */
-        .radix-button {
-          padding: 0.4rem 0.9rem;
-          border: 1px solid #d9d9d9;
-          border-radius: 6px;
-          background-color: #fff;
-          font: inherit;
-          cursor: pointer;
-        }
-        .radix-button:hover {
-          background-color: #f5f5f5;
-        }
-        .radix-button:focus-visible {
-          outline: 2px solid #2563eb;
-          outline-offset: 2px;
-        }
-        .radix-button-primary {
-          border-color: #2563eb;
-          background-color: #2563eb;
-          color: #fff;
-        }
-        .radix-button-primary:hover {
-          background-color: #1d4ed8;
-        }
       </style>
     </head>
     <body>
@@ -354,7 +318,7 @@
           <radix-form id="signup-email" label="Email" error="">
             <input id="signup-email" type="email" name="email" />
           </radix-form>
-          <button type="submit" class="radix-button radix-button-primary">Sign up</button>
+          <Button variant="primary" type="submit" :disabled="false">Sign up</Button>
         </form>
       </section>
 
@@ -367,7 +331,7 @@
           <h3>Delete this file?</h3>
           <p>This action cannot be undone.</p>
           <template #actions>
-            <button type="button" class="radix-button">Delete</button>
+            <Button variant="destructive" type="button" :disabled="false">Delete</Button>
           </template>
         </AlertDialog>
       </section>
@@ -551,10 +515,10 @@
       <section>
         <h3>31. VisuallyHidden</h3>
         <p><code>&lt;VisuallyHidden&gt;...&lt;/VisuallyHidden&gt;</code></p>
-        <button type="button" class="radix-button">
+        <Button variant="default" type="button" :disabled="false">
           <span aria-hidden="true">&#10003;</span>
           <VisuallyHidden>Mark as complete</VisuallyHidden>
-        </button>
+        </Button>
       </section>
 
       <section>
@@ -564,6 +528,17 @@
           <template #trigger>Show details</template>
           <p>Panel body content, composed freely by the caller.</p>
         </Collapsible>
+      </section>
+
+      <section>
+        <h3>33. Button</h3>
+        <p><code>&lt;Button variant="primary" type="button" :disabled="false"&gt;...&lt;/Button&gt;</code></p>
+        <div class="demo-row">
+          <Button variant="default" type="button" :disabled="false">Default</Button>
+          <Button variant="primary" type="button" :disabled="false">Primary</Button>
+          <Button variant="destructive" type="button" :disabled="false">Destructive</Button>
+          <Button variant="default" type="button" :disabled="true">Disabled</Button>
+        </div>
       </section>
     </body>
   </html>
