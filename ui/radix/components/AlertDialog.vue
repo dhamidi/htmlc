@@ -24,13 +24,39 @@
      popover="auto"-API behavior, not a <dialog> one), so Dialog.vue never
      had to suppress it and neither does this component. Escape is the
      real gap: native <dialog> *does* close on Escape by default even
-     when opened modally. The fix is to listen for the dialog's native
-     "cancel" event — fired when Escape is pressed on an open <dialog>,
-     before it closes — and call event.preventDefault() on it. Per the
-     WHATWG HTML spec's "close the dialog" steps, the dialog is only
-     actually closed if that cancel event is *not* canceled; canceling it
-     leaves the dialog open, forcing the user back to one of the explicit
-     action buttons below. See the <script customelement> block.
+     when opened modally.
+
+     The WHATWG HTML spec's "close the dialog" steps say the dialog is
+     only actually closed if the "cancel" event it fires on Escape is not
+     canceled — which reads like `event.preventDefault()` on that event
+     should be enough. It is NOT enough, verified empirically, not
+     assumed: a standalone `<dialog>` + `showModal()` +
+     `addEventListener('cancel', e => e.preventDefault())` page, driven by
+     a real trusted Escape keypress via CDP `Input.dispatchKeyEvent`
+     against this repo's own headless Chromium (HeadlessChrome/151.0.7922.71,
+     confirmed via CDP `Browser.getVersion`), still closes the dialog —
+     because `event.cancelable` on that "cancel" event is `false` in this
+     engine, making `preventDefault()` a silent no-op (`defaultPrevented`
+     stays `false` after calling it). Whatever the spec text implies in
+     the abstract, this is what actually happens here, so this component
+     cannot rely on it.
+
+     What does work, verified the same way: intercepting the dialog's
+     native "keydown" event for `event.key === 'Escape'` and calling
+     event.preventDefault() there. Unlike "cancel", a <dialog>'s keydown
+     event is cancelable, and canceling it suppresses the browser's entire
+     Escape-to-close default action before the "cancel"/"close" event
+     sequence is even queued — confirmed by the same trusted-keypress
+     harness: with the keydown intercepted, no "cancel" or "close" event
+     fires at all, and the dialog stays open with zero flicker. This is
+     the mechanism this component actually uses; see the <script
+     customelement> block. The "cancel" listener is still attached too
+     (event.preventDefault() there is what the spec's prose describes,
+     and costs nothing even though it doesn't do anything in this engine)
+     as defense in depth, in case some other code path ever reaches
+     "cancel" without going through this dialog's own keydown handler —
+     but the keydown interception is the one this component's actual
+     Escape-blocking behavior depends on.
 
   Everything else — the `open`-attribute zero-JS baseline, the
   removeAttribute('open') -> showModal() sequencing fix for the
@@ -133,13 +159,17 @@
 <script customelement>
 // Progressive enhancement on top of the non-modal <dialog open> baseline
 // above. Reuses Dialog.vue's modal-promotion and focus-restore behavior
-// verbatim, and adds exactly one new piece: intercepting the dialog's
-// native "cancel" event (fired when Escape is pressed on an open modal
-// <dialog>, before it closes) and calling event.preventDefault() on it so
-// Escape cannot dismiss this alert dialog. Per spec, the dialog's "close
-// the dialog" steps only run if that cancel event was not canceled, so
-// preventDefault() here genuinely blocks the close, not just the event's
-// default in some cosmetic sense.
+// verbatim, and adds the Escape-blocking behavior documented in the header
+// comment above (verified empirically, not assumed from spec text): a
+// 'keydown' listener that intercepts Escape and calls
+// event.preventDefault() on IT — not on the dialog's 'cancel' event, whose
+// event.cancelable is false in this engine, making preventDefault() there a
+// silent no-op. Canceling the keydown event suppresses the browser's entire
+// Escape-to-close default action before the 'cancel'/'close' event sequence
+// is even queued, confirmed by a real trusted-keypress test showing neither
+// event fires at all once keydown is intercepted. The 'cancel' listener
+// stays attached too, as cheap defense in depth (see header comment), but
+// this component's actual Escape-blocking behavior depends on #onKeydown.
 class RadixAlertDialog extends HTMLElement {
   #dialog = null
   #triggeringElement = null
@@ -153,10 +183,21 @@ class RadixAlertDialog extends HTMLElement {
     this.#triggeringElement = null
   }
   #onCancel = (event) => {
-    // Block Escape-to-close: an alert dialog demands an explicit choice
-    // via one of its action buttons, not an accidental/impulsive Escape
-    // press. Canceling this event is what stops the dialog from closing;
-    // see the header comment above for the spec citation.
+    // Per spec prose this should be the mechanism that blocks Escape; in
+    // this engine event.cancelable is false here, so this call is a
+    // verified no-op — kept anyway as free defense in depth (see header
+    // comment). #onKeydown below is what actually blocks Escape.
+    event.preventDefault()
+  }
+  #onKeydown = (event) => {
+    // Block Escape-to-close at the source: an alert dialog demands an
+    // explicit choice via one of its action buttons, not an
+    // accidental/impulsive Escape press. Canceling the dialog's own
+    // 'keydown' event for Escape suppresses the browser's native
+    // close-on-Escape default action outright — verified to work in this
+    // engine where canceling the later 'cancel' event does not. See the
+    // header comment above for the empirical comparison.
+    if (event.key !== 'Escape') return
     event.preventDefault()
   }
 
@@ -180,12 +221,14 @@ class RadixAlertDialog extends HTMLElement {
 
     this.#dialog.addEventListener('close', this.#onClose)
     this.#dialog.addEventListener('cancel', this.#onCancel)
+    this.#dialog.addEventListener('keydown', this.#onKeydown)
   }
 
   disconnectedCallback() {
     if (this.#dialog) {
       this.#dialog.removeEventListener('close', this.#onClose)
       this.#dialog.removeEventListener('cancel', this.#onCancel)
+      this.#dialog.removeEventListener('keydown', this.#onKeydown)
     }
   }
 }
