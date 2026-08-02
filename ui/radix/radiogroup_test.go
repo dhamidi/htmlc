@@ -193,12 +193,12 @@ func TestRadioGroup_InputStaysInTabOrder(t *testing.T) {
 		}
 	}
 
-	inputRule := radioGroupCSSRule(t, src, ".radix-radiogroup-input {")
+	inputRule := radioGroupCSSRule(t, src, ".radix-visually-hidden-input {")
 	if strings.Contains(inputRule, "display: none") || strings.Contains(inputRule, "display:none") {
-		t.Errorf(".radix-radiogroup-input rule must not use display:none (would remove it from the tab order); rule was:\n%s", inputRule)
+		t.Errorf(".radix-visually-hidden-input rule must not use display:none (would remove it from the tab order); rule was:\n%s", inputRule)
 	}
 	if !strings.Contains(inputRule, "clip-path") {
-		t.Errorf(".radix-radiogroup-input rule missing expected clip-path visually-hidden technique; rule was:\n%s", inputRule)
+		t.Errorf(".radix-visually-hidden-input rule missing expected clip-path visually-hidden technique; rule was:\n%s", inputRule)
 	}
 }
 

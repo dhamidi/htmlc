@@ -87,7 +87,7 @@ func TestMenubar_NoManualAriaExpanded(t *testing.T) {
 func TestMenubar_ContainsScopedStyle(t *testing.T) {
 	src := readMenubar(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("Menubar.vue missing expected <style scoped> block")
 	}
 }

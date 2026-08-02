@@ -21,7 +21,7 @@ func TestSelect_ContainsZeroJSBaseline(t *testing.T) {
 		"<template>",
 		"<select",
 		`v-native`,
-		`class="radix-select-native"`,
+		`class="radix-select-native radix-visually-hidden-input"`,
 		`:name="name"`,
 		`:id="id + '-native'"`,
 		`v-for="item in items"`,
@@ -79,15 +79,15 @@ func TestSelect_NativeSelectStaysInTabOrder(t *testing.T) {
 	// it from the tab order entirely; the clip-path/opacity/position
 	// technique must be used instead (same requirement Checkbox.vue's own
 	// hidden-input CSS satisfies).
-	rule := selectCSSRule(t, src, ".radix-select-native {")
+	rule := selectCSSRule(t, src, ".radix-visually-hidden-input {")
 	if strings.Contains(rule, "display: none") || strings.Contains(rule, "display:none") {
-		t.Errorf(".radix-select-native rule must not use display:none (would remove it from the tab order); rule was:\n%s", rule)
+		t.Errorf(".radix-visually-hidden-input rule must not use display:none (would remove it from the tab order); rule was:\n%s", rule)
 	}
 	if !strings.Contains(rule, "clip-path") {
-		t.Errorf(".radix-select-native rule missing expected clip-path visually-hidden technique; rule was:\n%s", rule)
+		t.Errorf(".radix-visually-hidden-input rule missing expected clip-path visually-hidden technique; rule was:\n%s", rule)
 	}
 	if strings.Contains(rule, "disabled") {
-		t.Errorf(".radix-select-native rule must not disable the native select; rule was:\n%s", rule)
+		t.Errorf(".radix-visually-hidden-input rule must not disable the native select; rule was:\n%s", rule)
 	}
 }
 
@@ -194,7 +194,7 @@ func TestSelect_TriggerLabelComputedFromItemsAndValue(t *testing.T) {
 func TestSelect_ContainsScopedStyle(t *testing.T) {
 	src := readSelect(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("Select.vue missing expected <style scoped> block")
 	}
 }

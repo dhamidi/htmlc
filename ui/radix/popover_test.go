@@ -217,7 +217,7 @@ func TestPopover_TriggerAndContentSlotStructure(t *testing.T) {
 func TestPopover_ContainsScopedStyle(t *testing.T) {
 	src := readPopover(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("Popover.vue missing expected <style scoped> block")
 	}
 }

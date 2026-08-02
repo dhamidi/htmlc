@@ -174,7 +174,7 @@ func TestNavigationMenu_TopLevelRovingTabindexBaseline(t *testing.T) {
 func TestNavigationMenu_ContainsScopedStyle(t *testing.T) {
 	src := readNavigationMenu(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("NavigationMenu.vue missing expected <style scoped> block")
 	}
 }

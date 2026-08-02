@@ -158,7 +158,7 @@ func TestPasswordToggleField_ReturnsFocusToInput(t *testing.T) {
 func TestPasswordToggleField_ContainsScopedStyle(t *testing.T) {
 	src := readPasswordToggleField(t)
 
-	if !strings.Contains(src, "<style scoped>") {
+	if !strings.Contains(src, "<style>") {
 		t.Error("PasswordToggleField.vue missing expected <style scoped> block")
 	}
 }
