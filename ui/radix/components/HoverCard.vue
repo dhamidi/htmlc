@@ -205,6 +205,16 @@
 </style>
 
 <script customelement>
+// Positioning logic (getBoundingClientRect() math, edge-clamp, below→above
+// flip, resize/scroll re-position wiring) is intentionally near-identical
+// to Popover.vue's/Tooltip.vue's own <script customelement> blocks,
+// differing only in center-align vs left-align. This package has no
+// mechanism for one component's script to import/reference another's (each
+// <script customelement> block is compiled to its own standalone,
+// content-hashed file — see customelement_collector.go / the README's
+// "Custom Elements" section), so this is deliberate, tracked duplication,
+// not undiscovered drift.
+//
 // Progressive enhancement on top of the never-visible-without-JS baseline
 // above. Per RFC 014 §3 Non-Goals, this reimplements nothing the browser
 // already provides for free (top-layer stacking, light-dismiss, Escape —
