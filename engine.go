@@ -398,9 +398,10 @@ func New(opts Options) (*Engine, error) {
 	// Record the primary source's own attempts ("" mountID) before touching
 	// any mount, so entryMountIDs preserves registration order across
 	// sources (primary always precedes every mount).
-	recordPrimaryMountIDs(e.entries, e.entryMountIDs)
+	ds := discoveryState{entries: e.entries, nsEntries: e.nsEntries, mountIDs: e.entryMountIDs}
+	recordPrimaryMountIDs(ds)
 	for _, m := range opts.Mounts {
-		if err := e.discoverMountInto(m, e.entries, e.nsEntries, e.entryMountIDs); err != nil {
+		if err := e.discoverMountInto(m, ds); err != nil {
 			return nil, err
 		}
 	}
@@ -597,21 +598,42 @@ func appendMountIDAttempt(ids map[string][]string, name, mountID string) {
 	ids[name] = append(ids[name], mountID)
 }
 
-// recordPrimaryMountIDs records every name currently in entries as belonging
-// to the primary source (mountID ""). It is called once, immediately after
-// the primary discovery walk and before any mount is processed, so
-// entryMountIDs preserves "primary before every mount" registration order
-// regardless of Go's randomized map iteration order (names are sorted here
-// purely for determinism between runs, not because order matters among
-// primary entries themselves — they all share the same mountID).
-func recordPrimaryMountIDs(entries map[string]*engineEntry, mountIDs map[string][]string) {
-	names := make([]string, 0, len(entries))
-	for name := range entries {
+// discoveryState bundles the three registries a discovery walk populates
+// together — entries, nsEntries, and mountIDs — which recordPrimaryMountIDs
+// and discoverMountInto always receive as one unit: every call site
+// (New, maybeReload, SetComponentDir) constructs exactly one discoveryState,
+// either aliasing the engine's own e.entries/e.nsEntries/e.entryMountIDs
+// directly (New, maybeReload — safe because nothing else observes the
+// engine's state mid-discovery) or a set of fresh local maps (SetComponentDir
+// — so a failed re-walk leaves the engine's existing state untouched, then
+// e.entries/e.nsEntries/e.entryMountIDs are assigned from the discoveryState
+// only once discovery has succeeded in full). Because map values are
+// reference types, passing a discoveryState by value still lets
+// discoverMountInto mutate the same underlying maps the caller holds —
+// identical semantics to passing the three maps as separate parameters, just
+// as one value instead of three.
+type discoveryState struct {
+	entries   map[string]*engineEntry
+	nsEntries map[string]map[string]*engineEntry
+	mountIDs  map[string][]string
+}
+
+// recordPrimaryMountIDs records every name currently in ds.entries as
+// belonging to the primary source (mountID ""). It is called once,
+// immediately after the primary discovery walk and before any mount is
+// processed, so ds.mountIDs preserves "primary before every mount"
+// registration order regardless of Go's randomized map iteration order
+// (names are sorted here purely for determinism between runs, not because
+// order matters among primary entries themselves — they all share the same
+// mountID).
+func recordPrimaryMountIDs(ds discoveryState) {
+	names := make([]string, 0, len(ds.entries))
+	for name := range ds.entries {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		appendMountIDAttempt(mountIDs, name, "")
+		appendMountIDAttempt(ds.mountIDs, name, "")
 	}
 }
 
@@ -675,19 +697,19 @@ func mountRelDirFor(prefixes []string, path string) (string, bool) {
 
 // discoverMountInto walks mount's own subtree (reachable through the union
 // e.opts.FS at mount.Prefix) and registers every *.vue file it contains into
-// entries, nsEntries, and mountIDs — the bare component name, its automatic
-// PascalCase/kebab-case mount aliases (RFC 014 §4.1 "Automatic mount
-// aliases"), and their lowercase forms.
+// ds.entries, ds.nsEntries, and ds.mountIDs — the bare component name, its
+// automatic PascalCase/kebab-case mount aliases (RFC 014 §4.1 "Automatic
+// mount aliases"), and their lowercase forms.
 //
 // Unlike discoverInto's registerInto (used only for the primary source),
-// registration into the flat entries map here is insert-if-absent: an
+// registration into the flat ds.entries map here is insert-if-absent: an
 // existing entry at the same flat name — whether a local/primary entry, an
 // earlier-processed mount's bare name, or an earlier-processed alias — is
 // never overwritten. This is a coarse, temporary form of "local wins"
 // priority; real cross-mount collision detection is a later commit. Every
 // attempted (name, mount.Prefix) pairing — for the bare name and both
-// aliases alike — is nonetheless recorded into mountIDs, win or lose, since
-// that is the data the collision-detection commit needs.
+// aliases alike — is nonetheless recorded into ds.mountIDs, win or lose,
+// since that is the data the collision-detection commit needs.
 //
 // Aliases are flat-registry-only (never written to nsEntries): nsEntries
 // implements RFC 001 proximity resolution, which is meaningless for an
@@ -707,14 +729,14 @@ func mountRelDirFor(prefixes []string, path string) (string, bool) {
 // hyphen-less, spec-invalid "accordion" that stripping mount.Prefix would
 // produce.
 //
-// nsEntries keying is intentionally *not* stripped of mount.Prefix — see
+// ds.nsEntries keying is intentionally *not* stripped of mount.Prefix — see
 // mountRelDirFor's doc comment for why the union-relative directory (e.g.
 // "radix/dialog") is the key that must be used, not the mount-relative one
-// (e.g. "dialog"). nsEntries writes are insert-if-absent, protecting an
+// (e.g. "dialog"). ds.nsEntries writes are insert-if-absent, protecting an
 // existing primary (or earlier-mount) entry from ever being silently
 // overwritten if Mount.Prefix happens to collide with a real top-level
 // directory name already present under ComponentDir.
-func (e *Engine) discoverMountInto(mount Mount, entries map[string]*engineEntry, nsEntries map[string]map[string]*engineEntry, mountIDs map[string][]string) error {
+func (e *Engine) discoverMountInto(mount Mount, ds discoveryState) error {
 	return fs.WalkDir(e.opts.FS, mount.Prefix, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -753,10 +775,10 @@ func (e *Engine) discoverMountInto(mount Mount, entries map[string]*engineEntry,
 		entry := &engineEntry{path: path, comp: comp, modTime: modTime, mountID: mount.Prefix}
 
 		insertIfAbsent := func(key string) {
-			if _, exists := entries[key]; !exists {
-				entries[key] = entry
+			if _, exists := ds.entries[key]; !exists {
+				ds.entries[key] = entry
 			}
-			appendMountIDAttempt(mountIDs, key, mount.Prefix)
+			appendMountIDAttempt(ds.mountIDs, key, mount.Prefix)
 		}
 		insertIfAbsent(name)
 		if lower := strings.ToLower(name); lower != name {
@@ -799,11 +821,11 @@ func (e *Engine) discoverMountInto(mount Mount, entries map[string]*engineEntry,
 
 		// Deliberately unstripped — see mountRelDirFor's doc comment.
 		relDir := nsRelDir(path, "")
-		if nsEntries[relDir] == nil {
-			nsEntries[relDir] = make(map[string]*engineEntry)
+		if ds.nsEntries[relDir] == nil {
+			ds.nsEntries[relDir] = make(map[string]*engineEntry)
 		}
-		if _, exists := nsEntries[relDir][name]; !exists {
-			nsEntries[relDir][name] = entry
+		if _, exists := ds.nsEntries[relDir][name]; !exists {
+			ds.nsEntries[relDir][name] = entry
 		}
 
 		return nil
@@ -973,9 +995,10 @@ func (e *Engine) maybeReload() error {
 			return err
 		}
 	}
-	recordPrimaryMountIDs(e.entries, e.entryMountIDs)
+	ds := discoveryState{entries: e.entries, nsEntries: e.nsEntries, mountIDs: e.entryMountIDs}
+	recordPrimaryMountIDs(ds)
 	for _, m := range e.opts.Mounts {
-		if err := e.discoverMountInto(m, e.entries, e.nsEntries, e.entryMountIDs); err != nil {
+		if err := e.discoverMountInto(m, ds); err != nil {
 			return err
 		}
 	}
@@ -2139,16 +2162,16 @@ func (e *Engine) SetComponentDir(dir string) error {
 	if err := e.discoverInto(dir, entries, nsEntries); err != nil {
 		return err
 	}
-	mountIDs := make(map[string][]string)
-	recordPrimaryMountIDs(entries, mountIDs)
+	ds := discoveryState{entries: entries, nsEntries: nsEntries, mountIDs: make(map[string][]string)}
+	recordPrimaryMountIDs(ds)
 	for _, m := range e.opts.Mounts {
-		if err := e.discoverMountInto(m, entries, nsEntries, mountIDs); err != nil {
+		if err := e.discoverMountInto(m, ds); err != nil {
 			return err
 		}
 	}
-	e.entries = entries
-	e.nsEntries = nsEntries
-	e.entryMountIDs = mountIDs
+	e.entries = ds.entries
+	e.nsEntries = ds.nsEntries
+	e.entryMountIDs = ds.mountIDs
 	e.opts.ComponentDir = dir
 	e.varComponentDir.Set(dir)
 	return nil

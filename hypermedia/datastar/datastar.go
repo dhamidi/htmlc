@@ -31,10 +31,38 @@ import (
 	dsdatastar "github.com/starfederation/datastar-go/datastar"
 )
 
-// PatchElementsFragment renders name via engine.RenderFragmentSession into an
-// internal buffer, using sess to carry style/script deduplication state
-// across the life of the SSE connection sse is attached to (RFC 014 §4.5),
-// and then sends the rendered HTML to the client as a single
+// Patch groups the parts of a PatchElementsFragment call that describe what
+// to render and where to send it — as opposed to sse/engine/sess, the
+// surrounding connection/rendering context needed to actually do so, which
+// PatchElementsFragment keeps as separate parameters since none of those
+// three are ever interchangeable with each other or with a Patch's fields.
+type Patch struct {
+	// Name is the component to render, passed to
+	// Engine.RenderFragmentSession exactly as given.
+	Name string
+	// Data is the render data scope, passed to Engine.RenderFragmentSession
+	// exactly as given.
+	Data map[string]any
+	// Selector, when non-empty, is passed to datastar-go as
+	// dsdatastar.WithSelector(Selector), targeting the patch at that CSS
+	// selector. When Selector is empty, PatchElementsFragment does not pass
+	// WithSelector at all, leaving Datastar to fall back to its own default
+	// targeting mode (matching by the patched element's own id attribute) —
+	// datastar-go's PatchElements only ever emits a "selector" data line
+	// when its internal Selector option is non-empty (confirmed by reading
+	// datastar-go@v1.2.2's elements.go), so calling WithSelector("") would
+	// in practice be a no-op identical to omitting the option;
+	// PatchElementsFragment still guards on Selector != "" explicitly
+	// rather than relying on that implementation detail, so the intent —
+	// "no selector means default targeting" — is visible at this call site
+	// rather than depending on datastar-go's internals not changing.
+	Selector string
+}
+
+// PatchElementsFragment renders patch.Name via engine.RenderFragmentSession
+// into an internal buffer, using sess to carry style/script deduplication
+// state across the life of the SSE connection sse is attached to (RFC 014
+// §4.5), and then sends the rendered HTML to the client as a single
 // "datastar-patch-elements" SSE event via sse.PatchElements.
 //
 // This combines Engine.RenderFragmentSession (cross-call <style scoped>/
@@ -45,36 +73,22 @@ import (
 // PatchElementsFragment call instead of a render-into-buffer step followed by
 // a separate sse.PatchElements call.
 //
-// selector, when non-empty, is passed to datastar-go as
-// dsdatastar.WithSelector(selector), targeting the patch at that CSS
-// selector. When selector is empty, PatchElementsFragment does not pass
-// WithSelector at all, leaving Datastar to fall back to its own default
-// targeting mode (matching by the patched element's own id attribute) —
-// datastar-go's PatchElements only ever emits a "selector" data line when its
-// internal Selector option is non-empty (confirmed by reading
-// datastar-go@v1.2.2's elements.go), so calling WithSelector("") would in
-// practice be a no-op identical to omitting the option; PatchElementsFragment
-// still guards on selector != "" explicitly rather than relying on that
-// implementation detail, so the intent — "no selector means default
-// targeting" — is visible at this call site rather than depending on
-// datastar-go's internals not changing.
-//
-// If rendering name fails (for example, name references an unknown
+// If rendering patch.Name fails (for example, it references an unknown
 // component), PatchElementsFragment returns that error immediately and never
 // calls sse.PatchElements — no SSE event is sent for a failed tick, so a
 // caller retrying the same *htmlc.RenderSession on the next tick never
 // observes a corrupted or partial "datastar-patch-elements" event on the
 // wire. A subsequent error from sse.PatchElements itself (for example, the
 // connection having been closed by the client) is returned as-is.
-func PatchElementsFragment(sse *dsdatastar.ServerSentEventGenerator, engine *htmlc.Engine, sess *htmlc.RenderSession, ctx context.Context, name string, data map[string]any, selector string) error {
+func PatchElementsFragment(ctx context.Context, sse *dsdatastar.ServerSentEventGenerator, engine *htmlc.Engine, sess *htmlc.RenderSession, patch Patch) error {
 	var buf strings.Builder
-	if err := engine.RenderFragmentSession(ctx, &buf, name, data, sess); err != nil {
+	if err := engine.RenderFragmentSession(ctx, &buf, patch.Name, patch.Data, sess); err != nil {
 		return err
 	}
 
 	opts := make([]dsdatastar.PatchElementOption, 0, 1)
-	if selector != "" {
-		opts = append(opts, dsdatastar.WithSelector(selector))
+	if patch.Selector != "" {
+		opts = append(opts, dsdatastar.WithSelector(patch.Selector))
 	}
 
 	return sse.PatchElements(buf.String(), opts...)

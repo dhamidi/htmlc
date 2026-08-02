@@ -70,7 +70,8 @@ func TestPatchElementsFragment_StyleDedup_ThreeCalls(t *testing.T) {
 	rec, sse := newSSE(t)
 
 	for i := 1; i <= 3; i++ {
-		if err := PatchElementsFragment(sse, e, sess, context.Background(), "Counter", map[string]any{"count": i}, "#ds-counter"); err != nil {
+		patch := Patch{Name: "Counter", Data: map[string]any{"count": i}, Selector: "#ds-counter"}
+		if err := PatchElementsFragment(context.Background(), sse, e, sess, patch); err != nil {
 			t.Fatalf("PatchElementsFragment call %d: %v", i, err)
 		}
 	}
@@ -119,7 +120,7 @@ func TestPatchElementsFragment_EmptySelector_OmitsSelectorOption(t *testing.T) {
 	sess := e.NewRenderSession()
 	rec, sse := newSSE(t)
 
-	if err := PatchElementsFragment(sse, e, sess, context.Background(), "Plain", nil, ""); err != nil {
+	if err := PatchElementsFragment(context.Background(), sse, e, sess, Patch{Name: "Plain"}); err != nil {
 		t.Fatalf("PatchElementsFragment: %v", err)
 	}
 
@@ -143,7 +144,7 @@ func TestPatchElementsFragment_NonEmptySelector_ProducesSelectorLine(t *testing.
 	sess := e.NewRenderSession()
 	rec, sse := newSSE(t)
 
-	if err := PatchElementsFragment(sse, e, sess, context.Background(), "Plain", nil, "#target"); err != nil {
+	if err := PatchElementsFragment(context.Background(), sse, e, sess, Patch{Name: "Plain", Selector: "#target"}); err != nil {
 		t.Fatalf("PatchElementsFragment: %v", err)
 	}
 
@@ -171,7 +172,7 @@ func TestPatchElementsFragment_RenderError_NoEventSent(t *testing.T) {
 	sess := e.NewRenderSession()
 	rec, sse := newSSE(t)
 
-	err := PatchElementsFragment(sse, e, sess, context.Background(), "DoesNotExist", nil, "")
+	err := PatchElementsFragment(context.Background(), sse, e, sess, Patch{Name: "DoesNotExist"})
 	if err == nil {
 		t.Fatal("expected an error for an unknown component, got nil")
 	}
@@ -183,7 +184,7 @@ func TestPatchElementsFragment_RenderError_NoEventSent(t *testing.T) {
 	// A subsequent successful call on the same session must still work
 	// normally — the failed call must not have left sess or sse in a bad
 	// state.
-	if err := PatchElementsFragment(sse, e, sess, context.Background(), "Plain", nil, ""); err != nil {
+	if err := PatchElementsFragment(context.Background(), sse, e, sess, Patch{Name: "Plain"}); err != nil {
 		t.Fatalf("PatchElementsFragment after prior error: %v", err)
 	}
 	events := splitEvents(rec.Body.String())

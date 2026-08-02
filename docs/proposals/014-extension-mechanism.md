@@ -891,8 +891,13 @@ func WriteStream(w io.Writer, action, target, fragmentHTML string) error
 
 // package datastar (github.com/dhamidi/htmlc/hypermedia/datastar) — depends on
 // datastar-go and on the root htmlc module
-func PatchElementsFragment(sse *datastar.ServerSentEventGenerator, engine *htmlc.Engine,
-    sess *htmlc.RenderSession, ctx context.Context, name string, data map[string]any, selector string) error
+type Patch struct {
+    Name     string
+    Data     map[string]any
+    Selector string
+}
+func PatchElementsFragment(ctx context.Context, sse *datastar.ServerSentEventGenerator,
+    engine *htmlc.Engine, sess *htmlc.RenderSession, patch Patch) error
 // combines Engine.RenderFragmentSession (§4.5) with datastar-go's
 // PatchElements in one call, so a caller driving an SSE loop (§6 Example 6)
 // does not have to hand-wire the buffer-then-patch pattern themselves
@@ -1163,8 +1168,8 @@ func handleCounterStream(w http.ResponseWriter, r *http.Request, engine *htmlc.E
     sess := engine.NewRenderSession()
 
     for i := 1; i <= 3; i++ {
-        htmlcdatastar.PatchElementsFragment(sse, engine, sess, r.Context(),
-            "Counter", map[string]any{"count": i}, "#ds-counter")
+        patch := htmlcdatastar.Patch{Name: "Counter", Data: map[string]any{"count": i}, Selector: "#ds-counter"}
+        htmlcdatastar.PatchElementsFragment(r.Context(), sse, engine, sess, patch)
         time.Sleep(200 * time.Millisecond)
     }
 }

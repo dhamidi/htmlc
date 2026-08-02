@@ -98,8 +98,8 @@ func (s *server) handleCounterStream(w http.ResponseWriter, r *http.Request) {
 	sess := s.engine.NewRenderSession()
 
 	for i := 1; i <= s.tickCount; i++ {
-		if err := htmlcdatastar.PatchElementsFragment(sse, s.engine, sess, r.Context(),
-			"Counter", map[string]any{"count": i}, "#ds-counter"); err != nil {
+		patch := htmlcdatastar.Patch{Name: "Counter", Data: map[string]any{"count": i}, Selector: "#ds-counter"}
+		if err := htmlcdatastar.PatchElementsFragment(r.Context(), sse, s.engine, sess, patch); err != nil {
 			log.Printf("counter-stream tick %d: %v", i, err)
 			return
 		}
