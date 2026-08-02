@@ -148,20 +148,14 @@
      the input (matching Select.vue's own precedent for keeping external
      listeners correctly informed), re-syncs the boxes, and moves focus to
      the next box — or, if the digit just filled the *last* box, blurs the
-     current one instead (there being no next box to advance into),
-     satisfying this commit's brief's own "auto-advance ... or blur/
-     complete if it was the last".
-  3. **Backspace** (`#onKeydown`): two cases, matching this commit's
-     brief's own specific wording precisely —
+     current one instead (there being no next box to advance into).
+  3. **Backspace** (`#onKeydown`): two cases —
        - the focused box already holds a character: that character is
          removed (the value past it shifts left by one, so no input value
          ever contains an internal gap a plain string cannot represent),
          focus stays on the same box.
        - the focused box is already empty (nothing to remove there): focus
-         moves to the *previous* box and clears *that* box's character —
-         literally "on Backspace in an empty box: move focus to the
-         previous box and clear its character", this commit's brief's own
-         exact phrase.
+         moves to the *previous* box and clears *that* box's character.
   4. **Paste** (`#onPaste`, on the boxes container — pasting only makes
      sense once the box row is the live interactive surface): reads
      `event.clipboardData`, strips every non-digit character (`/[^0-9]/g`
@@ -170,9 +164,7 @@
      takes at most `length.length` digits, writes the result straight into
      the input's `.value`, dispatches `input`/`change`, re-syncs the
      boxes, and focuses the last filled box if the paste supplied a full
-     code, or the first still-empty box otherwise — this commit's brief's
-     own exact "focus the last filled box (or the first empty one if the
-     paste was shorter than length)".
+     code, or the first still-empty box otherwise.
 
   Every one of points 2-4 above funnels its own value mutation through one
   private helper, `#setValue`, which writes `.value`, dispatches both real
@@ -259,27 +251,12 @@
   independently, for its own single-real-input/N-visual-box design rather
   than Radix's own N-real-inputs design).
 
-  ## Custom-element tag name — verified, not guessed
+  ## Custom-element tag name
 
-  Running component.go's real `deriveCustomElementTag` against this file's
-  own base name, "OneTimePasswordField.vue" (not eyeballed — actually
-  executed): three lowercase-followed-by-uppercase boundaries exist
-  ("One"|"Time", "Time"|"Password", "Password"|"Field"), so it derives to
-  the already-hyphenated "one-time-password-field" even at raw, unmounted
-  parse time. Per radix.go's own header comment ("Mount prefix and
-  custom-element tag names"), every component in this package hardcodes its
-  tag assuming Mount{Prefix: "radix", ...} regardless of what the bare,
-  unmounted derivation alone would produce — confirmed by actually running
-  `deriveCustomElementTag` against both "OneTimePasswordField.vue" and
-  "radix/OneTimePasswordField.vue" (not eyeballed), which produced
-  "one-time-password-field" and "radix-one-time-password-field"
-  respectively — so the tag registered below is
-  `radix-one-time-password-field`.
-
-  ## Last component in this ui/radix porting batch
-
-  This is the 28th and final component ported into this package for this
-  batch — see this commit's own message for the full list this completes.
+  This file's own base name, "OneTimePasswordField.vue", derives to
+  `radix-one-time-password-field` under the standard `Mount{Prefix:
+  "radix"}` this package assumes — see radix.go's header comment for the
+  derivation algorithm.
 -->
 <template>
   <span class="radix-otp-field">

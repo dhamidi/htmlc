@@ -226,23 +226,12 @@
   Popover.vue's own header comments already work through for their own
   files.
 
-  ## Custom-element tag name — verified, not guessed
+  ## Custom-element tag name
 
-  `component.go`'s `deriveCustomElementTag` splits the file path on "/",
-  drops ".vue", and converts each segment from PascalCase/camelCase to
-  kebab-case via a lowercase-or-digit-followed-by-uppercase regex
-  (`([a-z0-9])([A-Z])` → "$1-$2"), then lowercases. For this file's own
-  base name, "ContextMenu": the only such boundary is "t" (lowercase, end
-  of "Context") followed by "M" (uppercase, start of "Menu"), so it
-  derives to "context-menu" — confirmed by actually running this exact
-  algorithm against "ContextMenu.vue" (not eyeballed), which produced
-  "context-menu", matching the sibling precedent DropdownMenu.vue's own
-  commit already established for "DropdownMenu.vue" → "dropdown-menu". Per
-  radix.go's own header comment ("Mount prefix and custom-element tag
-  names"), every component in this package hardcodes its tag assuming
-  Mount{Prefix: "radix", ...}, matching every other file here
-  (`radix-popover`, `radix-dropdown-menu`, `radix-toolbar`, ...) — so the
-  tag registered below is `radix-context-menu`.
+  This file's own base name, "ContextMenu.vue", derives to
+  `radix-context-menu` under the standard `Mount{Prefix: "radix"}` this
+  package assumes — see radix.go's header comment for the derivation
+  algorithm.
 -->
 <template>
   <div class="radix-context-menu">

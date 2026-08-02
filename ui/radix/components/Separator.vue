@@ -14,9 +14,9 @@
     decorative:  boolean
 
   Semantic/accessibility contract (matches Radix Primitives' own, real
-  documented behavior for this component — corrected from an earlier draft
-  of this file that used aria-hidden="true" for the decorative case, which
-  was this port's own invention, not what upstream Radix actually does):
+  documented behavior for this component; deliberately does not use
+  aria-hidden="true" for the decorative case, which is not what upstream
+  Radix actually does):
     - decorative == false (meaningful separator):
         role="separator" is present.
         aria-orientation is present only for "vertical". "horizontal" is

@@ -21,7 +21,7 @@
   JS. That is a real, documented degradation, not a bug to route around —
   there is no HTML-only way to reveal a password's characters.
 
-  On the baseline always starting "hidden" (per this commit's design):
+  On the baseline always starting "hidden":
   unlike Toggle.vue's `pressed` prop, this component takes no prop for
   its initial visibility state. Radix's own real implementation *does*
   support server/caller-controlled initial visibility, but that only
@@ -64,8 +64,8 @@
   documented reason to.
 
   On the ARIA-boolean attributes (`aria-pressed`, `aria-label`) on the
-  toggle button, and this commit's required falsy-attribute-omission
-  audit (see Toggle.vue's header comment for the general pitfall: this
+  toggle button, and the falsy-attribute-omission audit they require (see
+  Toggle.vue's header comment for the general pitfall: this
   codebase's dynamic-attribute binding omits an attribute entirely
   whenever its bound expression evaluates to Go's bare `false`, which is
   correct for real HTML boolean/presence attributes like `disabled` but

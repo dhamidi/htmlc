@@ -140,7 +140,7 @@
   to compute `getBoundingClientRect()`-based placement next to their
   trigger — documented there as the one thing a `popover` attribute
   genuinely cannot express declaratively. This component's own script
-  scope (per this commit's brief) is menu keyboard semantics only:
+  scope is menu keyboard semantics only:
   roving-tabindex navigation, activation, and open-focus management — not
   floating placement. So, deliberately, this file does not reuse Popover's
   positioning script, and does not override the UA popover stylesheet's
@@ -150,8 +150,8 @@
   rather than anchored below its trigger. This is an explicit, documented
   limitation, not a silent gap — porting Popover.vue's positioning
   approach onto this component is a believed-straightforward, additive
-  follow-up, not attempted here to keep this commit's script scope matched
-  to its brief.
+  follow-up, not attempted here to keep this component's script scope
+  narrowly focused on menu keyboard semantics.
 
   ## `<script customelement>` (load-bearing, not just polish)
 
@@ -175,7 +175,7 @@
      from the *specific* activated item's own `data-id` attribute — not a
      generic "something was clicked" signal, mirroring Toggle.vue's
      `radix-toggle-change` event-dispatch precedent — and then calls
-     `.hidePopover()` to close the menu, per this commit's brief.
+     `.hidePopover()` to close the menu.
   4. On the content's native `toggle` event transitioning to `"open"`,
      moves focus to the first non-disabled item (see "Focus-on-open"
      above) — the same `toggle`-not-`click` hook-point reasoning
@@ -206,23 +206,12 @@
   tags, the same reasoning Popover.vue's/HoverCard.vue's own header
   comments already work through for their own files.
 
-  ## Custom-element tag name — verified, not guessed
+  ## Custom-element tag name
 
-  `component.go`'s `deriveCustomElementTag` splits the file path on "/",
-  drops ".vue", and converts each segment from PascalCase/camelCase to
-  kebab-case via a lowercase-or-digit-followed-by-uppercase regex
-  (`([a-z0-9])([A-Z])` → "$1-$2"), then lowercases. For this file's own
-  base name, "DropdownMenu": the only such boundary is "n" (lowercase,
-  end of "Dropdown") followed by "M" (uppercase, start of "Menu"), so it
-  derives to "dropdown-menu" — confirmed by actually running this exact
-  algorithm against "DropdownMenu.vue" (not eyeballed), which produced
-  "dropdown-menu", matching the sibling precedent HoverCard.vue's own
-  commit already established for "HoverCard.vue" → "hover-card". Per
-  radix.go's own header comment ("Mount prefix and custom-element tag
-  names"), every component in this package hardcodes its tag assuming
-  Mount{Prefix: "radix", ...}, matching every other file here
-  (`radix-popover`, `radix-hover-card`, `radix-toolbar`, ...) — so the tag
-  registered below is `radix-dropdown-menu`.
+  This file's own base name, "DropdownMenu.vue", derives to
+  `radix-dropdown-menu` under the standard `Mount{Prefix: "radix"}` this
+  package assumes — see radix.go's header comment for the derivation
+  algorithm.
 -->
 <template>
   <span class="radix-dropdown-menu">
@@ -421,9 +410,9 @@ class RadixDropdownMenu extends HTMLElement {
   // Delegated click listener on the content element: fires for a real
   // mouse click AND for a real <button>'s own native Enter/Space
   // activation (both dispatch 'click' per the HTML spec) — so this one
-  // handler covers this file's brief's "Enter/Space on a menu item:
-  // activate it" requirement with no separate keydown-based activation
-  // logic needed. No `disabled` guard is needed either: a disabled
+  // handler covers "Enter/Space on a menu item: activate it" with no
+  // separate keydown-based activation logic needed. No `disabled` guard
+  // is needed either: a disabled
   // <button> never dispatches 'click' at all, the exact reasoning
   // Toggle.vue's header comment already works through for its own
   // click-based design.

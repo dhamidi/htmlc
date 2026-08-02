@@ -171,8 +171,7 @@
   This is the same class of collision as the `<label>` one just above, but
   with a much larger blast radius, and it was not merely reasoned about —
   it was caught by actually rendering this component through a real
-  htmlc.Engine with the full ui/radix package mounted (see this commit's
-  process notes) before being fixed.
+  htmlc.Engine with the full ui/radix package mounted, before being fixed.
 
   This component's own name ("Form") auto-registers a lowercase "form"
   alias in the component registry, exactly like every other component in

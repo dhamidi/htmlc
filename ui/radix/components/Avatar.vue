@@ -90,8 +90,7 @@
   `<dialog>`. The elements actually used in this template (`<span>`,
   `<img>`, `<slot>`) are unrelated native tags with their own names, none of
   which match "avatar", so no `v-native` escape hatch is needed anywhere in
-  this file. (Verified by reasoning, not assumption, per this commit's
-  brief — and confirmed empirically below: this file contains no literal
+  this file. (Confirmed empirically below: this file contains no literal
   `<avatar` tag anywhere, so there is nothing for the lowercase alias to
   resolve back onto.)
 -->

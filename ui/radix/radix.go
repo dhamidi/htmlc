@@ -33,6 +33,16 @@
 // manual-synchronization contract every custom-element component already
 // has with its own file path today; there is no general mechanism in this
 // codebase to template the tag name dynamically.
+//
+// The tag itself is derived deterministically by htmlc's own
+// deriveCustomElementTag (component.go): drop the ".vue" extension, convert
+// each path segment from PascalCase/camelCase to kebab-case at every
+// lowercase-followed-by-uppercase boundary (e.g. "ContextMenu.vue" ->
+// "context-menu"), and join segments with "-". Since every component here
+// assumes Mount{Prefix: "radix", ...} (above), the tag actually registered
+// is that derivation with a "radix-" prefix, e.g. "ContextMenu.vue" ->
+// "radix-context-menu". Individual component files state only their own
+// resulting tag name, not this algorithm.
 package radix
 
 import (

@@ -224,23 +224,11 @@
   ContextMenu.vue's own header comments already work through for their own
   files.
 
-  ## Custom-element tag name — verified, not guessed
+  ## Custom-element tag name
 
-  `component.go`'s `deriveCustomElementTag` splits the file path on "/",
-  drops ".vue", and converts each segment from PascalCase/camelCase to
-  kebab-case via a lowercase-or-digit-followed-by-uppercase regex
-  (`([a-z0-9])([A-Z])` → "$1-$2"), then lowercases. For this file's own
-  base name, "Menubar": every letter after the leading "M" is lowercase
-  ("enubar"), so the regex finds no lowercase-followed-by-uppercase
-  boundary at all — confirmed by actually running this exact algorithm
-  against "Menubar.vue" (not eyeballed), which produced the single,
-  unhyphenated segment "menubar" (unlike "DropdownMenu" → "dropdown-menu"
-  or "ContextMenu" → "context-menu", both of which do have an internal
-  case boundary). Per radix.go's own header comment ("Mount prefix and
-  custom-element tag names"), every component in this package hardcodes its
-  tag assuming Mount{Prefix: "radix", ...}, matching every other file here
-  (`radix-toolbar`, `radix-dropdown-menu`, `radix-context-menu`, ...) — so
-  the tag registered below is `radix-menubar`.
+  This file's own base name, "Menubar.vue", derives to `radix-menubar`
+  under the standard `Mount{Prefix: "radix"}` this package assumes — see
+  radix.go's header comment for the derivation algorithm.
 -->
 <template>
   <div class="radix-menubar" role="menubar" :aria-orientation="'horizontal'">

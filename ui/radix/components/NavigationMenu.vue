@@ -276,23 +276,12 @@
   unrelated native tags, the same reasoning every other file in this
   package's own header comment already works through for its own name.
 
-  ## Custom-element tag name — verified, not guessed
+  ## Custom-element tag name
 
-  `component.go`'s `deriveCustomElementTag` splits the file path on "/",
-  drops ".vue", and converts each segment from PascalCase/camelCase to
-  kebab-case via a lowercase-or-digit-followed-by-uppercase regex
-  (`([a-z0-9])([A-Z])` → "$1-$2"), then lowercases. For this file's own
-  base name, "NavigationMenu": the only such boundary is "n" (lowercase,
-  end of "Navigation") followed by "M" (uppercase, start of "Menu"), so it
-  derives to "navigation-menu" — confirmed by actually running this exact
-  algorithm against "NavigationMenu.vue" (not eyeballed), which produced
-  "navigation-menu", the same pattern DropdownMenu.vue's own header comment
-  already confirms for "DropdownMenu" → "dropdown-menu". Per radix.go's own
-  header comment ("Mount prefix and custom-element tag names"), every
-  component in this package hardcodes its tag assuming
-  Mount{Prefix: "radix", ...}, matching every other file here
-  (`radix-dropdown-menu`, `radix-menubar`, ...) — so the tag registered
-  below is `radix-navigation-menu`.
+  This file's own base name, "NavigationMenu.vue", derives to
+  `radix-navigation-menu` under the standard `Mount{Prefix: "radix"}` this
+  package assumes — see radix.go's header comment for the derivation
+  algorithm.
 -->
 <template>
   <nav class="radix-navigation-menu" aria-label="Main">

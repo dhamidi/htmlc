@@ -94,7 +94,7 @@
   form-submission bridge, never meant to be reached by Tab or a screen
   reader; their real interactive surface is `role="combobox"` on the
   trigger instead). This file makes the opposite, deliberate choice, because
-  this port's whole premise (per this commit's own brief) is that the
+  this port's whole premise is that the
   native <select> is NOT a degraded fallback here: it stays exactly as
   reachable and operable as Checkbox.vue's/RadioGroup.vue's own real inputs
   do — no `tabindex="-1"`, no `aria-hidden`, nothing pulling it out of the
@@ -105,7 +105,7 @@
   <select> (fully operable via the browser's own dropdown, exactly as if
   this component did not exist) and, separately, the custom trigger button
   (operable once the enhancement script below has run). This is an
-  intentional trade-off this file's own brief calls for, not a bug: it is
+  intentional trade-off, not a bug: it is
   the price of the native control genuinely never being a degradation. It
   also means a keyboard user can legitimately operate the *native* select
   directly instead of the custom trigger at any time — which is exactly why
@@ -158,7 +158,7 @@
        above for why this port makes the opposite choice.
 
   ## `<script customelement>` (this is the one place genuine two-way sync
-  matters, per this commit's brief — get it right)
+  matters — get it right)
 
   1. Selecting a custom option (`click` on a `.radix-select-item`, or
      Enter/Space while one is focused) calls `#activateItem`, which: sets
@@ -166,8 +166,8 @@
      correct — this is the one thing that would silently submit the wrong
      value if it were wrong), then dispatches a real
      `new Event('change', { bubbles: true })` on it so any external
-     listener watching the native select still fires correctly (exactly as
-     this commit's brief requires), then calls `.hidePopover()` to close
+     listener watching the native select still fires correctly, then
+     calls `.hidePopover()` to close
      the listbox. It deliberately does NOT poke the trigger label or
      `aria-selected` directly — see point 3 below for why routing through
      the native select's own `change` event instead is a better, more
@@ -211,9 +211,8 @@
      item.
 
      What this does NOT cover — documented as a known, deliberate v1 gap
-     rather than silently claimed as full bidirectional sync (per this
-     commit's brief's own explicit permission to treat this as "a
-     reasonable, honestly-scoped v1"): a bare, external
+     rather than silently claimed as full bidirectional sync (this is
+     treated as "a reasonable, honestly-scoped v1"): a bare, external
      `nativeSelectElement.value = 'x'` assignment with no `change` event
      ever dispatched afterward is genuinely unobservable by any event
      listener in the DOM — there is no platform event for "a script wrote
@@ -229,8 +228,7 @@
      total) reverse sync from the native select, not a one-way mirror onto
      it — a real improvement over "documented as entirely unaddressed,"
      without overreaching into "silently claims full bidirectional sync
-     that doesn't actually exist," which is exactly the trap this commit's
-     brief warns against.
+     that doesn't actually exist."
   4. The native popovertarget/popover machinery owns opening the listbox
      entirely on its own (no `.showPopover()` call anywhere in this
      script, mirroring Popover.vue's/DropdownMenu.vue's own forbidden-call
@@ -281,27 +279,11 @@
       ]"
     />
 
-  ## Custom-element tag name — verified, not guessed
+  ## Custom-element tag name
 
-  Running component.go's real `deriveCustomElementTag` against this file's
-  own base name, "Select.vue" (not eyeballed — actually executed): no
-  lowercase-followed-by-uppercase boundary exists in "Select" (a single
-  leading capital, no internal camelCase transition), so it derives to the
-  hyphen-less "select" at raw parse time — the same situation Popover.vue's/
-  Toggle.vue's/Tooltip.vue's own single-word names already produce (checked
-  against all three; none of their base names contain an internal
-  camelCase boundary either), and, like them, resolved once this package is
-  actually mounted: engine.go's `discoverMountInto` re-derives the tag
-  against the *full*, mount-prefixed path ("radix/Select.vue"), which does
-  contain the boundary between "radix" and "Select" segments, producing the
-  valid, hyphenated "radix-select" — confirmed by actually running
-  `deriveCustomElementTag` against both "Select.vue" and "radix/Select.vue"
-  (not eyeballed), which produced "select" and "radix-select" respectively.
-  Per radix.go's own header comment ("Mount prefix and custom-element tag
-  names"), every component in this package hardcodes its tag assuming
-  Mount{Prefix: "radix", ...} regardless of what the bare, unmounted
-  derivation would produce, matching every sibling file here — so the tag
-  registered below is `radix-select`.
+  This file's own base name, "Select.vue", derives to `radix-select` under
+  the standard `Mount{Prefix: "radix"}` this package assumes — see
+  radix.go's header comment for the derivation algorithm.
 -->
 <template>
   <span class="radix-select">

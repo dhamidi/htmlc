@@ -68,9 +68,6 @@
   equally "real" style changes to the transition engine); a `change`-
   triggered script would only be reproducing motion the browser already
   provides, at the cost of extra runtime code for zero visible benefit.
-  This was confirmed by hand-tracing the cascade — see this component's
-  commit message and process notes for the walkthrough — not left as an
-  unverified assumption.
 
   On the required `v-native` on the <label> tag below: this package's own
   Label.vue registers a lowercase "label" alias engine-wide once ui/radix

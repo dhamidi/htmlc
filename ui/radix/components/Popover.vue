@@ -62,8 +62,8 @@
   dismiss lifecycle, this component's own script never calls
   `showPopover()`/`hidePopover()`, never listens for `click` on the
   trigger, and never toggles anything itself — there is no open/close
-  moment for it to own at all. Its *only* job, per this commit's brief, is
-  positioning: reading the trigger's/content's live
+  moment for it to own at all. Its *only* job is positioning: reading the
+  trigger's/content's live
   `getBoundingClientRect()` and placing the content near the trigger, the
   one thing (same as Tooltip.vue) that genuinely cannot be expressed
   declaratively. It reacts to the content's own native `toggle` event

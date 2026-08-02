@@ -170,24 +170,12 @@
       DropdownMenu.vue's own content elements leave to the caller.</p>
     </ScrollArea>
 
-  ## Custom-element tag name — verified, not guessed
+  ## Custom-element tag name
 
-  Running component.go's real `deriveCustomElementTag` against this file's
-  own base name, "ScrollArea.vue": a lowercase-followed-by-uppercase
-  boundary exists between "Scroll" and "Area" (unlike Select.vue's own
-  single-word "Select", which has no internal camelCase transition), so it
-  derives to the already-hyphenated "scroll-area" even at raw, unmounted
-  parse time — confirmed by actually running `deriveCustomElementTag`
-  against both "ScrollArea.vue" and "radix/ScrollArea.vue" (not eyeballed),
-  which produced "scroll-area" and "radix-scroll-area" respectively (the
-  algorithm re-derives the tag against the full mount-prefixed path once
-  this package is actually mounted — see radix.go's own header comment,
-  "Mount prefix and custom-element tag names" — so the bare, unmounted
-  derivation shown here is not itself what gets registered). Per radix.go's
-  convention, every component in this package hardcodes its tag assuming
-  Mount{Prefix: "radix", ...} regardless of what the bare derivation alone
-  would produce, matching every sibling file here — so the tag registered
-  below is `radix-scroll-area`.
+  This file's own base name, "ScrollArea.vue", derives to
+  `radix-scroll-area` under the standard `Mount{Prefix: "radix"}` this
+  package assumes — see radix.go's header comment for the derivation
+  algorithm.
 -->
 <template>
   <span class="radix-scroll-area">
@@ -219,10 +207,7 @@
  * own stylesheet; setting a competing `height`/`max-height` value
  * here (even something as seemingly-harmless as `height: 100%`) would
  * silently win that specificity fight and break the "caller controls
- * sizing" contract this file's own usage note documents. This was caught
- * and fixed during this commit's own self-adversarial review — an earlier
- * draft of this rule set `height: 100%; max-height: inherit;` here, which
- * is exactly that bug.
+ * sizing" contract this file's own usage note documents.
  */
 .radix-scroll-area-viewport {
   overflow: auto;

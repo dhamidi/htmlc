@@ -69,8 +69,7 @@
                  string, same as `title`.
     duration:    number — auto-dismiss timing, in milliseconds. Radix's
                  own real default (`ToastProviderProps`' `duration = 5000`)
-                 is 5000ms — verified by reading the source, not guessed.
-                 This port has no provider to supply that default
+                 is 5000ms. This port has no provider to supply that default
                  implicitly, so callers pass it explicitly (5000 is the
                  value to pass for parity with Radix's own default).
                  Real Radix additionally accepts `Infinity` for "never
@@ -83,12 +82,12 @@
                  return` guard in spirit.
     variant:     string — `"default"` | `"destructive"`. Drives the
                  root's `role`/`aria-live` — see "Accessibility mapping"
-                 below for the verified (not guessed) mapping this port
-                 actually implements, which is a documented simplification
-                 of what the real source does, not a one-to-one port of it.
+                 below for the mapping this port actually implements,
+                 which is a documented simplification of what the real
+                 source does, not a one-to-one port of it.
 
-  ## Accessibility mapping — verified from the source, and *not* what a
-  naive reading of "role=status vs role=alert" would suggest
+  ## Accessibility mapping — *not* what a naive reading of "role=status vs
+  role=alert" would suggest
 
   Reading toast.tsx directly (not transcribed below, only the finding):
   the *visible* toast element (`Primitive.li`) in real Radix carries no
@@ -137,9 +136,9 @@
        node) by calling `event.preventDefault()`;
     2. removes this element from the DOM itself (`this.remove()`) — but
        only if nothing called `preventDefault()` on that event.
-  This is the "which is more useful/composable" call the brief asks this
-  file to make and document: a pure "always dispatch an event, never
-  touch the DOM" design (Toggle.vue's own choice for its click handler)
+  This is a "which is more useful/composable" design call: a pure "always
+  dispatch an event, never touch the DOM" design (Toggle.vue's own choice
+  for its click handler)
   would leave a toast that nobody happens to be listening for stuck in
   the DOM forever, which is a real usability regression for a component
   whose entire point is disappearing on its own. A pure "always remove
@@ -311,8 +310,7 @@
 // away, closing on click — is JS-driven by design, so this block is not
 // optional polish; it is the component.
 class RadixToast extends HTMLElement {
-  // Radix's own real default swipeThreshold (ToastProviderProps,
-  // verified from the source, not guessed).
+  // Radix's own real default swipeThreshold (ToastProviderProps).
   static SWIPE_THRESHOLD_PX = 50
 
   #root = null
